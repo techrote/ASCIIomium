@@ -60,7 +60,9 @@ function(asciiomium_acquire_cef out_var)
 
       file(READ "${hash_path}" expected_sha1)
       string(STRIP "${expected_sha1}" expected_sha1)
-      if(NOT expected_sha1 MATCHES "^[0-9A-Fa-f]{40}$")
+      string(LENGTH "${expected_sha1}" expected_sha1_length)
+      if(NOT expected_sha1_length EQUAL 40 OR
+         NOT expected_sha1 MATCHES "^[0-9A-Fa-f]+$")
         message(FATAL_ERROR "CEF checksum sidecar did not contain a valid SHA-1: '${expected_sha1}'")
       endif()
 
