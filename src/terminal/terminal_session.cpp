@@ -102,7 +102,7 @@ void TerminalSession::Acquire() {
   }
   handler_installed_ = true;
 
-  RefreshGeometry();
+  (void)RefreshGeometry();
   if (!geometry().valid()) {
     throw std::runtime_error("unable to determine terminal viewport geometry");
   }
