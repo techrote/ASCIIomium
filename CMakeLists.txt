@@ -62,15 +62,29 @@ target_link_libraries(asciiomium PRIVATE asciiomium_build_info CEF::libcef)
 target_compile_features(asciiomium PRIVATE cxx_std_20)
 set_target_properties(asciiomium PROPERTIES FOLDER "ASCIIomium")
 
+# The pinned CEF release's Windows distribution declares this side-by-side DLL
+# set. Even a version-only executable can cause the Windows loader to resolve
+# sibling CEF dependencies before main(), so stage the complete DLL set for the
+# selected configuration. Browser resources/locales remain deferred.
+set(ASCIIOMIUM_CEF_RUNTIME_DLLS
+  chrome_elf.dll
+  d3dcompiler_47.dll
+  libcef.dll
+  libEGL.dll
+  libGLESv2.dll
+  vk_swiftshader.dll
+  vulkan-1.dll
+  dxil.dll
+  dxcompiler.dll)
+
 function(asciiomium_stage_cef_runtime target)
-  # The issue #2 executable only calls version exports, so libcef.dll is the
-  # only CEF runtime payload staged here. Browser resources are intentionally
-  # deferred to the browser/package issues.
-  add_custom_command(TARGET ${target} POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "$<TARGET_FILE:CEF::libcef>"
-            "$<TARGET_FILE_DIR:${target}>"
-    COMMENT "Staging libcef.dll for ${target}")
+  foreach(cef_runtime_dll IN LISTS ASCIIOMIUM_CEF_RUNTIME_DLLS)
+    add_custom_command(TARGET ${target} POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              "${CEF_ROOT}/$<CONFIG>/${cef_runtime_dll}"
+              "$<TARGET_FILE_DIR:${target}>"
+      COMMENT "Staging ${cef_runtime_dll} for ${target}")
+  endforeach()
 endfunction()
 
 asciiomium_stage_cef_runtime(asciiomium)
