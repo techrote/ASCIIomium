@@ -17,6 +17,20 @@ set(ASCIIOMIUM_CEF_ROOT
     ""
     CACHE PATH "Use an already-extracted CEF distribution instead of downloading it")
 
+# Keep this list aligned with the pinned CEF release's Windows distribution
+# manifest (cef/bazel/win/variables.bzl at commit f059e67). x64 adds dxil and
+# dxcompiler to the common Windows DLL set.
+set(ASCIIOMIUM_CEF_RUNTIME_DLLS
+  chrome_elf.dll
+  d3dcompiler_47.dll
+  libcef.dll
+  libEGL.dll
+  libGLESv2.dll
+  vk_swiftshader.dll
+  vulkan-1.dll
+  dxil.dll
+  dxcompiler.dll)
+
 function(_asciiomium_check_download_status label status log)
   list(GET status 0 status_code)
   list(GET status 1 status_text)
@@ -87,14 +101,21 @@ function(asciiomium_acquire_cef out_var)
   foreach(required_path
       "include/cef_version.h"
       "include/cef_version_info.h"
-      "Debug/libcef.dll"
       "Debug/libcef.lib"
-      "Release/libcef.dll"
       "Release/libcef.lib")
     if(NOT EXISTS "${cef_root}/${required_path}")
       message(FATAL_ERROR
         "CEF root '${cef_root}' is incomplete or does not match the expected Windows x64 standard distribution; missing ${required_path}")
     endif()
+  endforeach()
+
+  foreach(configuration Debug Release)
+    foreach(runtime_dll IN LISTS ASCIIOMIUM_CEF_RUNTIME_DLLS)
+      if(NOT EXISTS "${cef_root}/${configuration}/${runtime_dll}")
+        message(FATAL_ERROR
+          "CEF root '${cef_root}' is incomplete or does not match the pinned Windows x64 runtime manifest; missing ${configuration}/${runtime_dll}")
+      endif()
+    endforeach()
   endforeach()
 
   set(${out_var} "${cef_root}" PARENT_SCOPE)
