@@ -38,6 +38,12 @@ ASCIIomium is not a text-mode HTML renderer and does not reinterpret page semant
 
 That distinction is deliberate. The first proof of concept should be able to display and interact with arbitrary ordinary webpages before the project experiments with smarter glyph selection, perceptual quantisation, dithering, DOM-aware text recovery, or GPU-assisted conversion.
 
+## Current bootstrap
+
+The implementation now starts with a reproducible Windows x64 C++20/CMake bootstrap. It pins CEF `151.3.17+gf059e67+chromium-151.0.7922.138`, links a deliberately inert `asciiomium.exe` to the real `libcef.dll`, and verifies the compile-time and runtime CEF/Chromium versions before any browser initialisation is introduced.
+
+See [`docs/BUILDING.md`](docs/BUILDING.md) for exact configure, Debug/Release build, test, and `--version` commands.
+
 ## Colour model
 
 "ANSI" does **not** mean a 16-colour restriction here. ASCIIomium should support several output modes:
@@ -78,6 +84,7 @@ Start here before implementation:
 - [`docs/VERIFY.md`](docs/VERIFY.md) — verification ladder.
 - [`docs/DECISIONS.md`](docs/DECISIONS.md) — architectural decisions and rationale.
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — staged implementation order and issue map.
+- [`docs/BUILDING.md`](docs/BUILDING.md) — pinned toolchain and build/test instructions.
 
 ## Engineering posture
 
