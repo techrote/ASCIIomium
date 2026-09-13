@@ -24,12 +24,9 @@ jobs:
           path: third_party/cef
           key: cef-windows64-151.3.17-gf059e67-chromium-151.0.7922.138
 
-      - name: Show toolchain
+      - name: Show CMake version
         shell: pwsh
-        run: |
-          cmake --version
-          & "${env:ProgramFiles}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property displayName
-          & "${env:ProgramFiles}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationVersion
+        run: cmake --version
 
       - name: Configure
         shell: pwsh
