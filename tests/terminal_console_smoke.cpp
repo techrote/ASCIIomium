@@ -107,7 +107,7 @@ int main() {
         std::cerr << "FAIL: invalid console geometry on cycle " << cycle << '\n';
         return 1;
       }
-      session.RefreshGeometry();
+      (void)session.RefreshGeometry();
 
       // Exercise explicit cleanup and idempotence once; all other cycles rely
       // on the destructor so both supported ownership paths are covered.
