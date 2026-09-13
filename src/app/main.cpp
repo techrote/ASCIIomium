@@ -103,7 +103,7 @@ int RunTerminalDiagnostics(const CommandLineOptions& options) {
     std::uint64_t frame_counter = 0;
 
     while (!session.stop_requested()) {
-      session.RefreshGeometry();
+      (void)session.RefreshGeometry();
       session.Write(asciiomium::terminal::BuildDiagnosticFrame(
           session.geometry(), frame_counter++));
 
