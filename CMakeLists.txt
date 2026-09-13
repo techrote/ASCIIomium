@@ -62,21 +62,9 @@ target_link_libraries(asciiomium PRIVATE asciiomium_build_info CEF::libcef)
 target_compile_features(asciiomium PRIVATE cxx_std_20)
 set_target_properties(asciiomium PROPERTIES FOLDER "ASCIIomium")
 
-# The pinned CEF release's Windows distribution declares this side-by-side DLL
-# set. Even a version-only executable can cause the Windows loader to resolve
-# sibling CEF dependencies before main(), so stage the complete DLL set for the
-# selected configuration. Browser resources/locales remain deferred.
-set(ASCIIOMIUM_CEF_RUNTIME_DLLS
-  chrome_elf.dll
-  d3dcompiler_47.dll
-  libcef.dll
-  libEGL.dll
-  libGLESv2.dll
-  vk_swiftshader.dll
-  vulkan-1.dll
-  dxil.dll
-  dxcompiler.dll)
-
+# Even a version-only executable can cause the Windows loader to resolve CEF's
+# sibling DLL dependencies before main(), so stage the complete DLL manifest
+# declared by the pinned CEF release. Browser resources/locales remain deferred.
 function(asciiomium_stage_cef_runtime target)
   foreach(cef_runtime_dll IN LISTS ASCIIOMIUM_CEF_RUNTIME_DLLS)
     add_custom_command(TARGET ${target} POST_BUILD
