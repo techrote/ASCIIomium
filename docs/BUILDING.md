@@ -1,6 +1,6 @@
 # Building ASCIIomium
 
-Issue #2 establishes a deliberately small Windows x64 bootstrap: a C++20 executable links to the real CEF runtime, reports the compile-time and runtime CEF/Chromium versions, and does **not** initialise a browser yet.
+ASCIIomium currently has two verified bootstrap layers: the pinned CEF/C++20 foundation from issue #2 and the Windows terminal ownership/diagnostics runtime from issue #3. CEF is linked and version-checked, but no browser is initialised yet.
 
 ## Pinned dependency
 
@@ -48,12 +48,12 @@ cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
   -DASCIIOMIUM_CEF_ROOT="D:\deps\cef_binary_151.3.17+gf059e67+chromium-151.0.7922.138_windows64"
 ```
 
-The supplied directory is validated for the required headers plus Debug and Release `libcef.dll`/`libcef.lib` files.
+The supplied directory is validated for the required headers plus Debug and Release runtime/import-library files.
 
 ## Build and test Debug
 
 ```powershell
-cmake --build build --config Debug --target asciiomium asciiomium_tests --parallel
+cmake --build build --config Debug --target asciiomium asciiomium_tests terminal_logic_tests terminal_console_smoke --parallel
 ctest --test-dir build -C Debug --output-on-failure
 .\build\bin\DEBUG\asciiomium.exe --version
 ```
@@ -61,10 +61,12 @@ ctest --test-dir build -C Debug --output-on-failure
 ## Build and test Release
 
 ```powershell
-cmake --build build --config Release --target asciiomium asciiomium_tests --parallel
+cmake --build build --config Release --target asciiomium asciiomium_tests terminal_logic_tests terminal_console_smoke --parallel
 ctest --test-dir build -C Release --output-on-failure
 .\build\bin\RELEASE\asciiomium.exe --version
 ```
+
+`ctest` now covers the CEF build-info smoke test, pure terminal logic, and a real Win32 console acquire/restore smoke test with ten lifecycle cycles.
 
 `--version` loads the staged CEF runtime and queries CEF's exported runtime version API. A successful build therefore checks more than header availability: it verifies that the executable links to and can load the pinned CEF runtime.
 
@@ -82,9 +84,31 @@ CEF ABI/header match: yes
 
 The Release output differs only in the build configuration line.
 
+## Terminal diagnostics
+
+Run this from Windows Terminal after building:
+
+```powershell
+.\build\bin\DEBUG\asciiomium.exe --terminal-diagnostics
+```
+
+Press `Ctrl+C` to exit. The command enters the alternate screen, hides the cursor, shows live geometry, RGB bars and Unicode half blocks, and then restores the previous terminal state on exit.
+
+Useful variants:
+
+```powershell
+# Automatically exit after three seconds
+.\build\bin\DEBUG\asciiomium.exe --terminal-diagnostics --duration-ms 3000
+
+# One-shot output without entering or clearing the alternate screen
+.\build\bin\DEBUG\asciiomium.exe --terminal-diagnostics --no-alt-screen
+```
+
+See [`TERMINAL_RUNTIME.md`](TERMINAL_RUNTIME.md) for ownership, resize and teardown details.
+
 ## Runtime DLL staging
 
-The Windows loader resolves CEF side-by-side DLL dependencies before `main()` even though issue #2 only calls version exports. The bootstrap therefore stages the DLL set declared by the pinned CEF release for Windows x64:
+The Windows loader resolves CEF side-by-side DLL dependencies before `main()` even though the current executable only calls version exports. The bootstrap therefore stages the DLL set declared by the pinned CEF release for Windows x64:
 
 ```text
 chrome_elf.dll
@@ -102,7 +126,9 @@ This does **not** initialise a browser and does not yet stage browser resources 
 
 ## CI
 
-`.github/workflows/bootstrap-windows.yml` performs the same configure, Debug build/test/version run, and Release build/test/version run on `windows-2022`. The workflow caches the exact pinned CEF directory between runs; the first download still validates the upstream SHA-1 sidecar.
+`.github/workflows/bootstrap-windows.yml` performs configure, Debug build/test/version, and Release build/test/version runs on `windows-2022`. The workflow caches the exact pinned CEF directory between runs; the first download still validates the upstream SHA-1 sidecar.
+
+The Windows Terminal GUI-specific appearance of diagnostic output remains a manual acceptance check because GitHub-hosted Windows runners do not provide the Windows Terminal UI. The Win32 state lifecycle itself is exercised in CI by `terminal_console_smoke`.
 
 ## Troubleshooting
 
@@ -117,3 +143,7 @@ Delete `third_party/cef/cef_binary_151.3.17+gf059e67+chromium-151.0.7922.138_win
 ### Existing local CEF tree rejected
 
 `ASCIIOMIUM_CEF_ROOT` must point at the extracted distribution root containing `include/`, `Debug/`, and `Release/`, not at its parent directory.
+
+### Terminal diagnostics report no console handles
+
+Run ASCIIomium inside Windows Terminal, `conhost`, or another environment that exposes Windows console handles. Redirecting stdin/stdout to arbitrary files or pipes is not the interactive terminal path.
