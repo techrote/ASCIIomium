@@ -1,0 +1,28 @@
+# CMake / Visual Studio outputs
+/build/
+/build-*/
+/out/
+.vs/
+CMakeSettings.json
+*.user
+*.suo
+*.VC.db
+*.VC.opendb
+
+# Downloaded/extracted CEF binary distributions
+/third_party/cef/
+
+# Common generated files
+*.obj
+*.pdb
+*.ilk
+*.exe
+*.dll
+*.lib
+*.exp
+
+# Local editor/OS noise
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
