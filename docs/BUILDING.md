@@ -11,6 +11,7 @@ CEF:       151.3.17+gf059e67+chromium-151.0.7922.138
 Chromium:  151.0.7922.138
 Platform:  windows64
 Archive:   cef_binary_151.3.17+gf059e67+chromium-151.0.7922.138_windows64.tar.bz2
+SHA-1:     f21afbaaeb82c02a9e13dbb012c6fd0b2f11f005
 Source:    https://cef-builds.spotifycdn.com/
 ```
 
@@ -27,6 +28,8 @@ The CEF automated-builds page identified this build as the preferred current sta
 - enough free disk space for the CEF archive, extracted distribution, and build output.
 
 CEF's upstream project currently documents Visual Studio 2022 on Windows 10 or newer as the supported Windows build environment for binary-distribution clients.
+
+The repository CI acceptance environment currently reports CMake 3.31.6, MSVC 19.44.35228.0 and Windows SDK 10.0.26100.0. Those are evidence of the tested environment, not additional hard-coded minimums.
 
 ## Configure
 
@@ -63,7 +66,7 @@ ctest --test-dir build -C Release --output-on-failure
 .\build\bin\RELEASE\asciiomium.exe --version
 ```
 
-`--version` loads the staged `libcef.dll` and queries CEF's exported runtime version API. A successful build therefore checks more than header availability: it verifies that the executable links to and can load the pinned CEF runtime.
+`--version` loads the staged CEF runtime and queries CEF's exported runtime version API. A successful build therefore checks more than header availability: it verifies that the executable links to and can load the pinned CEF runtime.
 
 Expected shape:
 
@@ -79,11 +82,23 @@ CEF ABI/header match: yes
 
 The Release output differs only in the build configuration line.
 
-## What issue #2 intentionally does not stage
+## Runtime DLL staging
 
-Only `libcef.dll` is copied beside the bootstrap executable because this issue merely calls CEF version exports. The complete browser runtime payload—resources, locales, graphics DLLs, subprocess handling, and packaging—is introduced when browser initialisation is implemented and later formalised by the packaging issue.
+The Windows loader resolves CEF side-by-side DLL dependencies before `main()` even though issue #2 only calls version exports. The bootstrap therefore stages the DLL set declared by the pinned CEF release for Windows x64:
 
-This keeps the bootstrap inert and makes accidental hidden browser startup impossible.
+```text
+chrome_elf.dll
+d3dcompiler_47.dll
+libcef.dll
+libEGL.dll
+libGLESv2.dll
+vk_swiftshader.dll
+vulkan-1.dll
+dxil.dll
+dxcompiler.dll
+```
+
+This does **not** initialise a browser and does not yet stage browser resources such as `.pak` files, locales, `icudtl.dat`, snapshot data, subprocess policy, or packaged application metadata. Those enter when browser initialisation and final packaging require them.
 
 ## CI
 
