@@ -7,10 +7,10 @@ set(CMAKE_CONFIGURATION_TYPES "Debug;Release" CACHE STRING "" FORCE)
 project(ASCIIomium VERSION 0.1.0 LANGUAGES CXX)
 
 if(NOT WIN32)
-  message(FATAL_ERROR "ASCIIomium issue #2 bootstrap currently targets Windows x64 only.")
+  message(FATAL_ERROR "ASCIIomium currently targets Windows x64 only.")
 endif()
 if(NOT MSVC)
-  message(FATAL_ERROR "ASCIIomium issue #2 requires the Visual Studio 2022/MSVC toolchain.")
+  message(FATAL_ERROR "ASCIIomium requires the Visual Studio 2022/MSVC toolchain.")
 endif()
 if(NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
   message(FATAL_ERROR "ASCIIomium requires an x64 generator (for example -A x64).")
@@ -30,9 +30,9 @@ endforeach()
 include(cmake/AcquireCEF.cmake)
 asciiomium_acquire_cef(CEF_ROOT)
 
-# Keep the initial integration deliberately small. We link directly against the
-# official CEF import library so --version and the smoke test exercise the real
-# libcef.dll, but we do not initialise a browser until issue #8.
+# Keep the initial CEF integration deliberately small. We link directly against
+# the official CEF import library so --version and the smoke test exercise the
+# real libcef.dll, but browser initialisation remains deferred to issue #8.
 add_library(CEF::libcef SHARED IMPORTED GLOBAL)
 set_target_properties(CEF::libcef PROPERTIES
   IMPORTED_CONFIGURATIONS "DEBUG;RELEASE"
@@ -57,8 +57,25 @@ target_compile_definitions(asciiomium_build_info PRIVATE
   ASCIIOMIUM_ARCH="x64")
 set_target_properties(asciiomium_build_info PROPERTIES FOLDER "ASCIIomium")
 
+add_library(asciiomium_terminal STATIC
+  src/terminal/terminal_diagnostics.cpp
+  src/terminal/terminal_diagnostics.h
+  src/terminal/terminal_geometry.cpp
+  src/terminal/terminal_geometry.h
+  src/terminal/terminal_sequences.cpp
+  src/terminal/terminal_sequences.h
+  src/terminal/terminal_session.cpp
+  src/terminal/terminal_session.h)
+target_include_directories(asciiomium_terminal PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_compile_features(asciiomium_terminal PUBLIC cxx_std_20)
+target_compile_definitions(asciiomium_terminal PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+set_target_properties(asciiomium_terminal PROPERTIES FOLDER "ASCIIomium")
+
 add_executable(asciiomium src/app/main.cpp)
-target_link_libraries(asciiomium PRIVATE asciiomium_build_info CEF::libcef)
+target_link_libraries(asciiomium PRIVATE
+  asciiomium_build_info
+  asciiomium_terminal
+  CEF::libcef)
 target_compile_features(asciiomium PRIVATE cxx_std_20)
 set_target_properties(asciiomium PROPERTIES FOLDER "ASCIIomium")
 
@@ -78,13 +95,25 @@ endfunction()
 asciiomium_stage_cef_runtime(asciiomium)
 
 enable_testing()
+
 add_executable(asciiomium_tests tests/build_info_test.cpp)
 target_link_libraries(asciiomium_tests PRIVATE asciiomium_build_info CEF::libcef)
 target_compile_features(asciiomium_tests PRIVATE cxx_std_20)
 set_target_properties(asciiomium_tests PROPERTIES FOLDER "Tests")
 asciiomium_stage_cef_runtime(asciiomium_tests)
-
 add_test(NAME build_info COMMAND "$<TARGET_FILE:asciiomium_tests>")
+
+add_executable(terminal_logic_tests tests/terminal_logic_test.cpp)
+target_link_libraries(terminal_logic_tests PRIVATE asciiomium_terminal)
+target_compile_features(terminal_logic_tests PRIVATE cxx_std_20)
+set_target_properties(terminal_logic_tests PROPERTIES FOLDER "Tests")
+add_test(NAME terminal_logic COMMAND "$<TARGET_FILE:terminal_logic_tests>")
+
+add_executable(terminal_console_smoke tests/terminal_console_smoke.cpp)
+target_link_libraries(terminal_console_smoke PRIVATE asciiomium_terminal)
+target_compile_features(terminal_console_smoke PRIVATE cxx_std_20)
+set_target_properties(terminal_console_smoke PROPERTIES FOLDER "Tests")
+add_test(NAME terminal_console_smoke COMMAND "$<TARGET_FILE:terminal_console_smoke>")
 
 message(STATUS "ASCIIomium version: ${PROJECT_VERSION}")
 message(STATUS "Pinned CEF: ${ASCIIOMIUM_CEF_VERSION}")

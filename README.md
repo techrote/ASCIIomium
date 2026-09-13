@@ -40,9 +40,17 @@ That distinction is deliberate. The first proof of concept should be able to dis
 
 ## Current bootstrap
 
-The implementation now starts with a reproducible Windows x64 C++20/CMake bootstrap. It pins CEF `151.3.17+gf059e67+chromium-151.0.7922.138`, links a deliberately inert `asciiomium.exe` to the real `libcef.dll`, and verifies the compile-time and runtime CEF/Chromium versions before any browser initialisation is introduced.
+The implementation now has a reproducible Windows x64 C++20/CMake foundation plus an RAII terminal-runtime layer. It pins CEF `151.3.17+gf059e67+chromium-151.0.7922.138`, verifies the real CEF runtime, and can take temporary ownership of a Windows console session with VT processing, UTF-8 code pages, alternate screen, cursor state, geometry tracking, Ctrl+C handling, and exact mode/code-page restoration.
 
-See [`docs/BUILDING.md`](docs/BUILDING.md) for exact configure, Debug/Release build, test, and `--version` commands.
+CEF browser initialisation remains deliberately deferred to issue #8.
+
+After building, exercise the current visual layer from Windows Terminal:
+
+```powershell
+.\build\bin\DEBUG\asciiomium.exe --terminal-diagnostics
+```
+
+See [`docs/BUILDING.md`](docs/BUILDING.md) for exact build/test commands and [`docs/TERMINAL_RUNTIME.md`](docs/TERMINAL_RUNTIME.md) for terminal ownership and teardown details.
 
 ## Colour model
 
@@ -85,6 +93,7 @@ Start here before implementation:
 - [`docs/DECISIONS.md`](docs/DECISIONS.md) — architectural decisions and rationale.
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — staged implementation order and issue map.
 - [`docs/BUILDING.md`](docs/BUILDING.md) — pinned toolchain and build/test instructions.
+- [`docs/TERMINAL_RUNTIME.md`](docs/TERMINAL_RUNTIME.md) — console ownership, resize detection, diagnostics, and teardown.
 
 ## Engineering posture
 

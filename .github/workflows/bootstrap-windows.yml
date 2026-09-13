@@ -34,7 +34,7 @@ jobs:
 
       - name: Build Debug
         shell: pwsh
-        run: cmake --build build --config Debug --target asciiomium asciiomium_tests --parallel
+        run: cmake --build build --config Debug --target asciiomium asciiomium_tests terminal_logic_tests terminal_console_smoke --parallel
 
       - name: Test Debug
         shell: pwsh
@@ -46,7 +46,7 @@ jobs:
 
       - name: Build Release
         shell: pwsh
-        run: cmake --build build --config Release --target asciiomium asciiomium_tests --parallel
+        run: cmake --build build --config Release --target asciiomium asciiomium_tests terminal_logic_tests terminal_console_smoke --parallel
 
       - name: Test Release
         shell: pwsh
