@@ -57,4 +57,16 @@ std::string BuildRgbBackground(unsigned char red,
   return stream.str();
 }
 
+std::string BuildIndexedForeground(unsigned char index) {
+  std::ostringstream stream;
+  stream << "\x1b[38;5;" << static_cast<int>(index) << 'm';
+  return stream.str();
+}
+
+std::string BuildIndexedBackground(unsigned char index) {
+  std::ostringstream stream;
+  stream << "\x1b[48;5;" << static_cast<int>(index) << 'm';
+  return stream.str();
+}
+
 }  // namespace asciiomium::terminal

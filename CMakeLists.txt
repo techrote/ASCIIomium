@@ -58,6 +58,8 @@ target_compile_definitions(asciiomium_build_info PRIVATE
 set_target_properties(asciiomium_build_info PROPERTIES FOLDER "ASCIIomium")
 
 add_library(asciiomium_terminal STATIC
+  src/terminal/full_frame_emitter.cpp
+  src/terminal/full_frame_emitter.h
   src/terminal/terminal_diagnostics.cpp
   src/terminal/terminal_diagnostics.h
   src/terminal/terminal_geometry.cpp
@@ -94,7 +96,9 @@ target_compile_features(asciiomium PRIVATE cxx_std_20)
 set_target_properties(asciiomium PROPERTIES FOLDER "ASCIIomium")
 
 add_executable(asciiomium_frame_dump tools/frame_dump.cpp)
-target_link_libraries(asciiomium_frame_dump PRIVATE asciiomium_render)
+target_link_libraries(asciiomium_frame_dump PRIVATE
+  asciiomium_render
+  asciiomium_terminal)
 target_compile_features(asciiomium_frame_dump PRIVATE cxx_std_20)
 set_target_properties(asciiomium_frame_dump PROPERTIES FOLDER "Tools")
 
@@ -102,6 +106,13 @@ add_executable(asciiomium_color_ramp tools/color_ramp.cpp)
 target_link_libraries(asciiomium_color_ramp PRIVATE asciiomium_render)
 target_compile_features(asciiomium_color_ramp PRIVATE cxx_std_20)
 set_target_properties(asciiomium_color_ramp PROPERTIES FOLDER "Tools")
+
+add_executable(asciiomium_vt_preview tools/vt_preview.cpp)
+target_link_libraries(asciiomium_vt_preview PRIVATE
+  asciiomium_render
+  asciiomium_terminal)
+target_compile_features(asciiomium_vt_preview PRIVATE cxx_std_20)
+set_target_properties(asciiomium_vt_preview PROPERTIES FOLDER "Tools")
 
 # Even a version-only executable can cause the Windows loader to resolve CEF's
 # sibling DLL dependencies before main(), so stage the complete DLL manifest
@@ -138,6 +149,18 @@ target_link_libraries(terminal_console_smoke PRIVATE asciiomium_terminal)
 target_compile_features(terminal_console_smoke PRIVATE cxx_std_20)
 set_target_properties(terminal_console_smoke PROPERTIES FOLDER "Tests")
 add_test(NAME terminal_console_smoke COMMAND "$<TARGET_FILE:terminal_console_smoke>")
+
+add_executable(full_frame_emitter_tests tests/full_frame_emitter_test.cpp)
+target_link_libraries(full_frame_emitter_tests PRIVATE asciiomium_terminal)
+target_compile_features(full_frame_emitter_tests PRIVATE cxx_std_20)
+set_target_properties(full_frame_emitter_tests PROPERTIES FOLDER "Tests")
+add_test(NAME full_frame_emitter COMMAND "$<TARGET_FILE:full_frame_emitter_tests>")
+
+add_executable(vt_console_smoke tests/vt_console_smoke.cpp)
+target_link_libraries(vt_console_smoke PRIVATE asciiomium_terminal)
+target_compile_features(vt_console_smoke PRIVATE cxx_std_20)
+set_target_properties(vt_console_smoke PROPERTIES FOLDER "Tests")
+add_test(NAME vt_console_smoke COMMAND "$<TARGET_FILE:vt_console_smoke>")
 
 add_executable(render_golden_tests tests/render_golden_test.cpp)
 target_link_libraries(render_golden_tests PRIVATE asciiomium_render)

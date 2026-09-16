@@ -11,6 +11,7 @@
 #include "render/color_quantizer.h"
 #include "render/halfblock_renderer.h"
 #include "render/ppm_loader.h"
+#include "terminal/full_frame_emitter.h"
 
 namespace {
 
@@ -24,6 +25,7 @@ struct Options {
   asciiomium::render::ColorMode color_mode =
       asciiomium::render::ColorMode::TrueColor;
   double cell_aspect = 0.5;
+  bool vt_annotated = false;
 };
 
 bool ParseInt(std::string_view text, int* value) {
@@ -57,7 +59,8 @@ void PrintUsage() {
       << "  --filter nearest|box    sampling filter (default box)\n"
       << "  --fit stretch|contain   viewport mapping (default stretch)\n"
       << "  --colors true|16|256|512|1024 (default true)\n"
-      << "  --cell-aspect X         cell width/height for contain mode (default 0.5)\n";
+      << "  --cell-aspect X         cell width/height for contain mode (default 0.5)\n"
+      << "  --vt-annotated          dump escaped full-frame VT instead of cells\n";
 }
 
 bool ParseArgs(int argc, char** argv, Options* options) {
@@ -117,6 +120,10 @@ bool ParseArgs(int argc, char** argv, Options* options) {
       ++i;
       continue;
     }
+    if (arg == "--vt-annotated") {
+      options->vt_annotated = true;
+      continue;
+    }
     return false;
   }
   return !options->input.empty();
@@ -157,6 +164,21 @@ int main(int argc, char** argv) {
 
     const auto frame = asciiomium::render::RenderHalfBlock(
         image.view(), {options.columns, options.rows}, config);
+
+    if (options.vt_annotated) {
+      const auto emission =
+          asciiomium::terminal::SerializeFullFrame(frame);
+      std::cout << "vt frame=" << frame.columns() << 'x' << frame.rows()
+                << " colors="
+                << asciiomium::render::ColorModeName(options.color_mode)
+                << " bytes=" << emission.bytes.size()
+                << " cells=" << emission.cell_count
+                << " sgr=" << emission.sgr_update_count
+                << " cursor=" << emission.cursor_move_count << '\n'
+                << asciiomium::terminal::EscapeVtForDebug(emission.bytes)
+                << '\n';
+      return 0;
+    }
 
     std::cout << "frame " << frame.columns() << 'x' << frame.rows()
               << " colors=" << asciiomium::render::ColorModeName(options.color_mode)
