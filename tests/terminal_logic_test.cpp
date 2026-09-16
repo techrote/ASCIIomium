@@ -38,6 +38,10 @@ int main() {
           "RGB foreground sequence");
   Require(BuildRgbBackground(254, 128, 0) == "\x1b[48;2;254;128;0m",
           "RGB background sequence");
+  Require(BuildIndexedForeground(9) == "\x1b[38;5;9m",
+          "indexed foreground sequence");
+  Require(BuildIndexedBackground(255) == "\x1b[48;5;255m",
+          "indexed background sequence");
 
   GeometryTracker tracker;
   Require(!tracker.current().valid(), "initial geometry invalid");
