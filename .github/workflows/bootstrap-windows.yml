@@ -18,6 +18,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Verify deterministic web fixtures in Chromium
+        shell: pwsh
+        run: .\tools\verify_web_fixtures.ps1 -OutputDir build/fixture-screenshots
+
       - name: Cache pinned CEF distribution
         uses: actions/cache@v4
         with:
@@ -34,7 +38,7 @@ jobs:
 
       - name: Build Debug
         shell: pwsh
-        run: cmake --build build --config Debug --target asciiomium asciiomium_tests terminal_logic_tests terminal_console_smoke full_frame_emitter_tests vt_console_smoke render_golden_tests color_quantizer_tests asciiomium_frame_dump asciiomium_color_ramp asciiomium_vt_preview --parallel
+        run: cmake --build build --config Debug --target asciiomium asciiomium_tests terminal_logic_tests terminal_console_smoke full_frame_emitter_tests vt_console_smoke render_golden_tests color_quantizer_tests benchmark_result_tests asciiomium_frame_dump asciiomium_color_ramp asciiomium_vt_preview asciiomium_benchmark --parallel
 
       - name: Test Debug
         shell: pwsh
@@ -56,9 +60,26 @@ jobs:
         shell: pwsh
         run: .\build\bin\DEBUG\asciiomium_color_ramp.exe --output .\build\color-modes-debug.svg
 
+      - name: Run Debug offline benchmark
+        shell: pwsh
+        run: .\build\bin\DEBUG\asciiomium_benchmark.exe --samples 12 --source-width 320 --source-height 180 --columns 80 --rows 24 --filter box --colors 1024 --json .\build\benchmark-debug.json
+
+      - name: Validate Debug benchmark JSON
+        shell: pwsh
+        run: |
+          $data = Get-Content -Raw .\build\benchmark-debug.json | ConvertFrom-Json
+          if ($data.schema -ne 'asciiomium-benchmark-v1') { throw 'wrong benchmark schema' }
+          if ($data.fixture_bundle.version -ne 'web-fixtures-v1') { throw 'wrong fixture version' }
+          if ($data.renderer.glyph_encoder -ne 'halfblock-u2580') { throw 'wrong glyph encoder' }
+          if ($data.renderer.color_mode -ne '1024') { throw 'wrong colour mode' }
+          if ($data.renderer.sampling_filter -ne 'box') { throw 'wrong filter' }
+          if ($data.terminal.columns -ne 80 -or $data.terminal.rows -ne 24) { throw 'wrong terminal geometry' }
+          if ($null -ne $data.timing.diff) { throw 'offline diff metric must be null' }
+          if ($data.bandwidth.bytes_per_frame -le 0) { throw 'benchmark emitted no bytes' }
+
       - name: Build Release
         shell: pwsh
-        run: cmake --build build --config Release --target asciiomium asciiomium_tests terminal_logic_tests terminal_console_smoke full_frame_emitter_tests vt_console_smoke render_golden_tests color_quantizer_tests asciiomium_frame_dump asciiomium_color_ramp asciiomium_vt_preview --parallel
+        run: cmake --build build --config Release --target asciiomium asciiomium_tests terminal_logic_tests terminal_console_smoke full_frame_emitter_tests vt_console_smoke render_golden_tests color_quantizer_tests benchmark_result_tests asciiomium_frame_dump asciiomium_color_ramp asciiomium_vt_preview asciiomium_benchmark --parallel
 
       - name: Test Release
         shell: pwsh
@@ -76,6 +97,22 @@ jobs:
         shell: pwsh
         run: .\build\bin\RELEASE\asciiomium_color_ramp.exe --output .\build\color-modes-release.svg
 
+      - name: Run Release offline benchmark
+        shell: pwsh
+        run: .\build\bin\RELEASE\asciiomium_benchmark.exe --samples 24 --source-width 640 --source-height 360 --columns 160 --rows 50 --filter box --colors 1024 --json .\build\benchmark-release.json
+
+      - name: Validate Release benchmark JSON
+        shell: pwsh
+        run: |
+          $data = Get-Content -Raw .\build\benchmark-release.json | ConvertFrom-Json
+          if ($data.schema -ne 'asciiomium-benchmark-v1') { throw 'wrong benchmark schema' }
+          if ($data.source.viewport.width -ne 640 -or $data.source.viewport.height -ne 360) { throw 'wrong source geometry' }
+          if ($data.terminal.columns -ne 160 -or $data.terminal.rows -ne 50) { throw 'wrong terminal geometry' }
+          if ($data.renderer.color_mode -ne '1024') { throw 'wrong colour mode' }
+          if ($data.timing.render_conversion.p95_ms -le 0) { throw 'missing render timing' }
+          if ($data.timing.vt_serialization.p95_ms -le 0) { throw 'missing VT timing' }
+          if ($data.process.working_set_bytes -le 0) { throw 'missing working-set metric' }
+
       - name: Upload colour-ramp evidence
         uses: actions/upload-artifact@v4
         with:
@@ -83,4 +120,14 @@ jobs:
           path: |
             build/color-modes-debug.svg
             build/color-modes-release.svg
+          if-no-files-found: error
+
+      - name: Upload fixture and benchmark evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: asciiomium-fixture-benchmark-evidence
+          path: |
+            build/fixture-screenshots/*.png
+            build/benchmark-debug.json
+            build/benchmark-release.json
           if-no-files-found: error
