@@ -1,5 +1,6 @@
 #pragma once
 
+#include "render/color_quantizer.h"
 #include "render/render_types.h"
 
 namespace asciiomium::render {
@@ -14,19 +15,6 @@ enum class SamplingFilter {
 enum class FitMode {
   Stretch,
   Contain,
-};
-
-class ColorQuantizer {
- public:
-  virtual ~ColorQuantizer() = default;
-  [[nodiscard]] virtual Rgb8 Quantize(Rgb8 color) const noexcept = 0;
-};
-
-class IdentityQuantizer final : public ColorQuantizer {
- public:
-  [[nodiscard]] Rgb8 Quantize(Rgb8 color) const noexcept override {
-    return color;
-  }
 };
 
 struct RenderTarget {
@@ -44,8 +32,8 @@ struct RenderConfig {
   // the complete source viewport.
   double cell_aspect = 0.5;
 
-  // Null means identity/true-colour. Later palette issues can provide a
-  // quantizer without changing the deterministic sampler/cell model.
+  // Null means identity/true-colour. Indexed modes keep their palette index in
+  // TerminalColor while 512/1024 remain quantised RGB values.
   const ColorQuantizer* quantizer = nullptr;
 };
 
