@@ -48,6 +48,10 @@ jobs:
         shell: pwsh
         run: .\build\bin\DEBUG\asciiomium_frame_dump.exe --input .\fixtures\render\quad_2x4.ppm --columns 2 --rows 2 --filter nearest --colors 256
 
+      - name: Verify Debug annotated VT dump
+        shell: pwsh
+        run: .\build\bin\DEBUG\asciiomium_frame_dump.exe --input .\fixtures\render\quad_2x4.ppm --columns 2 --rows 2 --filter nearest --colors 256 --vt-annotated
+
       - name: Generate Debug colour ramp
         shell: pwsh
         run: .\build\bin\DEBUG\asciiomium_color_ramp.exe --output .\build\color-modes-debug.svg
