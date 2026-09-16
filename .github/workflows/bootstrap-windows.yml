@@ -94,8 +94,10 @@ jobs:
           $data = Get-Content -Raw .\build\cef-colour-debug.json | ConvertFrom-Json
           if ($data.schema -ne 'asciiomium-cef-capture-v1') { throw 'wrong CEF capture schema' }
           if (-not $data.load.complete) { throw 'CEF local fixture did not complete loading' }
+          if (-not $data.post_load_refresh.observed) { throw 'CEF capture is not fresh after load completion' }
           if ($data.view.width -ne 800 -or $data.view.height -ne 450) { throw 'CEF resize dimensions not observed' }
           if ($data.view.paint_count -lt 2 -or $data.view.generation -lt 2) { throw 'insufficient CEF paint generations' }
+          if ($data.view.rgb_byte_span -lt 64) { throw 'CEF colour fixture capture is suspiciously uniform' }
           if (-not $data.resize.requested -or -not $data.resize.observed) { throw 'CEF resize contract failed' }
           if ($data.view.alpha_min -ne 255 -or $data.view.alpha_max -ne 255) { throw 'baseline CEF view was not opaque as configured' }
           if (-not $data.closed_cleanly) { throw 'CEF did not close cleanly' }
@@ -152,8 +154,10 @@ jobs:
         run: |
           $data = Get-Content -Raw .\build\cef-motion-release.json | ConvertFrom-Json
           if ($data.schema -ne 'asciiomium-cef-capture-v1') { throw 'wrong CEF capture schema' }
+          if (-not $data.post_load_refresh.observed) { throw 'animated CEF capture is not fresh after load completion' }
           if ($data.view.width -ne 640 -or $data.view.height -ne 360) { throw 'wrong animated CEF dimensions' }
           if ($data.view.paint_count -lt 6 -or $data.view.generation -lt 6) { throw 'animated fixture did not generate repeated paints' }
+          if ($data.view.rgb_byte_span -lt 64) { throw 'animated CEF capture is suspiciously uniform' }
           if ($data.view.storage_capacity_bytes -lt (640 * 360 * 4)) { throw 'view storage is unexpectedly small' }
           if (-not $data.closed_cleanly) { throw 'CEF did not close cleanly after animated fixture' }
 
