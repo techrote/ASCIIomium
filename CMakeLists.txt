@@ -30,9 +30,22 @@ endforeach()
 include(cmake/AcquireCEF.cmake)
 asciiomium_acquire_cef(CEF_ROOT)
 
-# Keep the initial CEF integration deliberately small. We link directly against
-# the official CEF import library so --version and the smoke test exercise the
-# real libcef.dll, but browser initialisation remains deferred to issue #8.
+# Issue #8 begins using CEF's C++ wrapper library. Load the official CMake
+# configuration from the exact binary distribution pinned by issue #2.
+#
+# The initial direct-executable prototype intentionally keeps USE_SANDBOX off.
+# CEF 151's sandboxed Windows path uses the newer bootstrap executable/client
+# DLL architecture, while issue #2 established a traditional executable linked
+# directly to libcef. This temporary exception is documented in docs/CEF_OSR.md
+# and will be revisited before distribution rather than hidden behind a switch.
+set(USE_SANDBOX OFF CACHE BOOL "ASCIIomium direct-executable OSR prototype" FORCE)
+list(PREPEND CMAKE_MODULE_PATH "${CEF_ROOT}/cmake")
+find_package(CEF REQUIRED)
+add_subdirectory("${CEF_LIBCEF_DLL_WRAPPER_PATH}" "${CMAKE_BINARY_DIR}/libcef_dll_wrapper")
+ADD_LOGICAL_TARGET("libcef_lib" "${CEF_LIB_DEBUG}" "${CEF_LIB_RELEASE}")
+set_target_properties(libcef_dll_wrapper PROPERTIES FOLDER "CEF")
+
+# Retain the small imported target used by the original build-info bootstrap.
 add_library(CEF::libcef SHARED IMPORTED GLOBAL)
 set_target_properties(CEF::libcef PROPERTIES
   IMPORTED_CONFIGURATIONS "DEBUG;RELEASE"
@@ -94,6 +107,40 @@ target_include_directories(asciiomium_benchmark_support PUBLIC "${CMAKE_CURRENT_
 target_compile_features(asciiomium_benchmark_support PUBLIC cxx_std_20)
 set_target_properties(asciiomium_benchmark_support PROPERTIES FOLDER "ASCIIomium")
 
+# Newest-frame storage is kept free of CEF headers so its ownership semantics
+# can be unit-tested independently. Match CEF's Windows /MT runtime because the
+# same library is linked into the OSR client executable.
+add_library(asciiomium_source_frame STATIC
+  src/browser/source_frame.cpp
+  src/browser/source_frame.h)
+target_include_directories(asciiomium_source_frame PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_compile_features(asciiomium_source_frame PUBLIC cxx_std_20)
+set_target_properties(asciiomium_source_frame PROPERTIES
+  FOLDER "ASCIIomium"
+  MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+
+add_library(asciiomium_browser STATIC
+  src/browser/osr_client.cpp
+  src/browser/osr_client.h)
+target_include_directories(asciiomium_browser PUBLIC
+  "${CMAKE_CURRENT_SOURCE_DIR}/src"
+  "${CEF_ROOT}")
+target_link_libraries(asciiomium_browser PUBLIC
+  asciiomium_source_frame
+  libcef_dll_wrapper
+  libcef_lib
+  ${CEF_STANDARD_LIBS})
+target_compile_features(asciiomium_browser PUBLIC cxx_std_20)
+target_compile_definitions(asciiomium_browser PRIVATE
+  __STDC_CONSTANT_MACROS
+  __STDC_FORMAT_MACROS
+  NOMINMAX
+  WIN32_LEAN_AND_MEAN)
+add_dependencies(asciiomium_browser libcef_dll_wrapper)
+set_target_properties(asciiomium_browser PROPERTIES
+  FOLDER "ASCIIomium"
+  MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+
 add_executable(asciiomium src/app/main.cpp)
 target_link_libraries(asciiomium PRIVATE
   asciiomium_build_info
@@ -131,9 +178,22 @@ target_compile_features(asciiomium_benchmark PRIVATE cxx_std_20)
 target_compile_definitions(asciiomium_benchmark PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
 set_target_properties(asciiomium_benchmark PROPERTIES FOLDER "Tools")
 
+add_executable(asciiomium_cef_capture tools/cef_capture.cpp)
+target_link_libraries(asciiomium_cef_capture PRIVATE asciiomium_browser)
+target_compile_features(asciiomium_cef_capture PRIVATE cxx_std_20)
+target_compile_definitions(asciiomium_cef_capture PRIVATE
+  __STDC_CONSTANT_MACROS
+  __STDC_FORMAT_MACROS
+  NOMINMAX
+  WIN32_LEAN_AND_MEAN
+  ASCIIOMIUM_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+set_target_properties(asciiomium_cef_capture PROPERTIES
+  FOLDER "Tools"
+  MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+
 # Even a version-only executable can cause the Windows loader to resolve CEF's
 # sibling DLL dependencies before main(), so stage the complete DLL manifest
-# declared by the pinned CEF release. Browser resources/locales remain deferred.
+# declared by the pinned CEF release.
 function(asciiomium_stage_cef_runtime target)
   foreach(cef_runtime_dll IN LISTS ASCIIOMIUM_CEF_RUNTIME_DLLS)
     add_custom_command(TARGET ${target} POST_BUILD
@@ -144,7 +204,40 @@ function(asciiomium_stage_cef_runtime target)
   endforeach()
 endfunction()
 
+# A functioning browser additionally needs V8/Vulkan metadata and the CEF
+# resource/locales payload beside the executable.
+function(asciiomium_stage_cef_browser_runtime target)
+  asciiomium_stage_cef_runtime(${target})
+
+  foreach(cef_config_file IN ITEMS v8_context_snapshot.bin vk_swiftshader_icd.json)
+    add_custom_command(TARGET ${target} POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              "${CEF_ROOT}/$<CONFIG>/${cef_config_file}"
+              "$<TARGET_FILE_DIR:${target}>"
+      COMMENT "Staging ${cef_config_file} for ${target}")
+  endforeach()
+
+  foreach(cef_resource_file IN ITEMS
+      chrome_100_percent.pak
+      chrome_200_percent.pak
+      resources.pak
+      icudtl.dat)
+    add_custom_command(TARGET ${target} POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              "${CEF_ROOT}/Resources/${cef_resource_file}"
+              "$<TARGET_FILE_DIR:${target}>"
+      COMMENT "Staging CEF resource ${cef_resource_file} for ${target}")
+  endforeach()
+
+  add_custom_command(TARGET ${target} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CEF_ROOT}/Resources/locales"
+            "$<TARGET_FILE_DIR:${target}>/locales"
+    COMMENT "Staging CEF locales for ${target}")
+endfunction()
+
 asciiomium_stage_cef_runtime(asciiomium)
+asciiomium_stage_cef_browser_runtime(asciiomium_cef_capture)
 
 enable_testing()
 
@@ -199,7 +292,16 @@ target_compile_features(benchmark_result_tests PRIVATE cxx_std_20)
 set_target_properties(benchmark_result_tests PROPERTIES FOLDER "Tests")
 add_test(NAME benchmark_result COMMAND "$<TARGET_FILE:benchmark_result_tests>")
 
+add_executable(source_frame_tests tests/source_frame_test.cpp)
+target_link_libraries(source_frame_tests PRIVATE asciiomium_source_frame)
+target_compile_features(source_frame_tests PRIVATE cxx_std_20)
+set_target_properties(source_frame_tests PROPERTIES
+  FOLDER "Tests"
+  MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+add_test(NAME source_frame COMMAND "$<TARGET_FILE:source_frame_tests>")
+
 message(STATUS "ASCIIomium version: ${PROJECT_VERSION}")
 message(STATUS "Pinned CEF: ${ASCIIOMIUM_CEF_VERSION}")
 message(STATUS "CEF root: ${CEF_ROOT}")
+message(STATUS "CEF sandbox for direct OSR prototype: ${USE_SANDBOX}")
 message(STATUS "Target architecture: x64")

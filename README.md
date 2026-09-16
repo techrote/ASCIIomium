@@ -40,9 +40,9 @@ That distinction is deliberate. The first proof of concept should be able to dis
 
 ## Current bootstrap
 
-The implementation now has a reproducible Windows x64 C++20/CMake foundation, an RAII terminal-runtime layer, a deterministic offline framebuffer-to-cell renderer, explicit true/16/256/512/1024 colour modes, a reference full-frame VT serializer, a versioned local Chromium fixture corpus, and a machine-readable benchmark harness. It pins CEF `151.3.17+gf059e67+chromium-151.0.7922.138`, verifies the real CEF runtime, can take temporary ownership of a Windows console session, convert RGBA/BGRA images into fixed-size Unicode half-block `TerminalFrame`s, serialize those frames into real indexed/true-colour VT output, and benchmark the deterministic CPU path without involving a live browser.
+The implementation now has a reproducible Windows x64 C++20/CMake foundation, an RAII terminal-runtime layer, a deterministic offline framebuffer-to-cell renderer, explicit true/16/256/512/1024 colour modes, a reference full-frame VT serializer, a versioned local Chromium fixture corpus, a machine-readable benchmark harness, and a real CEF CPU off-screen-rendering capture path. It pins CEF `151.3.17+gf059e67+chromium-151.0.7922.138`, verifies the real CEF runtime, can take temporary ownership of a Windows console session, convert RGBA/BGRA images into fixed-size Unicode half-block `TerminalFrame`s, serialize those frames into real indexed/true-colour VT output, and capture newest-frame BGRA pixels from Chromium `OnPaint` callbacks with resize and popup metadata.
 
-CEF browser initialisation remains deliberately deferred to issue #8.
+The next integration step is issue #9: consume the newest live CEF frame, run it through the existing renderer, and display it continuously in Windows Terminal with bounded frame pacing.
 
 After building, exercise the terminal layer from Windows Terminal:
 
@@ -95,6 +95,20 @@ Browse the deterministic local webpage corpus from `fixtures/web/index.html`, or
 pwsh .\tools\verify_web_fixtures.ps1
 ```
 
+Capture a real CEF off-screen source frame, including a resize proof, with:
+
+```powershell
+.\build\bin\DEBUG\asciiomium_cef_capture.exe `
+  --fixture colour-ramps --freeze `
+  --width 640 --height 360 `
+  --resize-width 800 --resize-height 450 `
+  --min-paints 2 `
+  --output .\build\cef-colour.bmp `
+  --report .\build\cef-colour.json
+```
+
+The capture diagnostic preserves CEF's CPU source representation as tightly packed, upper-left-origin **BGRA8**, records paint generations/dirty rectangles/alpha range, tracks popup paint separately, and uses newest-frame storage rather than an unbounded frame queue.
+
 Run the reproducible offline benchmark and emit JSON with:
 
 ```powershell
@@ -104,7 +118,7 @@ Run the reproducible offline benchmark and emit JSON with:
   --json .\build\benchmark.json
 ```
 
-See [`docs/BUILDING.md`](docs/BUILDING.md), [`docs/TERMINAL_RUNTIME.md`](docs/TERMINAL_RUNTIME.md), [`docs/OFFLINE_RENDERER.md`](docs/OFFLINE_RENDERER.md), [`docs/COLOR_MODES.md`](docs/COLOR_MODES.md), [`docs/VT_EMITTER.md`](docs/VT_EMITTER.md), and [`docs/BENCHMARKS_AND_FIXTURES.md`](docs/BENCHMARKS_AND_FIXTURES.md) for the current implementation contracts.
+See [`docs/BUILDING.md`](docs/BUILDING.md), [`docs/TERMINAL_RUNTIME.md`](docs/TERMINAL_RUNTIME.md), [`docs/OFFLINE_RENDERER.md`](docs/OFFLINE_RENDERER.md), [`docs/COLOR_MODES.md`](docs/COLOR_MODES.md), [`docs/VT_EMITTER.md`](docs/VT_EMITTER.md), [`docs/BENCHMARKS_AND_FIXTURES.md`](docs/BENCHMARKS_AND_FIXTURES.md), and [`docs/CEF_OSR.md`](docs/CEF_OSR.md) for the current implementation contracts.
 
 ## Colour model
 
@@ -123,6 +137,12 @@ The 512/1024 modes remain RGB colours and use true-colour SGR after quantisation
 ## Deterministic web fixtures
 
 `fixtures/web/` contains five local, network-isolated pages covering flat UI, colour ramps, embedded raster imagery, motion/scroll and input/focus. Stable `id`/`data-*` targets support later input diagnostics, including targets near all four viewport corners and centre. `MANIFEST.json` records exact Git blob hashes so the corpus is reproducible across benchmark runs.
+
+## CEF source-frame model
+
+The baseline CEF integration uses CPU windowless rendering and copies callback-owned pixels into one bounded newest-view buffer plus one separately tracked newest-popup buffer. Historical paint generations are not queued. View resize is accepted only after a fresh post-resize `OnPaint` arrives with the requested dimensions.
+
+For this milestone the direct executable is built with the CEF sandbox disabled. That is an explicit temporary bootstrap exception caused by the conventional direct-`libcef` architecture established in issue #2; it is documented in [`docs/CEF_OSR.md`](docs/CEF_OSR.md) and is not the intended distribution security posture.
 
 ## Non-goals for the first proof of concept
 
@@ -151,6 +171,7 @@ Start here before implementation:
 - [`docs/COLOR_MODES.md`](docs/COLOR_MODES.md) — implemented palettes, indexed/RGB representation and quantisation definitions.
 - [`docs/VT_EMITTER.md`](docs/VT_EMITTER.md) — reference full-frame serialization, SGR compression, UTF-8 and right-margin policy.
 - [`docs/BENCHMARKS_AND_FIXTURES.md`](docs/BENCHMARKS_AND_FIXTURES.md) — deterministic browser fixtures, manifest verification and JSON benchmark schema.
+- [`docs/CEF_OSR.md`](docs/CEF_OSR.md) — implemented CPU off-screen capture, frame ownership, popup, resize, diagnostics and sandbox exception.
 - [`docs/INPUT_MODEL.md`](docs/INPUT_MODEL.md) — terminal input to browser-event mapping.
 - [`docs/CEF_AND_TERMINAL_REFERENCE.md`](docs/CEF_AND_TERMINAL_REFERENCE.md) — primary technical references and compatibility facts.
 - [`docs/QUALITY_AND_BENCHMARKS.md`](docs/QUALITY_AND_BENCHMARKS.md) — measurable quality/performance criteria.
