@@ -46,12 +46,22 @@ void SourceFrameStore::UpdateView(
   ++view_.generation;
   ++view_.paint_count;
 
+  std::uint8_t rgb_min = 255;
+  std::uint8_t rgb_max = 0;
   std::uint8_t alpha_min = 255;
   std::uint8_t alpha_max = 0;
-  for (std::size_t offset = 3; offset < byte_count; offset += 4) {
-    alpha_min = std::min(alpha_min, view_.bgra[offset]);
-    alpha_max = std::max(alpha_max, view_.bgra[offset]);
+  for (std::size_t offset = 0; offset < byte_count; offset += 4) {
+    rgb_min = std::min(rgb_min, view_.bgra[offset + 0]);
+    rgb_min = std::min(rgb_min, view_.bgra[offset + 1]);
+    rgb_min = std::min(rgb_min, view_.bgra[offset + 2]);
+    rgb_max = std::max(rgb_max, view_.bgra[offset + 0]);
+    rgb_max = std::max(rgb_max, view_.bgra[offset + 1]);
+    rgb_max = std::max(rgb_max, view_.bgra[offset + 2]);
+    alpha_min = std::min(alpha_min, view_.bgra[offset + 3]);
+    alpha_max = std::max(alpha_max, view_.bgra[offset + 3]);
   }
+  view_.rgb_byte_min = rgb_min;
+  view_.rgb_byte_max = rgb_max;
   view_.alpha_min = alpha_min;
   view_.alpha_max = alpha_max;
 }
