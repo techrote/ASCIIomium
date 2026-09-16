@@ -1,0 +1,21 @@
+{
+  "schema": "asciiomium-web-fixture-manifest-v1",
+  "bundle_version": "web-fixtures-v1",
+  "hash_kind": "git-blob-sha1",
+  "files": {
+    "common.css": "d8923162c972714ed872d97477728b3fd1c12253",
+    "common.js": "6f39bde5b63c61e21a140e752be734f0c72e4e72",
+    "index.html": "91ade5cbcb9ca748b13811fca9bcfd917c652abc",
+    "flat-ui.html": "58f175fc4ab3095c3778f74745502d8802fb0e4d",
+    "colour-ramps.html": "42fed770582d6fbdddb76f7e98182bc038d08579",
+    "raster-imagery.html": "5acfa18883a9e7d7c05cc4ba30ee31007bf2bdd8",
+    "motion-scroll.html": "a8bf92eb1617c8d87d5400931878de6c848fedfc",
+    "input-focus.html": "f103e4cae0943576e33bbfcaffbd2ac1613ac616"
+  },
+  "embedded_png_sha256": {
+    "natural": "19872e7a59dc7ab420fb4dc6eb5aad15f1ba51ed574f5ddedc280cf8dd49f9a5",
+    "face": "c0c8e8fc3f8e21af5affec6bc4573c8e60461c0f1df748bf68d5febf9fd41880",
+    "dark": "6c726d6e758d4e644d7a4d6f4f5d26a5876d57b8965bd920b94fd8d34fde6624",
+    "texture": "04eb54e8fb84d75da9d7b7e2a5fb7a4556f82532da6463cf905677e02419065d"
+  }
+}

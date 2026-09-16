@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Fixture D · Motion and scroll</title><link rel="stylesheet" href="common.css"><script defer src="common.js"></script></head>
+<body data-fixture="motion-scroll"><header><h1>Fixture D · Motion / scroll</h1><p>CSS animation, moving gradient, nested scroll and deterministic freeze mode.</p></header><main>
+<nav class="fixture-nav"><a href="index.html">Index</a><span class="badge">motion-scroll</span><span class="badge">append ?freeze=1 for static evidence</span></nav>
+<section class="card"><h2>Motion stage</h2><div id="motion-stage" data-motion-region="primary" class="motion-stage"><div class="motion-dot" id="motion-dot"></div><div class="motion-bar" id="motion-bar"></div></div><p class="meta">CSS-only movement; freeze mode pauses animations at their initial state.</p></section>
+<div class="fixture-grid" style="margin-top:14px">
+<section class="card"><h2>Timer</h2><div id="motion-timer" data-target-id="motion-timer" class="huge">0.0 s</div><p>Updates every 100 ms in live mode. Freeze mode displays <code>frozen</code>.</p></section>
+<section class="card"><h2>Nested scrolling</h2><div id="motion-scrollbox" data-scroll-region="nested" class="scroll-box"><div class="scroll-content"><h3>Nested region start</h3><p>Line 01 · static content</p><p>Line 02 · static content</p><p>Line 03 · static content</p><p>Line 04 · static content</p><p>Line 05 · static content</p><p>Line 06 · static content</p><p>Line 07 · static content</p><p>Line 08 · static content</p><p>Line 09 · static content</p><p>Line 10 · static content</p><p>Line 11 · static content</p><p>Line 12 · static content</p><p>Line 13 · static content</p><p>Line 14 · static content</p><p>Line 15 · static content</p><h3 id="motion-scroll-end">Nested region end</h3></div></div></section>
+</div>
+<section class="card" style="margin-top:14px"><h2>Moving colour field</h2><div id="moving-gradient" class="ramp" style="background:linear-gradient(90deg,#ff3158,#ffd13b,#28e7a2,#27a9ff,#9a55ff,#ff31bb);background-size:250% 100%;animation:bgShift 3.2s linear infinite"></div></section>
+</main><footer>Fixture D · no network dependency</footer>
+<script>
+addEventListener('DOMContentLoaded',()=>{const el=document.getElementById('motion-timer');if(window.ASCIIOMIUM_FIXTURE_FROZEN){el.textContent='frozen';return;}const start=performance.now();setInterval(()=>{el.textContent=((performance.now()-start)/1000).toFixed(1)+' s';},100);});
+</script></body></html>

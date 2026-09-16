@@ -87,6 +87,13 @@ target_include_directories(asciiomium_render PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}
 target_compile_features(asciiomium_render PUBLIC cxx_std_20)
 set_target_properties(asciiomium_render PROPERTIES FOLDER "ASCIIomium")
 
+add_library(asciiomium_benchmark_support STATIC
+  src/benchmark/benchmark_result.cpp
+  src/benchmark/benchmark_result.h)
+target_include_directories(asciiomium_benchmark_support PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_compile_features(asciiomium_benchmark_support PUBLIC cxx_std_20)
+set_target_properties(asciiomium_benchmark_support PROPERTIES FOLDER "ASCIIomium")
+
 add_executable(asciiomium src/app/main.cpp)
 target_link_libraries(asciiomium PRIVATE
   asciiomium_build_info
@@ -113,6 +120,16 @@ target_link_libraries(asciiomium_vt_preview PRIVATE
   asciiomium_terminal)
 target_compile_features(asciiomium_vt_preview PRIVATE cxx_std_20)
 set_target_properties(asciiomium_vt_preview PROPERTIES FOLDER "Tools")
+
+add_executable(asciiomium_benchmark tools/offline_benchmark.cpp)
+target_link_libraries(asciiomium_benchmark PRIVATE
+  asciiomium_benchmark_support
+  asciiomium_render
+  asciiomium_terminal
+  Psapi)
+target_compile_features(asciiomium_benchmark PRIVATE cxx_std_20)
+target_compile_definitions(asciiomium_benchmark PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+set_target_properties(asciiomium_benchmark PROPERTIES FOLDER "Tools")
 
 # Even a version-only executable can cause the Windows loader to resolve CEF's
 # sibling DLL dependencies before main(), so stage the complete DLL manifest
@@ -175,6 +192,12 @@ target_link_libraries(color_quantizer_tests PRIVATE asciiomium_render)
 target_compile_features(color_quantizer_tests PRIVATE cxx_std_20)
 set_target_properties(color_quantizer_tests PROPERTIES FOLDER "Tests")
 add_test(NAME color_quantizer COMMAND "$<TARGET_FILE:color_quantizer_tests>")
+
+add_executable(benchmark_result_tests tests/benchmark_result_test.cpp)
+target_link_libraries(benchmark_result_tests PRIVATE asciiomium_benchmark_support)
+target_compile_features(benchmark_result_tests PRIVATE cxx_std_20)
+set_target_properties(benchmark_result_tests PROPERTIES FOLDER "Tests")
+add_test(NAME benchmark_result COMMAND "$<TARGET_FILE:benchmark_result_tests>")
 
 message(STATUS "ASCIIomium version: ${PROJECT_VERSION}")
 message(STATUS "Pinned CEF: ${ASCIIOMIUM_CEF_VERSION}")

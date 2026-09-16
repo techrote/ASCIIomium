@@ -40,7 +40,7 @@ That distinction is deliberate. The first proof of concept should be able to dis
 
 ## Current bootstrap
 
-The implementation now has a reproducible Windows x64 C++20/CMake foundation, an RAII terminal-runtime layer, a deterministic offline framebuffer-to-cell renderer, explicit true/16/256/512/1024 colour modes, and a reference full-frame VT serializer. It pins CEF `151.3.17+gf059e67+chromium-151.0.7922.138`, verifies the real CEF runtime, can take temporary ownership of a Windows console session, can convert RGBA/BGRA images into fixed-size Unicode half-block `TerminalFrame`s, and can serialize those frames into real indexed/true-colour VT output.
+The implementation now has a reproducible Windows x64 C++20/CMake foundation, an RAII terminal-runtime layer, a deterministic offline framebuffer-to-cell renderer, explicit true/16/256/512/1024 colour modes, a reference full-frame VT serializer, a versioned local Chromium fixture corpus, and a machine-readable benchmark harness. It pins CEF `151.3.17+gf059e67+chromium-151.0.7922.138`, verifies the real CEF runtime, can take temporary ownership of a Windows console session, convert RGBA/BGRA images into fixed-size Unicode half-block `TerminalFrame`s, serialize those frames into real indexed/true-colour VT output, and benchmark the deterministic CPU path without involving a live browser.
 
 CEF browser initialisation remains deliberately deferred to issue #8.
 
@@ -89,7 +89,22 @@ Generate an SVG comparison of all colour modes with:
 .\build\bin\DEBUG\asciiomium_color_ramp.exe --output .\build\color-modes.svg
 ```
 
-See [`docs/BUILDING.md`](docs/BUILDING.md), [`docs/TERMINAL_RUNTIME.md`](docs/TERMINAL_RUNTIME.md), [`docs/OFFLINE_RENDERER.md`](docs/OFFLINE_RENDERER.md), [`docs/COLOR_MODES.md`](docs/COLOR_MODES.md), and [`docs/VT_EMITTER.md`](docs/VT_EMITTER.md) for the current implementation contracts.
+Browse the deterministic local webpage corpus from `fixtures/web/index.html`, or validate every fixture in a normal Chromium-family browser with:
+
+```powershell
+pwsh .\tools\verify_web_fixtures.ps1
+```
+
+Run the reproducible offline benchmark and emit JSON with:
+
+```powershell
+.\build\bin\RELEASE\asciiomium_benchmark.exe `
+  --samples 120 --source-width 1280 --source-height 720 `
+  --columns 160 --rows 50 --filter box --colors 1024 `
+  --json .\build\benchmark.json
+```
+
+See [`docs/BUILDING.md`](docs/BUILDING.md), [`docs/TERMINAL_RUNTIME.md`](docs/TERMINAL_RUNTIME.md), [`docs/OFFLINE_RENDERER.md`](docs/OFFLINE_RENDERER.md), [`docs/COLOR_MODES.md`](docs/COLOR_MODES.md), [`docs/VT_EMITTER.md`](docs/VT_EMITTER.md), and [`docs/BENCHMARKS_AND_FIXTURES.md`](docs/BENCHMARKS_AND_FIXTURES.md) for the current implementation contracts.
 
 ## Colour model
 
@@ -102,6 +117,12 @@ See [`docs/BUILDING.md`](docs/BUILDING.md), [`docs/TERMINAL_RUNTIME.md`](docs/TE
 - unrestricted 24-bit RGB as a fidelity/reference mode.
 
 The 512/1024 modes remain RGB colours and use true-colour SGR after quantisation; terminals do not expose standardized 512/1024-entry indexed palettes. Indexed metadata is retained only for the real 16/256 modes so the reference emitter can choose `38;5`/`48;5` where appropriate.
+
+**1024 colour is the practical default/reference aesthetic.** Direct Windows Terminal comparison showed 256-colour output to be too visibly chunky for gradients and image content. True colour remains the fidelity oracle; 256 remains useful as compatibility and deliberate extra-crunchy coverage.
+
+## Deterministic web fixtures
+
+`fixtures/web/` contains five local, network-isolated pages covering flat UI, colour ramps, embedded raster imagery, motion/scroll and input/focus. Stable `id`/`data-*` targets support later input diagnostics, including targets near all four viewport corners and centre. `MANIFEST.json` records exact Git blob hashes so the corpus is reproducible across benchmark runs.
 
 ## Non-goals for the first proof of concept
 
@@ -129,6 +150,7 @@ Start here before implementation:
 - [`docs/OFFLINE_RENDERER.md`](docs/OFFLINE_RENDERER.md) — implemented image/frame contracts, filters, aspect handling, fixtures, and hard viewport bounds.
 - [`docs/COLOR_MODES.md`](docs/COLOR_MODES.md) — implemented palettes, indexed/RGB representation and quantisation definitions.
 - [`docs/VT_EMITTER.md`](docs/VT_EMITTER.md) — reference full-frame serialization, SGR compression, UTF-8 and right-margin policy.
+- [`docs/BENCHMARKS_AND_FIXTURES.md`](docs/BENCHMARKS_AND_FIXTURES.md) — deterministic browser fixtures, manifest verification and JSON benchmark schema.
 - [`docs/INPUT_MODEL.md`](docs/INPUT_MODEL.md) — terminal input to browser-event mapping.
 - [`docs/CEF_AND_TERMINAL_REFERENCE.md`](docs/CEF_AND_TERMINAL_REFERENCE.md) — primary technical references and compatibility facts.
 - [`docs/QUALITY_AND_BENCHMARKS.md`](docs/QUALITY_AND_BENCHMARKS.md) — measurable quality/performance criteria.
