@@ -13,6 +13,7 @@
 
 namespace {
 
+using asciiomium::render::ColorMode;
 using asciiomium::render::FitMode;
 using asciiomium::render::ImageBuffer;
 using asciiomium::render::ImageView;
@@ -23,6 +24,8 @@ using asciiomium::render::Rgb8;
 using asciiomium::render::Rgba8;
 using asciiomium::render::SamplingFilter;
 using asciiomium::render::TerminalCell;
+using asciiomium::render::TerminalColor;
+using asciiomium::render::TerminalColorKind;
 
 [[noreturn]] void Fail(const std::string& message) {
   throw std::runtime_error(message);
@@ -34,12 +37,15 @@ void Expect(bool condition, const std::string& message) {
   }
 }
 
-void ExpectColor(Rgb8 actual, Rgb8 expected, const std::string& label) {
-  if (actual != expected) {
+void ExpectColor(const TerminalColor& actual,
+                 Rgb8 expected,
+                 const std::string& label) {
+  if (actual.rgb != expected) {
     Fail(label + " expected (" + std::to_string(expected.r) + "," +
          std::to_string(expected.g) + "," + std::to_string(expected.b) +
-         ") got (" + std::to_string(actual.r) + "," +
-         std::to_string(actual.g) + "," + std::to_string(actual.b) + ")");
+         ") got (" + std::to_string(actual.rgb.r) + "," +
+         std::to_string(actual.rgb.g) + "," +
+         std::to_string(actual.rgb.b) + ")");
   }
 }
 
@@ -72,14 +78,18 @@ void TestFixtureExactHalfBlockMapping() {
   Expect(frame.columns() == 2 && frame.rows() == 2, "fixture frame geometry");
   Expect(frame.size() == 4, "fixture frame cell count");
 
-  const TerminalCell expected00{asciiomium::render::kUpperHalfBlock,
-                                {255, 0, 0}, {0, 0, 255}};
-  const TerminalCell expected10{asciiomium::render::kUpperHalfBlock,
-                                {0, 255, 0}, {255, 255, 255}};
-  const TerminalCell expected01{asciiomium::render::kUpperHalfBlock,
-                                {0, 0, 0}, {255, 0, 255}};
-  const TerminalCell expected11{asciiomium::render::kUpperHalfBlock,
-                                {255, 255, 0}, {0, 255, 255}};
+  const TerminalCell expected00{
+      asciiomium::render::kUpperHalfBlock,
+      TerminalColor::Rgb({255, 0, 0}), TerminalColor::Rgb({0, 0, 255})};
+  const TerminalCell expected10{
+      asciiomium::render::kUpperHalfBlock,
+      TerminalColor::Rgb({0, 255, 0}), TerminalColor::Rgb({255, 255, 255})};
+  const TerminalCell expected01{
+      asciiomium::render::kUpperHalfBlock,
+      TerminalColor::Rgb({0, 0, 0}), TerminalColor::Rgb({255, 0, 255})};
+  const TerminalCell expected11{
+      asciiomium::render::kUpperHalfBlock,
+      TerminalColor::Rgb({255, 255, 0}), TerminalColor::Rgb({0, 255, 255})};
   Expect(frame.at(0, 0) == expected00, "fixture cell 0,0");
   Expect(frame.at(1, 0) == expected10, "fixture cell 1,0");
   Expect(frame.at(0, 1) == expected01, "fixture cell 0,1");
@@ -182,7 +192,10 @@ void TestContainCellAspectLetterbox() {
 
 class FixedQuantizer final : public asciiomium::render::ColorQuantizer {
  public:
-  Rgb8 Quantize(Rgb8) const noexcept override { return {1, 2, 3}; }
+  TerminalColor Quantize(Rgb8) const noexcept override {
+    return TerminalColor::Rgb({1, 2, 3});
+  }
+  ColorMode mode() const noexcept override { return ColorMode::TrueColor; }
 };
 
 void TestQuantizerInterface() {
@@ -194,6 +207,29 @@ void TestQuantizerInterface() {
   const auto frame = RenderHalfBlock(image.view(), {1, 1}, config);
   ExpectColor(frame.at(0, 0).foreground, {1, 2, 3}, "quantized foreground");
   ExpectColor(frame.at(0, 0).background, {1, 2, 3}, "quantized background");
+}
+
+void TestIndexedModeDoesNotChangeGlyphGeometry() {
+  const auto image = MakeImage(
+      1, 2, {{255, 0, 0, 255}, {0, 255, 0, 255}});
+  asciiomium::render::ModeQuantizer indexed(ColorMode::Indexed16);
+  RenderConfig config;
+  config.filter = SamplingFilter::Nearest;
+  config.quantizer = &indexed;
+  const auto frame = RenderHalfBlock(image.view(), {1, 1}, config);
+
+  Expect(frame.columns() == 1 && frame.rows() == 1,
+         "indexed mode preserves geometry");
+  Expect(frame.at(0, 0).glyph == asciiomium::render::kUpperHalfBlock,
+         "indexed mode preserves glyph");
+  Expect(frame.at(0, 0).foreground.kind == TerminalColorKind::Indexed,
+         "indexed foreground representation");
+  Expect(frame.at(0, 0).background.kind == TerminalColorKind::Indexed,
+         "indexed background representation");
+  Expect(frame.at(0, 0).foreground.index == 9,
+         "bright red maps to canonical xterm index 9");
+  Expect(frame.at(0, 0).background.index == 10,
+         "bright green maps to canonical xterm index 10");
 }
 
 void TestHardBoundsAndDeterminism() {
@@ -231,6 +267,7 @@ int main() {
     TestTinySourceUpscale();
     TestContainCellAspectLetterbox();
     TestQuantizerInterface();
+    TestIndexedModeDoesNotChangeGlyphGeometry();
     TestHardBoundsAndDeterminism();
   } catch (const std::exception& error) {
     std::cerr << "render golden test failed: " << error.what() << '\n';
