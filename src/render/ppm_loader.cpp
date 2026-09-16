@@ -3,6 +3,7 @@
 #include <charconv>
 #include <cctype>
 #include <fstream>
+#include <iterator>
 #include <limits>
 #include <stdexcept>
 #include <string>
