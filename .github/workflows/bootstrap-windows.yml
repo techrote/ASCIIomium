@@ -34,7 +34,7 @@ jobs:
 
       - name: Build Debug
         shell: pwsh
-        run: cmake --build build --config Debug --target asciiomium asciiomium_tests terminal_logic_tests terminal_console_smoke --parallel
+        run: cmake --build build --config Debug --target asciiomium asciiomium_tests terminal_logic_tests terminal_console_smoke render_golden_tests asciiomium_frame_dump --parallel
 
       - name: Test Debug
         shell: pwsh
@@ -44,9 +44,13 @@ jobs:
         shell: pwsh
         run: .\build\bin\DEBUG\asciiomium.exe --version
 
+      - name: Verify Debug offline dump
+        shell: pwsh
+        run: .\build\bin\DEBUG\asciiomium_frame_dump.exe --input .\fixtures\render\quad_2x4.ppm --columns 2 --rows 2 --filter nearest
+
       - name: Build Release
         shell: pwsh
-        run: cmake --build build --config Release --target asciiomium asciiomium_tests terminal_logic_tests terminal_console_smoke --parallel
+        run: cmake --build build --config Release --target asciiomium asciiomium_tests terminal_logic_tests terminal_console_smoke render_golden_tests asciiomium_frame_dump --parallel
 
       - name: Test Release
         shell: pwsh
@@ -55,3 +59,7 @@ jobs:
       - name: Verify Release version output
         shell: pwsh
         run: .\build\bin\RELEASE\asciiomium.exe --version
+
+      - name: Verify Release offline dump
+        shell: pwsh
+        run: .\build\bin\RELEASE\asciiomium_frame_dump.exe --input .\fixtures\render\quad_2x4.ppm --columns 2 --rows 2 --filter nearest

@@ -1,0 +1,8 @@
+P3
+# Exact 2x4 logical sample fixture for two 2x2 terminal cells.
+2 4
+255
+255 0 0      0 255 0
+0 0 255      255 255 255
+0 0 0        255 255 0
+255 0 255    0 255 255

@@ -40,17 +40,25 @@ That distinction is deliberate. The first proof of concept should be able to dis
 
 ## Current bootstrap
 
-The implementation now has a reproducible Windows x64 C++20/CMake foundation plus an RAII terminal-runtime layer. It pins CEF `151.3.17+gf059e67+chromium-151.0.7922.138`, verifies the real CEF runtime, and can take temporary ownership of a Windows console session with VT processing, UTF-8 code pages, alternate screen, cursor state, geometry tracking, Ctrl+C handling, and exact mode/code-page restoration.
+The implementation now has a reproducible Windows x64 C++20/CMake foundation, an RAII terminal-runtime layer, and a deterministic offline framebuffer-to-cell renderer. It pins CEF `151.3.17+gf059e67+chromium-151.0.7922.138`, verifies the real CEF runtime, can take temporary ownership of a Windows console session, and can convert RGBA/BGRA images into fixed-size Unicode half-block `TerminalFrame`s without CEF or an attached terminal.
 
 CEF browser initialisation remains deliberately deferred to issue #8.
 
-After building, exercise the current visual layer from Windows Terminal:
+After building, exercise the terminal layer from Windows Terminal:
 
 ```powershell
 .\build\bin\DEBUG\asciiomium.exe --terminal-diagnostics
 ```
 
-See [`docs/BUILDING.md`](docs/BUILDING.md) for exact build/test commands and [`docs/TERMINAL_RUNTIME.md`](docs/TERMINAL_RUNTIME.md) for terminal ownership and teardown details.
+Or inspect the offline renderer structurally:
+
+```powershell
+.\build\bin\DEBUG\asciiomium_frame_dump.exe `
+  --input .\fixtures\render\quad_2x4.ppm `
+  --columns 2 --rows 2 --filter nearest
+```
+
+See [`docs/BUILDING.md`](docs/BUILDING.md), [`docs/TERMINAL_RUNTIME.md`](docs/TERMINAL_RUNTIME.md), and [`docs/OFFLINE_RENDERER.md`](docs/OFFLINE_RENDERER.md) for the current implementation contracts.
 
 ## Colour model
 
@@ -86,6 +94,7 @@ Start here before implementation:
 - [`docs/AGENT_CONTEXT.md`](docs/AGENT_CONTEXT.md) — compact project authority and execution rules.
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — component boundaries and data flow.
 - [`docs/RENDERING_MODEL.md`](docs/RENDERING_MODEL.md) — framebuffer-to-cell algorithms and colour/glyph strategy.
+- [`docs/OFFLINE_RENDERER.md`](docs/OFFLINE_RENDERER.md) — implemented image/frame contracts, filters, aspect handling, fixtures, and hard viewport bounds.
 - [`docs/INPUT_MODEL.md`](docs/INPUT_MODEL.md) — terminal input to browser-event mapping.
 - [`docs/CEF_AND_TERMINAL_REFERENCE.md`](docs/CEF_AND_TERMINAL_REFERENCE.md) — primary technical references and compatibility facts.
 - [`docs/QUALITY_AND_BENCHMARKS.md`](docs/QUALITY_AND_BENCHMARKS.md) — measurable quality/performance criteria.
