@@ -34,7 +34,7 @@ jobs:
 
       - name: Build Debug
         shell: pwsh
-        run: cmake --build build --config Debug --target asciiomium asciiomium_tests terminal_logic_tests terminal_console_smoke render_golden_tests asciiomium_frame_dump --parallel
+        run: cmake --build build --config Debug --target asciiomium asciiomium_tests terminal_logic_tests terminal_console_smoke render_golden_tests color_quantizer_tests asciiomium_frame_dump asciiomium_color_ramp --parallel
 
       - name: Test Debug
         shell: pwsh
@@ -44,13 +44,17 @@ jobs:
         shell: pwsh
         run: .\build\bin\DEBUG\asciiomium.exe --version
 
-      - name: Verify Debug offline dump
+      - name: Verify Debug indexed frame dump
         shell: pwsh
-        run: .\build\bin\DEBUG\asciiomium_frame_dump.exe --input .\fixtures\render\quad_2x4.ppm --columns 2 --rows 2 --filter nearest
+        run: .\build\bin\DEBUG\asciiomium_frame_dump.exe --input .\fixtures\render\quad_2x4.ppm --columns 2 --rows 2 --filter nearest --colors 256
+
+      - name: Generate Debug colour ramp
+        shell: pwsh
+        run: .\build\bin\DEBUG\asciiomium_color_ramp.exe --output .\build\color-modes-debug.svg
 
       - name: Build Release
         shell: pwsh
-        run: cmake --build build --config Release --target asciiomium asciiomium_tests terminal_logic_tests terminal_console_smoke render_golden_tests asciiomium_frame_dump --parallel
+        run: cmake --build build --config Release --target asciiomium asciiomium_tests terminal_logic_tests terminal_console_smoke render_golden_tests color_quantizer_tests asciiomium_frame_dump asciiomium_color_ramp --parallel
 
       - name: Test Release
         shell: pwsh
@@ -60,6 +64,19 @@ jobs:
         shell: pwsh
         run: .\build\bin\RELEASE\asciiomium.exe --version
 
-      - name: Verify Release offline dump
+      - name: Verify Release 1024-colour frame dump
         shell: pwsh
-        run: .\build\bin\RELEASE\asciiomium_frame_dump.exe --input .\fixtures\render\quad_2x4.ppm --columns 2 --rows 2 --filter nearest
+        run: .\build\bin\RELEASE\asciiomium_frame_dump.exe --input .\fixtures\render\quad_2x4.ppm --columns 2 --rows 2 --filter nearest --colors 1024
+
+      - name: Generate Release colour ramp
+        shell: pwsh
+        run: .\build\bin\RELEASE\asciiomium_color_ramp.exe --output .\build\color-modes-release.svg
+
+      - name: Upload colour-ramp evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: asciiomium-colour-mode-ramp
+          path: |
+            build/color-modes-debug.svg
+            build/color-modes-release.svg
+          if-no-files-found: error

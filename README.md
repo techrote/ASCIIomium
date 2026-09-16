@@ -40,7 +40,7 @@ That distinction is deliberate. The first proof of concept should be able to dis
 
 ## Current bootstrap
 
-The implementation now has a reproducible Windows x64 C++20/CMake foundation, an RAII terminal-runtime layer, and a deterministic offline framebuffer-to-cell renderer. It pins CEF `151.3.17+gf059e67+chromium-151.0.7922.138`, verifies the real CEF runtime, can take temporary ownership of a Windows console session, and can convert RGBA/BGRA images into fixed-size Unicode half-block `TerminalFrame`s without CEF or an attached terminal.
+The implementation now has a reproducible Windows x64 C++20/CMake foundation, an RAII terminal-runtime layer, a deterministic offline framebuffer-to-cell renderer, and explicit true/16/256/512/1024 colour modes. It pins CEF `151.3.17+gf059e67+chromium-151.0.7922.138`, verifies the real CEF runtime, can take temporary ownership of a Windows console session, and can convert RGBA/BGRA images into fixed-size Unicode half-block `TerminalFrame`s without CEF or an attached terminal.
 
 CEF browser initialisation remains deliberately deferred to issue #8.
 
@@ -50,26 +50,33 @@ After building, exercise the terminal layer from Windows Terminal:
 .\build\bin\DEBUG\asciiomium.exe --terminal-diagnostics
 ```
 
-Or inspect the offline renderer structurally:
+Or inspect the offline renderer structurally, including its colour representation:
 
 ```powershell
 .\build\bin\DEBUG\asciiomium_frame_dump.exe `
   --input .\fixtures\render\quad_2x4.ppm `
-  --columns 2 --rows 2 --filter nearest
+  --columns 2 --rows 2 --filter nearest --colors 1024
 ```
 
-See [`docs/BUILDING.md`](docs/BUILDING.md), [`docs/TERMINAL_RUNTIME.md`](docs/TERMINAL_RUNTIME.md), and [`docs/OFFLINE_RENDERER.md`](docs/OFFLINE_RENDERER.md) for the current implementation contracts.
+Generate a visual comparison of all colour modes with:
+
+```powershell
+.\build\bin\DEBUG\asciiomium_color_ramp.exe --output .\build\color-modes.svg
+```
+
+See [`docs/BUILDING.md`](docs/BUILDING.md), [`docs/TERMINAL_RUNTIME.md`](docs/TERMINAL_RUNTIME.md), [`docs/OFFLINE_RENDERER.md`](docs/OFFLINE_RENDERER.md), and [`docs/COLOR_MODES.md`](docs/COLOR_MODES.md) for the current implementation contracts.
 
 ## Colour model
 
-"ANSI" does **not** mean a 16-colour restriction here. ASCIIomium should support several output modes:
+"ANSI" does **not** mean a 16-colour restriction here. ASCIIomium implements:
 
-- 16-colour compatibility / deliberate extreme-retro mode;
+- 16-colour indexed compatibility / deliberate extreme-retro mode;
 - xterm 256-colour indexed mode;
-- configurable quantised RGB modes such as 512 and **1024 colours**;
+- deterministic 512-colour 3/3/3 RGB quantisation;
+- deterministic **1024-colour 3/4/3 RGB quantisation**;
 - unrestricted 24-bit RGB as a fidelity/reference mode.
 
-A 1024-colour mode is emitted using true-colour SGR sequences after quantisation; terminals do not expose a standardized native 1024-entry indexed palette. This gives the intended slightly posterised/aliased aesthetic while retaining predictable colour quality.
+The 512/1024 modes remain RGB colours and will use true-colour SGR after quantisation; terminals do not expose standardized 512/1024-entry indexed palettes. Indexed metadata is retained only for the real 16/256 modes so the reference emitter can later choose `38;5`/`48;5` where appropriate.
 
 ## Non-goals for the first proof of concept
 
@@ -95,6 +102,7 @@ Start here before implementation:
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — component boundaries and data flow.
 - [`docs/RENDERING_MODEL.md`](docs/RENDERING_MODEL.md) — framebuffer-to-cell algorithms and colour/glyph strategy.
 - [`docs/OFFLINE_RENDERER.md`](docs/OFFLINE_RENDERER.md) — implemented image/frame contracts, filters, aspect handling, fixtures, and hard viewport bounds.
+- [`docs/COLOR_MODES.md`](docs/COLOR_MODES.md) — implemented palettes, indexed/RGB representation and quantisation definitions.
 - [`docs/INPUT_MODEL.md`](docs/INPUT_MODEL.md) — terminal input to browser-event mapping.
 - [`docs/CEF_AND_TERMINAL_REFERENCE.md`](docs/CEF_AND_TERMINAL_REFERENCE.md) — primary technical references and compatibility facts.
 - [`docs/QUALITY_AND_BENCHMARKS.md`](docs/QUALITY_AND_BENCHMARKS.md) — measurable quality/performance criteria.
