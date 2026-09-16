@@ -232,9 +232,9 @@ TerminalFrame RenderHalfBlock(ImageView source,
   }
 
   const RectD content = ComputeContentRect(source, target, config);
-  static const IdentityQuantizer kIdentity;
+  static const ModeQuantizer kTrueColor(ColorMode::TrueColor);
   const ColorQuantizer& quantizer =
-      config.quantizer == nullptr ? static_cast<const ColorQuantizer&>(kIdentity)
+      config.quantizer == nullptr ? static_cast<const ColorQuantizer&>(kTrueColor)
                                   : *config.quantizer;
 
   std::vector<TerminalCell> cells;
@@ -244,9 +244,9 @@ TerminalFrame RenderHalfBlock(ImageView source,
     const int upper_sample_y = row * 2;
     const int lower_sample_y = upper_sample_y + 1;
     for (int column = 0; column < target.columns; ++column) {
-      const Rgb8 upper = quantizer.Quantize(
+      const TerminalColor upper = quantizer.Quantize(
           Sample(source, content, column, upper_sample_y, config));
-      const Rgb8 lower = quantizer.Quantize(
+      const TerminalColor lower = quantizer.Quantize(
           Sample(source, content, column, lower_sample_y, config));
       cells.push_back(TerminalCell{kUpperHalfBlock, upper, lower});
     }
