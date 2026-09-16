@@ -62,7 +62,7 @@ void PrintUsage() {
       << "  --url URL               load an explicit URL instead of a bundled fixture\n"
       << "  --width N --height N    initial OSR view size (default 640x360)\n"
       << "  --resize-width N --resize-height N\n"
-      << "                         request one resize after the first view paint\n"
+      << "                         request one resize after page load completes\n"
       << "  --min-paints N          require at least N PET_VIEW paints (default 1)\n"
       << "  --frame-rate N          CEF windowless frame-rate cap (default 30)\n"
       << "  --timeout-ms N          capture timeout (default 12000)\n"
@@ -267,9 +267,11 @@ void WriteBmp32(const std::filesystem::path& path,
 
 struct CaptureEvidence {
   bool load_complete = false;
+  bool post_load_paint_observed = false;
   bool closed_cleanly = false;
   bool resize_requested = false;
   bool resize_observed = false;
+  std::uint64_t post_load_baseline_generation = 0;
   int http_status = 0;
   int load_error = 0;
   std::string load_error_text;
@@ -306,11 +308,20 @@ void WriteReport(const std::filesystem::path& path,
          << ",\"error_text\":\"" << JsonEscape(evidence.load_error_text)
          << "\",\"failed_url\":\"" << JsonEscape(evidence.failed_url)
          << "\"},\n"
+         << "  \"post_load_refresh\":{\"baseline_generation\":"
+         << evidence.post_load_baseline_generation
+         << ",\"observed\":"
+         << (evidence.post_load_paint_observed ? "true" : "false") << "},\n"
          << "  \"view\":{\"width\":" << evidence.view.width
          << ",\"height\":" << evidence.view.height
          << ",\"generation\":" << evidence.view.generation
          << ",\"paint_count\":" << evidence.view.paint_count
          << ",\"dirty_rect_count\":" << evidence.view.dirty_rects.size()
+         << ",\"rgb_byte_min\":"
+         << static_cast<unsigned>(evidence.view.rgb_byte_min)
+         << ",\"rgb_byte_max\":"
+         << static_cast<unsigned>(evidence.view.rgb_byte_max)
+         << ",\"rgb_byte_span\":" << evidence.view.rgb_byte_span()
          << ",\"alpha_min\":" << static_cast<unsigned>(evidence.view.alpha_min)
          << ",\"alpha_max\":" << static_cast<unsigned>(evidence.view.alpha_max)
          << ",\"storage_capacity_bytes\":" << evidence.view_capacity << "},\n"
@@ -399,54 +410,69 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
 
   const auto deadline = std::chrono::steady_clock::now() +
                         std::chrono::milliseconds(options.timeout_ms);
-  bool resized = false;
-  std::uint64_t resize_generation = 0;
-  const int target_width =
-      evidence.resize_requested ? options.resize_width : options.width;
-  const int target_height =
-      evidence.resize_requested ? options.resize_height : options.height;
 
-  const bool captured = PumpUntil(
-      client, deadline,
-      [&]() {
-        const auto frame = frame_store->SnapshotView();
-        if (frame.valid() && evidence.resize_requested && !resized) {
-          resize_generation = frame.generation;
-          client->Resize(options.resize_width, options.resize_height);
-          resized = true;
-          return false;
-        }
-
-        const bool correct_size = frame.valid() &&
-                                  frame.width == target_width &&
-                                  frame.height == target_height;
-        const bool resize_fresh =
-            !evidence.resize_requested || frame.generation > resize_generation;
-        return correct_size && resize_fresh &&
-               frame.paint_count >= static_cast<std::uint64_t>(options.min_paints) &&
-               client->load_complete();
-      });
+  // A paint can arrive for the empty browser background before navigation has
+  // completed. Do not let a later OnLoadEnd retroactively bless that stale
+  // image as capture evidence. First wait for main-frame load completion, then
+  // record the newest generation and explicitly request a fresh paint (or the
+  // requested resize) that must arrive after that baseline generation.
+  const bool loaded = PumpUntil(client, deadline, [&]() {
+    return client->load_complete();
+  });
 
   evidence.load_complete = client->load_complete();
   evidence.http_status = client->http_status_code();
   evidence.load_error = client->load_error_code();
   evidence.load_error_text = client->load_error_text();
   evidence.failed_url = client->failed_url();
+
+  const auto at_load = frame_store->SnapshotView();
+  evidence.post_load_baseline_generation = at_load.generation;
+
+  const int target_width =
+      evidence.resize_requested ? options.resize_width : options.width;
+  const int target_height =
+      evidence.resize_requested ? options.resize_height : options.height;
+
+  if (loaded) {
+    // WasResized requests a fresh OSR paint even when dimensions are unchanged.
+    // That gives the diagnostic a deterministic post-load paint barrier instead
+    // of depending on timing between OnLoadEnd and Chromium's compositor.
+    client->Resize(target_width, target_height);
+  }
+
+  const bool captured = loaded && PumpUntil(
+      client, deadline,
+      [&]() {
+        const auto frame = frame_store->SnapshotView();
+        const bool fresh_after_load =
+            frame.generation > evidence.post_load_baseline_generation;
+        const bool correct_size = frame.valid() &&
+                                  frame.width == target_width &&
+                                  frame.height == target_height;
+        return fresh_after_load && correct_size &&
+               frame.paint_count >= static_cast<std::uint64_t>(options.min_paints);
+      });
+
   evidence.view = frame_store->SnapshotView();
   evidence.popup = frame_store->SnapshotPopup();
   evidence.view_capacity = frame_store->ViewStorageCapacityBytes();
   evidence.popup_capacity = frame_store->PopupStorageCapacityBytes();
+  evidence.post_load_paint_observed =
+      evidence.view.generation > evidence.post_load_baseline_generation;
   evidence.resize_observed =
       !evidence.resize_requested ||
       (evidence.view.valid() && evidence.view.width == target_width &&
        evidence.view.height == target_height &&
-       evidence.view.generation > resize_generation);
+       evidence.post_load_paint_observed);
 
   if (!captured || evidence.load_error != 0 || !evidence.view.valid()) {
     std::cerr << "CEF capture did not reach the requested state"
               << " load_error=" << evidence.load_error
               << " paints=" << evidence.view.paint_count
               << " generation=" << evidence.view.generation
+              << " post_load_baseline="
+              << evidence.post_load_baseline_generation
               << " size=" << evidence.view.width << 'x' << evidence.view.height
               << '\n';
     result = 5;
@@ -488,7 +514,9 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
     std::cout << "CEF OSR capture passed: " << evidence.view.width << 'x'
               << evidence.view.height << " BGRA, paints="
               << evidence.view.paint_count << ", generation="
-              << evidence.view.generation << ", alpha="
+              << evidence.view.generation << ", post_load_baseline="
+              << evidence.post_load_baseline_generation << ", rgb_span="
+              << evidence.view.rgb_byte_span() << ", alpha="
               << static_cast<unsigned>(evidence.view.alpha_min) << ".."
               << static_cast<unsigned>(evidence.view.alpha_max)
               << ", popup_paints=" << evidence.popup.paint_count << '\n';
