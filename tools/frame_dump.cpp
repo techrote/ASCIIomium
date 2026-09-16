@@ -1,10 +1,12 @@
 #include <charconv>
+#include <cstdint>
 #include <cstdlib>
 #include <iomanip>
 #include <iostream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <system_error>
 
 #include "render/halfblock_renderer.h"
 #include "render/ppm_loader.h"
