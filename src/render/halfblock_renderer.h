@@ -4,7 +4,7 @@
 
 namespace asciiomium::render {
 
-inline constexpr char32_t kUpperHalfBlock = U'▀';
+inline constexpr char32_t kUpperHalfBlock = U'\u2580';
 
 enum class SamplingFilter {
   Nearest,
