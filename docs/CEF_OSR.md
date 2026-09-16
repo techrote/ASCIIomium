@@ -75,6 +75,24 @@ Keeping the source representation intact makes channel/orientation failures inde
 
 The diagnostic reports the observed minimum and maximum alpha byte. Its baseline browser background is explicitly opaque, so the deterministic fixtures are expected to produce an opaque final view (`255..255`). That assertion validates the chosen baseline; it is not a claim that every future webpage or popup must be opaque.
 
+It also reports the minimum and maximum observed RGB-channel byte across the view. Fixture CI uses the resulting span as a coarse guard against accidentally accepting a uniform pre-navigation/background paint. This is not an image-quality metric; it is a source-frame sanity check.
+
+## Post-load paint barrier
+
+CEF can issue an OSR paint for the empty browser/background before the requested page finishes loading. `OnLoadEnd` and `OnPaint` are separate asynchronous signals, so a capture must not treat an older pre-load paint as valid merely because load completion happened later.
+
+The diagnostic therefore uses this ordering:
+
+```text
+wait for main-frame OnLoadEnd
+record current PET_VIEW generation
+request WasResized (same size or requested new size)
+wait for PET_VIEW generation > recorded generation
+only then accept capture evidence
+```
+
+This explicit post-load paint barrier was added after visual inspection caught a stale uniform background frame that otherwise satisfied the original load/resize counters. CI now requires both a fresh post-load generation and meaningful RGB variation for the deterministic visual fixtures.
+
 ## Newest-frame ownership
 
 CEF may paint faster than terminal conversion or output. The browser layer therefore implements decision D-008 directly: **newest-frame semantics, not queued-frame completeness**.
@@ -125,7 +143,7 @@ NotifyScreenInfoChanged()
 WasResized()
 ```
 
-Acceptance requires a subsequent `PET_VIEW` generation with the **new** dimensions, not merely mutation of local width/height state. CI exercises 640×360 → 800×450 and rejects a stale pre-resize frame.
+Acceptance requires a subsequent `PET_VIEW` generation with the **new** dimensions, not merely mutation of local width/height state. CI exercises 640×360 → 800×450 and rejects a stale pre-resize or pre-load frame.
 
 ## Diagnostic capture
 
@@ -149,8 +167,9 @@ The JSON report records:
 - Chromium runtime version;
 - loaded URL;
 - pixel-format contract;
+- post-load baseline generation and fresh-paint evidence;
 - view dimensions, generation, paint count and dirty-rect count;
-- alpha range;
+- RGB byte range/span and alpha range;
 - popup state and generations;
 - storage capacities;
 - resize evidence;
@@ -180,12 +199,13 @@ Do not generalise this exception into disabling Chromium security features for o
 When an OSR source frame looks wrong, diagnose in this order:
 
 1. CEF load/lifecycle status;
-2. callback width/height;
-3. BGRA channel interpretation;
-4. upper-left orientation;
-5. alpha/background assumption;
-6. resize generation;
-7. popup state;
-8. only then the ASCIIomium sampler/quantiser/glyph/VT layers.
+2. post-load paint generation freshness;
+3. callback width/height;
+4. BGRA channel interpretation;
+5. upper-left orientation;
+6. alpha/background assumption and RGB variation;
+7. resize generation;
+8. popup state;
+9. only then the ASCIIomium sampler/quantiser/glyph/VT layers.
 
 This preserves V2 in `VERIFY.md` as an independent source-frame checkpoint before Chromium output is connected to Windows Terminal.
