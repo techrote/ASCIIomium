@@ -153,7 +153,7 @@ std::string SerializeJson(const BenchmarkResult& result) {
   out << "  \"schema\":\"" << kBenchmarkSchemaVersion << "\",\n";
   out << "  \"fixture_bundle\":{\"version\":\""
       << EscapeJson(result.config.fixture_bundle_version)
-      << "\",\"manifest\":\"fixtures/web/MANIFEST.sha256\"},\n";
+      << "\",\"manifest\":\"fixtures/web/MANIFEST.json\"},\n";
   out << "  \"source\":{\"id\":\"" << EscapeJson(result.config.source_id)
       << "\",\"hash\":\"" << EscapeJson(result.config.source_hash)
       << "\",\"viewport\":{\"width\":" << result.config.source_width
