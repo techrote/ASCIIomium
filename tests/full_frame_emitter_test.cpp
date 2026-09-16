@@ -142,6 +142,8 @@ void TestRepresentative160x50ByteCount() {
           "160x50 uniform full frame stays near 24 KiB");
   Require(emission.sgr_update_count == 3,
           "uniform 160x50 frame has two colour SGR updates plus reset");
+  std::cout << "160x50 uniform full-frame bytes: " << emission.bytes.size()
+            << '\n';
 }
 
 }  // namespace
