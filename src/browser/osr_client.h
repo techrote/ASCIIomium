@@ -2,7 +2,9 @@
 
 #include <atomic>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <vector>
 
 #include "browser/source_frame.h"
 #include "include/cef_client.h"
