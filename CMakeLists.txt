@@ -74,6 +74,8 @@ set_target_properties(asciiomium_terminal PROPERTIES FOLDER "ASCIIomium")
 # Pure offline renderer. This target deliberately has no dependency on CEF,
 # Win32 terminal I/O, stdout or the terminal runtime.
 add_library(asciiomium_render STATIC
+  src/render/color_quantizer.cpp
+  src/render/color_quantizer.h
   src/render/halfblock_renderer.cpp
   src/render/halfblock_renderer.h
   src/render/ppm_loader.cpp
@@ -95,6 +97,11 @@ add_executable(asciiomium_frame_dump tools/frame_dump.cpp)
 target_link_libraries(asciiomium_frame_dump PRIVATE asciiomium_render)
 target_compile_features(asciiomium_frame_dump PRIVATE cxx_std_20)
 set_target_properties(asciiomium_frame_dump PROPERTIES FOLDER "Tools")
+
+add_executable(asciiomium_color_ramp tools/color_ramp.cpp)
+target_link_libraries(asciiomium_color_ramp PRIVATE asciiomium_render)
+target_compile_features(asciiomium_color_ramp PRIVATE cxx_std_20)
+set_target_properties(asciiomium_color_ramp PROPERTIES FOLDER "Tools")
 
 # Even a version-only executable can cause the Windows loader to resolve CEF's
 # sibling DLL dependencies before main(), so stage the complete DLL manifest
@@ -139,6 +146,12 @@ target_compile_definitions(render_golden_tests PRIVATE
   ASCIIOMIUM_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 set_target_properties(render_golden_tests PROPERTIES FOLDER "Tests")
 add_test(NAME render_golden COMMAND "$<TARGET_FILE:render_golden_tests>")
+
+add_executable(color_quantizer_tests tests/color_quantizer_test.cpp)
+target_link_libraries(color_quantizer_tests PRIVATE asciiomium_render)
+target_compile_features(color_quantizer_tests PRIVATE cxx_std_20)
+set_target_properties(color_quantizer_tests PROPERTIES FOLDER "Tests")
+add_test(NAME color_quantizer COMMAND "$<TARGET_FILE:color_quantizer_tests>")
 
 message(STATUS "ASCIIomium version: ${PROJECT_VERSION}")
 message(STATUS "Pinned CEF: ${ASCIIOMIUM_CEF_VERSION}")
