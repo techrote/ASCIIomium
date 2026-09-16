@@ -21,5 +21,7 @@ std::string BuildRgbForeground(unsigned char red,
 std::string BuildRgbBackground(unsigned char red,
                                unsigned char green,
                                unsigned char blue);
+std::string BuildIndexedForeground(unsigned char index);
+std::string BuildIndexedBackground(unsigned char index);
 
 }  // namespace asciiomium::terminal
