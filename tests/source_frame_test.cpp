@@ -36,6 +36,9 @@ int main() {
           "first view generation and paint count");
   Require(snapshot.dirty_rects == std::vector<DirtyRect>{{0, 0, 1, 2}},
           "dirty rectangles preserved");
+  Require(snapshot.rgb_byte_min == 10 && snapshot.rgb_byte_max == 120 &&
+              snapshot.rgb_byte_span() == 110,
+          "RGB byte range ignores alpha and measures visible variation");
   Require(snapshot.alpha_min == 0 && snapshot.alpha_max == 255,
           "alpha range derived from BGRA byte 3");
 
@@ -51,6 +54,9 @@ int main() {
   Require(snapshot.bgra == replacement, "newest view replaces older pixels");
   Require(snapshot.generation == 2 && snapshot.paint_count == 2,
           "view generation increments without queueing");
+  Require(snapshot.rgb_byte_min == 1 && snapshot.rgb_byte_max == 3 &&
+              snapshot.rgb_byte_span() == 2,
+          "uniform-ish replacement has narrow RGB byte range");
   Require(snapshot.alpha_min == 255 && snapshot.alpha_max == 255,
           "opaque alpha range preserved");
 
