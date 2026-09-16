@@ -38,7 +38,7 @@ jobs:
 
       - name: Build Debug
         shell: pwsh
-        run: cmake --build build --config Debug --target asciiomium asciiomium_tests terminal_logic_tests terminal_console_smoke full_frame_emitter_tests vt_console_smoke render_golden_tests color_quantizer_tests benchmark_result_tests asciiomium_frame_dump asciiomium_color_ramp asciiomium_vt_preview asciiomium_benchmark --parallel
+        run: cmake --build build --config Debug --target asciiomium asciiomium_tests terminal_logic_tests terminal_console_smoke full_frame_emitter_tests vt_console_smoke render_golden_tests color_quantizer_tests benchmark_result_tests source_frame_tests asciiomium_frame_dump asciiomium_color_ramp asciiomium_vt_preview asciiomium_benchmark asciiomium_cef_capture --parallel
 
       - name: Test Debug
         shell: pwsh
@@ -77,9 +77,33 @@ jobs:
           if ($null -ne $data.timing.diff) { throw 'offline diff metric must be null' }
           if ($data.bandwidth.bytes_per_frame -le 0) { throw 'benchmark emitted no bytes' }
 
+      - name: Capture Debug CEF OSR fixture with resize
+        shell: pwsh
+        run: |
+          .\build\bin\DEBUG\asciiomium_cef_capture.exe `
+            --fixture colour-ramps --freeze `
+            --width 640 --height 360 `
+            --resize-width 800 --resize-height 450 `
+            --min-paints 2 --timeout-ms 20000 `
+            --output .\build\cef-colour-debug.bmp `
+            --report .\build\cef-colour-debug.json
+
+      - name: Validate Debug CEF OSR capture
+        shell: pwsh
+        run: |
+          $data = Get-Content -Raw .\build\cef-colour-debug.json | ConvertFrom-Json
+          if ($data.schema -ne 'asciiomium-cef-capture-v1') { throw 'wrong CEF capture schema' }
+          if (-not $data.load.complete) { throw 'CEF local fixture did not complete loading' }
+          if ($data.view.width -ne 800 -or $data.view.height -ne 450) { throw 'CEF resize dimensions not observed' }
+          if ($data.view.paint_count -lt 2 -or $data.view.generation -lt 2) { throw 'insufficient CEF paint generations' }
+          if (-not $data.resize.requested -or -not $data.resize.observed) { throw 'CEF resize contract failed' }
+          if ($data.view.alpha_min -ne 255 -or $data.view.alpha_max -ne 255) { throw 'baseline CEF view was not opaque as configured' }
+          if (-not $data.closed_cleanly) { throw 'CEF did not close cleanly' }
+          if ($data.pixel_contract -notmatch '^BGRA8') { throw 'CEF pixel contract missing' }
+
       - name: Build Release
         shell: pwsh
-        run: cmake --build build --config Release --target asciiomium asciiomium_tests terminal_logic_tests terminal_console_smoke full_frame_emitter_tests vt_console_smoke render_golden_tests color_quantizer_tests benchmark_result_tests asciiomium_frame_dump asciiomium_color_ramp asciiomium_vt_preview asciiomium_benchmark --parallel
+        run: cmake --build build --config Release --target asciiomium asciiomium_tests terminal_logic_tests terminal_console_smoke full_frame_emitter_tests vt_console_smoke render_golden_tests color_quantizer_tests benchmark_result_tests source_frame_tests asciiomium_frame_dump asciiomium_color_ramp asciiomium_vt_preview asciiomium_benchmark asciiomium_cef_capture --parallel
 
       - name: Test Release
         shell: pwsh
@@ -113,6 +137,26 @@ jobs:
           if ($data.timing.vt_serialization.p95_ms -le 0) { throw 'missing VT timing' }
           if ($data.process.working_set_bytes -le 0) { throw 'missing working-set metric' }
 
+      - name: Capture Release animated CEF OSR fixture
+        shell: pwsh
+        run: |
+          .\build\bin\RELEASE\asciiomium_cef_capture.exe `
+            --fixture motion-scroll `
+            --width 640 --height 360 `
+            --frame-rate 30 --min-paints 6 --timeout-ms 20000 `
+            --output .\build\cef-motion-release.bmp `
+            --report .\build\cef-motion-release.json
+
+      - name: Validate Release animated CEF generations
+        shell: pwsh
+        run: |
+          $data = Get-Content -Raw .\build\cef-motion-release.json | ConvertFrom-Json
+          if ($data.schema -ne 'asciiomium-cef-capture-v1') { throw 'wrong CEF capture schema' }
+          if ($data.view.width -ne 640 -or $data.view.height -ne 360) { throw 'wrong animated CEF dimensions' }
+          if ($data.view.paint_count -lt 6 -or $data.view.generation -lt 6) { throw 'animated fixture did not generate repeated paints' }
+          if ($data.view.storage_capacity_bytes -lt (640 * 360 * 4)) { throw 'view storage is unexpectedly small' }
+          if (-not $data.closed_cleanly) { throw 'CEF did not close cleanly after animated fixture' }
+
       - name: Upload colour-ramp evidence
         uses: actions/upload-artifact@v4
         with:
@@ -130,4 +174,17 @@ jobs:
             build/fixture-screenshots/*.png
             build/benchmark-debug.json
             build/benchmark-release.json
+          if-no-files-found: error
+
+      - name: Upload CEF OSR evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: asciiomium-cef-osr-evidence
+          path: |
+            build/cef-colour-debug.bmp
+            build/cef-colour-debug.json
+            build/cef-motion-release.bmp
+            build/cef-motion-release.json
+            build/fixture-screenshots/colour-ramps.png
+            build/fixture-screenshots/motion-scroll.png
           if-no-files-found: error
