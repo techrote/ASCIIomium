@@ -77,10 +77,41 @@ class ImageBuffer {
   std::vector<std::uint8_t> bytes_;
 };
 
+enum class TerminalColorKind : std::uint8_t {
+  Rgb,
+  Indexed,
+};
+
+// Logical cell colour ready for the VT emitter. `rgb` is always populated so
+// tests, screenshots and non-terminal tools have a canonical visible colour.
+// For Indexed colours, `index` is the standardized terminal palette index that
+// the emitter should use instead of 24-bit SGR.
+struct TerminalColor {
+  TerminalColorKind kind = TerminalColorKind::Rgb;
+  Rgb8 rgb{};
+  std::uint8_t index = 0;
+
+  [[nodiscard]] static constexpr TerminalColor Rgb(Rgb8 value) noexcept {
+    return TerminalColor{TerminalColorKind::Rgb, value, 0};
+  }
+
+  [[nodiscard]] static constexpr TerminalColor Indexed(std::uint8_t index,
+                                                       Rgb8 canonical_rgb) noexcept {
+    return TerminalColor{TerminalColorKind::Indexed, canonical_rgb, index};
+  }
+
+  [[nodiscard]] constexpr bool is_indexed() const noexcept {
+    return kind == TerminalColorKind::Indexed;
+  }
+
+  friend constexpr bool operator==(const TerminalColor&,
+                                   const TerminalColor&) = default;
+};
+
 struct TerminalCell {
   char32_t glyph = U' ';
-  Rgb8 foreground{};
-  Rgb8 background{};
+  TerminalColor foreground{};
+  TerminalColor background{};
 
   friend constexpr bool operator==(const TerminalCell&, const TerminalCell&) =
       default;
