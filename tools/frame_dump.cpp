@@ -8,6 +8,7 @@
 #include <string_view>
 #include <system_error>
 
+#include "render/color_quantizer.h"
 #include "render/halfblock_renderer.h"
 #include "render/ppm_loader.h"
 
@@ -20,6 +21,8 @@ struct Options {
   asciiomium::render::SamplingFilter filter =
       asciiomium::render::SamplingFilter::BoxAverage;
   asciiomium::render::FitMode fit = asciiomium::render::FitMode::Stretch;
+  asciiomium::render::ColorMode color_mode =
+      asciiomium::render::ColorMode::TrueColor;
   double cell_aspect = 0.5;
 };
 
@@ -53,6 +56,7 @@ void PrintUsage() {
       << "  --rows N                terminal rows (default 4)\n"
       << "  --filter nearest|box    sampling filter (default box)\n"
       << "  --fit stretch|contain   viewport mapping (default stretch)\n"
+      << "  --colors true|16|256|512|1024 (default true)\n"
       << "  --cell-aspect X         cell width/height for contain mode (default 0.5)\n";
 }
 
@@ -101,6 +105,13 @@ bool ParseArgs(int argc, char** argv, Options* options) {
       }
       return false;
     }
+    if (arg == "--colors" && i + 1 < argc) {
+      if (!asciiomium::render::TryParseColorMode(argv[++i],
+                                                 &options->color_mode)) {
+        return false;
+      }
+      continue;
+    }
     if (arg == "--cell-aspect" && i + 1 < argc &&
         ParseDouble(argv[i + 1], &options->cell_aspect)) {
       ++i;
@@ -111,10 +122,19 @@ bool ParseArgs(int argc, char** argv, Options* options) {
   return !options->input.empty();
 }
 
-void PrintColor(const asciiomium::render::Rgb8& color) {
+void PrintRgb(const asciiomium::render::Rgb8& color) {
   std::cout << static_cast<int>(color.r) << ','
             << static_cast<int>(color.g) << ','
             << static_cast<int>(color.b);
+}
+
+void PrintColor(const asciiomium::render::TerminalColor& color) {
+  if (color.is_indexed()) {
+    std::cout << "idx:" << static_cast<int>(color.index) << "/rgb:";
+  } else {
+    std::cout << "rgb:";
+  }
+  PrintRgb(color.rgb);
 }
 
 }  // namespace
@@ -128,15 +148,19 @@ int main(int argc, char** argv) {
 
   try {
     const auto image = asciiomium::render::LoadPpmP3(options.input);
+    asciiomium::render::ModeQuantizer quantizer(options.color_mode);
     asciiomium::render::RenderConfig config;
     config.filter = options.filter;
     config.fit_mode = options.fit;
     config.cell_aspect = options.cell_aspect;
+    config.quantizer = &quantizer;
 
     const auto frame = asciiomium::render::RenderHalfBlock(
         image.view(), {options.columns, options.rows}, config);
 
-    std::cout << "frame " << frame.columns() << 'x' << frame.rows() << '\n';
+    std::cout << "frame " << frame.columns() << 'x' << frame.rows()
+              << " colors=" << asciiomium::render::ColorModeName(options.color_mode)
+              << '\n';
     for (int row = 0; row < frame.rows(); ++row) {
       for (int column = 0; column < frame.columns(); ++column) {
         const auto& cell = frame.at(column, row);
