@@ -23,6 +23,8 @@ struct SourceFrameSnapshot {
   std::vector<DirtyRect> dirty_rects;
   std::uint64_t generation = 0;
   std::uint64_t paint_count = 0;
+  std::uint8_t rgb_byte_min = 255;
+  std::uint8_t rgb_byte_max = 0;
   std::uint8_t alpha_min = 255;
   std::uint8_t alpha_max = 0;
 
@@ -30,6 +32,11 @@ struct SourceFrameSnapshot {
     return width > 0 && height > 0 &&
            bgra.size() == static_cast<std::size_t>(width) *
                               static_cast<std::size_t>(height) * 4u;
+  }
+
+  [[nodiscard]] unsigned rgb_byte_span() const noexcept {
+    return static_cast<unsigned>(rgb_byte_max) -
+           static_cast<unsigned>(rgb_byte_min);
   }
 };
 
