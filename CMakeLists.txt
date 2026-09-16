@@ -96,7 +96,9 @@ target_compile_features(asciiomium PRIVATE cxx_std_20)
 set_target_properties(asciiomium PROPERTIES FOLDER "ASCIIomium")
 
 add_executable(asciiomium_frame_dump tools/frame_dump.cpp)
-target_link_libraries(asciiomium_frame_dump PRIVATE asciiomium_render)
+target_link_libraries(asciiomium_frame_dump PRIVATE
+  asciiomium_render
+  asciiomium_terminal)
 target_compile_features(asciiomium_frame_dump PRIVATE cxx_std_20)
 set_target_properties(asciiomium_frame_dump PROPERTIES FOLDER "Tools")
 
