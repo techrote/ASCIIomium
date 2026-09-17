@@ -38,7 +38,7 @@ jobs:
 
       - name: Build Debug
         shell: pwsh
-        run: cmake --build build --config Debug --target asciiomium asciiomium_tests terminal_logic_tests terminal_console_smoke full_frame_emitter_tests vt_console_smoke render_golden_tests color_quantizer_tests benchmark_result_tests source_frame_tests asciiomium_frame_dump asciiomium_color_ramp asciiomium_vt_preview asciiomium_benchmark asciiomium_cef_capture --parallel
+        run: cmake --build build --config Debug --target asciiomium asciiomium_live asciiomium_tests terminal_logic_tests terminal_console_smoke full_frame_emitter_tests vt_console_smoke render_golden_tests color_quantizer_tests benchmark_result_tests source_frame_tests live_runtime_tests asciiomium_frame_dump asciiomium_color_ramp asciiomium_vt_preview asciiomium_benchmark asciiomium_cef_capture --parallel
 
       - name: Test Debug
         shell: pwsh
@@ -103,9 +103,39 @@ jobs:
           if (-not $data.closed_cleanly) { throw 'CEF did not close cleanly' }
           if ($data.pixel_contract -notmatch '^BGRA8') { throw 'CEF pixel contract missing' }
 
+      - name: Run Debug static live pipeline
+        shell: pwsh
+        run: |
+          .\build\bin\DEBUG\asciiomium_live.exe `
+            --fixture flat-ui --freeze `
+            --width 640 --height 360 `
+            --columns 100 --rows 30 `
+            --fps 20 --cef-fps 60 --duration-ms 1500 `
+            --no-terminal --quiet `
+            --report .\build\live-static-debug.json `
+            --evidence-svg .\build\live-static-debug.svg `
+            --vt-output .\build\live-static-debug.vt
+
+      - name: Validate Debug static live idling
+        shell: pwsh
+        run: |
+          $data = Get-Content -Raw .\build\live-static-debug.json | ConvertFrom-Json
+          if ($data.schema -ne 'asciiomium-live-v1') { throw 'wrong live schema' }
+          if (-not $data.load.complete) { throw 'static live fixture did not complete loading' }
+          if ($data.renderer.glyph_encoder -ne 'halfblock-u2580') { throw 'wrong live glyph encoder' }
+          if ($data.renderer.color_mode -ne '1024') { throw '1024 colour is not the live default' }
+          if ($data.renderer.sampling_filter -ne 'box') { throw 'box filter is not the live default' }
+          if ($data.scheduler.rendered_frames -ne $data.scheduler.emitted_frames) { throw 'render/emission accounting mismatch' }
+          if ($data.scheduler.emitted_frames -lt 1) { throw 'static live fixture emitted no terminal frames' }
+          if ($data.scheduler.emitted_frames -gt 8) { throw 'static page kept repainting instead of idling' }
+          if ($data.runtime.idle_iterations -le $data.scheduler.rendered_frames) { throw 'static loop did not spend time idle' }
+          if (-not $data.runtime.terminal_restored) { throw 'headless live teardown did not complete' }
+          if (-not $data.runtime.closed_cleanly) { throw 'CEF did not close cleanly after static live run' }
+          if ($data.runtime.last_vt_bytes -le 0) { throw 'live full-frame emitter produced no VT payload' }
+
       - name: Build Release
         shell: pwsh
-        run: cmake --build build --config Release --target asciiomium asciiomium_tests terminal_logic_tests terminal_console_smoke full_frame_emitter_tests vt_console_smoke render_golden_tests color_quantizer_tests benchmark_result_tests source_frame_tests asciiomium_frame_dump asciiomium_color_ramp asciiomium_vt_preview asciiomium_benchmark asciiomium_cef_capture --parallel
+        run: cmake --build build --config Release --target asciiomium asciiomium_live asciiomium_tests terminal_logic_tests terminal_console_smoke full_frame_emitter_tests vt_console_smoke render_golden_tests color_quantizer_tests benchmark_result_tests source_frame_tests live_runtime_tests asciiomium_frame_dump asciiomium_color_ramp asciiomium_vt_preview asciiomium_benchmark asciiomium_cef_capture --parallel
 
       - name: Test Release
         shell: pwsh
@@ -161,6 +191,36 @@ jobs:
           if ($data.view.storage_capacity_bytes -lt (640 * 360 * 4)) { throw 'view storage is unexpectedly small' }
           if (-not $data.closed_cleanly) { throw 'CEF did not close cleanly after animated fixture' }
 
+      - name: Run Release animated live pipeline
+        shell: pwsh
+        run: |
+          .\build\bin\RELEASE\asciiomium_live.exe `
+            --fixture motion-scroll `
+            --width 640 --height 360 `
+            --columns 120 --rows 40 `
+            --fps 20 --cef-fps 60 --duration-ms 2000 `
+            --no-terminal --quiet `
+            --report .\build\live-motion-release.json `
+            --evidence-svg .\build\live-motion-release.svg `
+            --vt-output .\build\live-motion-release.vt
+
+      - name: Validate Release live frame pacing
+        shell: pwsh
+        run: |
+          $data = Get-Content -Raw .\build\live-motion-release.json | ConvertFrom-Json
+          if ($data.schema -ne 'asciiomium-live-v1') { throw 'wrong live schema' }
+          if (-not $data.load.complete) { throw 'animated live fixture did not complete loading' }
+          if ($data.renderer.max_fps -ne 20) { throw 'wrong live FPS cap' }
+          if ($data.scheduler.emitted_frames -lt 10) { throw 'animated live fixture emitted too few frames' }
+          if ($data.scheduler.rendered_frames -ne $data.scheduler.emitted_frames) { throw 'render/emission accounting mismatch' }
+          if ($data.source.view_paint_count -le $data.scheduler.emitted_frames) { throw 'source did not outrun terminal output' }
+          if ($data.scheduler.coalesced_generations -le 0) { throw 'newest-frame coalescing was not observed' }
+          if ($data.scheduler.observed_emitted_fps -gt 22.0) { throw 'live output exceeded FPS cap tolerance' }
+          if ($data.timing_ms.conversion.average -le 0 -or $data.timing_ms.conversion.p95 -le 0) { throw 'missing live conversion timings' }
+          if (-not $data.runtime.terminal_restored) { throw 'live teardown did not complete' }
+          if (-not $data.runtime.closed_cleanly) { throw 'CEF did not close cleanly after live run' }
+          if ($data.runtime.last_vt_bytes -le 0) { throw 'animated live VT payload missing' }
+
       - name: Upload colour-ramp evidence
         uses: actions/upload-artifact@v4
         with:
@@ -191,4 +251,17 @@ jobs:
             build/cef-motion-release.json
             build/fixture-screenshots/colour-ramps.png
             build/fixture-screenshots/motion-scroll.png
+          if-no-files-found: error
+
+      - name: Upload live terminal pipeline evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: asciiomium-live-pipeline-evidence
+          path: |
+            build/live-static-debug.json
+            build/live-static-debug.svg
+            build/live-static-debug.vt
+            build/live-motion-release.json
+            build/live-motion-release.svg
+            build/live-motion-release.vt
           if-no-files-found: error
