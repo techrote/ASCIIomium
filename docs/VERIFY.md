@@ -65,6 +65,10 @@ Acceptance:
 - full-repaint reference mode works;
 - instrumentation reports source/render/emission rates.
 
+Issue #9 adds two automated V3 checks in addition to the interactive Windows Terminal run. The static fixture runs the real CEF→popup-compositor→half-block→full-frame-VT pipeline headlessly for a bounded interval and must settle into idle rather than emitting continuously. The animated fixture runs CEF faster than the terminal cap and must record coalesced presentation generations while output remains within the configured frame-rate tolerance. Both runs emit `asciiomium-live-v1` JSON plus an SVG representation of the final logical terminal frame and the exact final full-frame VT payload.
+
+The automated/headless path intentionally skips only the final console `WriteFile`; it does not replace CEF capture, sampling, quantisation, glyph generation or VT serialization. Actual Windows Terminal visual behaviour remains an interactive V3 observation because a hosted CI runner cannot provide that UI.
+
 ## V4 — Input
 
 Use the dedicated input fixture.
