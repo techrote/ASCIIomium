@@ -57,6 +57,28 @@ struct PopupFrameSnapshot {
   }
 };
 
+// Cheap metadata snapshot for the live scheduler. Reading this structure does
+// not copy either pixel buffer, so the main loop can poll for new presentation
+// work without copying a full CEF framebuffer every iteration.
+struct SourceFrameState {
+  std::uint64_t presentation_generation = 0;
+  std::uint64_t view_generation = 0;
+  std::uint64_t view_paint_count = 0;
+  std::uint64_t popup_generation = 0;
+  std::uint64_t popup_paint_count = 0;
+  bool popup_visible = false;
+  DirtyRect popup_bounds{};
+};
+
+// Coherent full snapshot used only when the scheduler has decided to render.
+// View and popup are copied under one lock so future CEF threading changes
+// cannot produce a frame assembled from two different presentation states.
+struct SourcePresentationSnapshot {
+  SourceFrameSnapshot view;
+  PopupFrameSnapshot popup;
+  std::uint64_t presentation_generation = 0;
+};
+
 // Thread-safe, bounded newest-frame storage for CEF OSR callbacks.
 //
 // The store never queues historical paint buffers. A new PET_VIEW paint replaces
@@ -80,6 +102,8 @@ class SourceFrameStore {
 
   [[nodiscard]] SourceFrameSnapshot SnapshotView() const;
   [[nodiscard]] PopupFrameSnapshot SnapshotPopup() const;
+  [[nodiscard]] SourceFrameState SnapshotState() const;
+  [[nodiscard]] SourcePresentationSnapshot SnapshotPresentation() const;
 
   [[nodiscard]] std::size_t ViewStorageCapacityBytes() const;
   [[nodiscard]] std::size_t PopupStorageCapacityBytes() const;
@@ -88,6 +112,7 @@ class SourceFrameStore {
   mutable std::mutex mutex_;
   SourceFrameSnapshot view_;
   PopupFrameSnapshot popup_;
+  std::uint64_t presentation_generation_ = 0;
 };
 
 }  // namespace asciiomium::browser
