@@ -85,7 +85,12 @@ void SourceFrameStore::SetPopupBounds(DirtyRect bounds) {
     return;
   }
   popup_.bounds = bounds;
-  ++presentation_generation_;
+  // Bounds are presentation state only while the popup is visible. CEF may
+  // update bookkeeping for a hidden popup; that must not wake an otherwise
+  // static terminal frame loop.
+  if (popup_.visible) {
+    ++presentation_generation_;
+  }
 }
 
 void SourceFrameStore::UpdatePopup(
