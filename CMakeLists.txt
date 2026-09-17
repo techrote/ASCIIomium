@@ -19,6 +19,11 @@ endif()
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+# CEF's official Windows C++ wrapper is built with the static MSVC runtime.
+# Issue #9 links that wrapper into the same executable as render/terminal code,
+# so keep one CRT model across all native targets instead of crossing allocator
+# boundaries between /MD and /MT static libraries.
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
 foreach(config DEBUG RELEASE)
@@ -107,10 +112,23 @@ target_include_directories(asciiomium_benchmark_support PUBLIC "${CMAKE_CURRENT_
 target_compile_features(asciiomium_benchmark_support PUBLIC cxx_std_20)
 set_target_properties(asciiomium_benchmark_support PROPERTIES FOLDER "ASCIIomium")
 
-# Newest-frame storage is kept free of CEF headers so its ownership semantics
-# can be unit-tested independently. Match CEF's Windows /MT runtime because the
-# same library is linked into the OSR client executable.
+# Central live-loop pacing and bounded instrumentation are independent of both
+# CEF and the terminal backend so scheduler behaviour is deterministic in unit
+# tests and cannot accidentally absorb subsystem responsibilities.
+add_library(asciiomium_runtime STATIC
+  src/runtime/frame_scheduler.cpp
+  src/runtime/frame_scheduler.h
+  src/runtime/timing_series.cpp
+  src/runtime/timing_series.h)
+target_include_directories(asciiomium_runtime PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_compile_features(asciiomium_runtime PUBLIC cxx_std_20)
+set_target_properties(asciiomium_runtime PROPERTIES FOLDER "ASCIIomium")
+
+# Newest-frame storage and popup composition are kept free of CEF headers so
+# ownership/composition semantics can be unit-tested independently.
 add_library(asciiomium_source_frame STATIC
+  src/browser/popup_compositor.cpp
+  src/browser/popup_compositor.h
   src/browser/source_frame.cpp
   src/browser/source_frame.h)
 target_include_directories(asciiomium_source_frame PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
@@ -148,6 +166,23 @@ target_link_libraries(asciiomium PRIVATE
   CEF::libcef)
 target_compile_features(asciiomium PRIVATE cxx_std_20)
 set_target_properties(asciiomium PROPERTIES FOLDER "ASCIIomium")
+
+add_executable(asciiomium_live src/app/live_main.cpp)
+target_link_libraries(asciiomium_live PRIVATE
+  asciiomium_browser
+  asciiomium_render
+  asciiomium_runtime
+  asciiomium_terminal)
+target_compile_features(asciiomium_live PRIVATE cxx_std_20)
+target_compile_definitions(asciiomium_live PRIVATE
+  __STDC_CONSTANT_MACROS
+  __STDC_FORMAT_MACROS
+  NOMINMAX
+  WIN32_LEAN_AND_MEAN
+  ASCIIOMIUM_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+set_target_properties(asciiomium_live PROPERTIES
+  FOLDER "ASCIIomium"
+  MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
 add_executable(asciiomium_frame_dump tools/frame_dump.cpp)
 target_link_libraries(asciiomium_frame_dump PRIVATE
@@ -237,6 +272,7 @@ function(asciiomium_stage_cef_browser_runtime target)
 endfunction()
 
 asciiomium_stage_cef_runtime(asciiomium)
+asciiomium_stage_cef_browser_runtime(asciiomium_live)
 asciiomium_stage_cef_browser_runtime(asciiomium_cef_capture)
 
 enable_testing()
@@ -299,6 +335,14 @@ set_target_properties(source_frame_tests PROPERTIES
   FOLDER "Tests"
   MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 add_test(NAME source_frame COMMAND "$<TARGET_FILE:source_frame_tests>")
+
+add_executable(live_runtime_tests tests/live_runtime_test.cpp)
+target_link_libraries(live_runtime_tests PRIVATE
+  asciiomium_runtime
+  asciiomium_source_frame)
+target_compile_features(live_runtime_tests PRIVATE cxx_std_20)
+set_target_properties(live_runtime_tests PROPERTIES FOLDER "Tests")
+add_test(NAME live_runtime COMMAND "$<TARGET_FILE:live_runtime_tests>")
 
 message(STATUS "ASCIIomium version: ${PROJECT_VERSION}")
 message(STATUS "Pinned CEF: ${ASCIIOMIUM_CEF_VERSION}")

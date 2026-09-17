@@ -45,6 +45,7 @@ void SourceFrameStore::UpdateView(
   view_.dirty_rects = dirty_rects;
   ++view_.generation;
   ++view_.paint_count;
+  ++presentation_generation_;
 
   std::uint8_t rgb_min = 255;
   std::uint8_t rgb_max = 0;
@@ -68,15 +69,28 @@ void SourceFrameStore::UpdateView(
 
 void SourceFrameStore::SetPopupVisible(bool visible) {
   std::lock_guard lock(mutex_);
+  if (popup_.visible == visible) {
+    return;
+  }
   popup_.visible = visible;
   if (!visible) {
     popup_.dirty_rects.clear();
   }
+  ++presentation_generation_;
 }
 
 void SourceFrameStore::SetPopupBounds(DirtyRect bounds) {
   std::lock_guard lock(mutex_);
+  if (popup_.bounds == bounds) {
+    return;
+  }
   popup_.bounds = bounds;
+  // Bounds are presentation state only while the popup is visible. CEF may
+  // update bookkeeping for a hidden popup; that must not wake an otherwise
+  // static terminal frame loop.
+  if (popup_.visible) {
+    ++presentation_generation_;
+  }
 }
 
 void SourceFrameStore::UpdatePopup(
@@ -93,6 +107,7 @@ void SourceFrameStore::UpdatePopup(
   popup_.dirty_rects = dirty_rects;
   ++popup_.generation;
   ++popup_.paint_count;
+  ++presentation_generation_;
 }
 
 SourceFrameSnapshot SourceFrameStore::SnapshotView() const {
@@ -103,6 +118,24 @@ SourceFrameSnapshot SourceFrameStore::SnapshotView() const {
 PopupFrameSnapshot SourceFrameStore::SnapshotPopup() const {
   std::lock_guard lock(mutex_);
   return popup_;
+}
+
+SourceFrameState SourceFrameStore::SnapshotState() const {
+  std::lock_guard lock(mutex_);
+  return SourceFrameState{
+      presentation_generation_,
+      view_.generation,
+      view_.paint_count,
+      popup_.generation,
+      popup_.paint_count,
+      popup_.visible,
+      popup_.bounds,
+  };
+}
+
+SourcePresentationSnapshot SourceFrameStore::SnapshotPresentation() const {
+  std::lock_guard lock(mutex_);
+  return SourcePresentationSnapshot{view_, popup_, presentation_generation_};
 }
 
 std::size_t SourceFrameStore::ViewStorageCapacityBytes() const {

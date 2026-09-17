@@ -40,11 +40,62 @@ That distinction is deliberate. The first proof of concept should be able to dis
 
 ## Current bootstrap
 
-The implementation now has a reproducible Windows x64 C++20/CMake foundation, an RAII terminal-runtime layer, a deterministic offline framebuffer-to-cell renderer, explicit true/16/256/512/1024 colour modes, a reference full-frame VT serializer, a versioned local Chromium fixture corpus, a machine-readable benchmark harness, and a real CEF CPU off-screen-rendering capture path. It pins CEF `151.3.17+gf059e67+chromium-151.0.7922.138`, verifies the real CEF runtime, can take temporary ownership of a Windows console session, convert RGBA/BGRA images into fixed-size Unicode half-block `TerminalFrame`s, serialize those frames into real indexed/true-colour VT output, and capture newest-frame BGRA pixels from Chromium `OnPaint` callbacks with resize and popup metadata.
+The implementation now has a reproducible Windows x64 C++20/CMake foundation, an RAII terminal-runtime layer, a deterministic offline framebuffer-to-cell renderer, explicit true/16/256/512/1024 colour modes, a reference full-frame VT serializer, a versioned local Chromium fixture corpus, a machine-readable benchmark harness, real CEF CPU off-screen rendering, and the first **live Chromium → terminal** pipeline.
 
-The next integration step is issue #9: consume the newest live CEF frame, run it through the existing renderer, and display it continuously in Windows Terminal with bounded frame pacing.
+It pins CEF `151.3.17+gf059e67+chromium-151.0.7922.138`, captures newest-frame BGRA pixels from Chromium `OnPaint` callbacks, composites CEF popup widgets, converts them through the existing half-block renderer, quantises to the selected colour mode, and continuously serialises the resulting `TerminalFrame` to Windows Terminal. The live scheduler deliberately keeps only newest-frame semantics: source paints may run faster than terminal output, but superseded generations are coalesced instead of queued.
 
-After building, exercise the terminal layer from Windows Terminal:
+The practical live default is **U+2580 half-blocks, box-average sampling, 1024 colours, a 20 FPS terminal cap, and a 60 FPS CEF OSR cap**. Static pages stop producing terminal frames once the source stops changing; terminal resize forces a resample without inventing a browser frame.
+
+The next major integration step is browser input forwarding: keyboard, mouse, wheel and focus events from Windows Terminal back into CEF.
+
+## Run the live browser
+
+Build Release, open Windows Terminal in the repository, and run:
+
+```powershell
+.\build\bin\RELEASE\asciiomium_live.exe
+```
+
+The default target is the bundled animated `motion-scroll` fixture. An explicit equivalent is:
+
+```powershell
+.\build\bin\RELEASE\asciiomium_live.exe `
+  --fixture motion-scroll `
+  --width 960 --height 540 `
+  --fps 20 --colors 1024 --filter box
+```
+
+Press `Ctrl+C` to exit. The terminal session restores SGR state, cursor visibility, alternate-screen state, console modes and code pages during normal teardown.
+
+A real URL can be rendered through the same path:
+
+```powershell
+.\build\bin\RELEASE\asciiomium_live.exe `
+  --url https://example.com/ `
+  --fps 15 --colors 1024
+```
+
+Input forwarding is not implemented yet, so this milestone is a live visual browser rather than a fully interactive one.
+
+For deterministic CI/benchmark runs, `--no-terminal` executes the same CEF → popup composition → half-block → colour quantisation → VT serialization path while skipping only the final console `WriteFile`. It can emit JSON metrics, a logical-frame SVG, and the exact final VT payload:
+
+```powershell
+.\build\bin\RELEASE\asciiomium_live.exe `
+  --fixture motion-scroll `
+  --width 640 --height 360 `
+  --columns 120 --rows 40 `
+  --fps 20 --cef-fps 60 --duration-ms 2000 `
+  --no-terminal `
+  --report .\build\live.json `
+  --evidence-svg .\build\live.svg `
+  --vt-output .\build\live.vt
+```
+
+See [`docs/LIVE_PIPELINE.md`](docs/LIVE_PIPELINE.md) for scheduling, popup composition, diagnostics and shutdown contracts.
+
+## Earlier diagnostics
+
+Exercise the terminal layer from Windows Terminal:
 
 ```powershell
 .\build\bin\DEBUG\asciiomium.exe --terminal-diagnostics
@@ -118,8 +169,6 @@ Run the reproducible offline benchmark and emit JSON with:
   --json .\build\benchmark.json
 ```
 
-See [`docs/BUILDING.md`](docs/BUILDING.md), [`docs/TERMINAL_RUNTIME.md`](docs/TERMINAL_RUNTIME.md), [`docs/OFFLINE_RENDERER.md`](docs/OFFLINE_RENDERER.md), [`docs/COLOR_MODES.md`](docs/COLOR_MODES.md), [`docs/VT_EMITTER.md`](docs/VT_EMITTER.md), [`docs/BENCHMARKS_AND_FIXTURES.md`](docs/BENCHMARKS_AND_FIXTURES.md), and [`docs/CEF_OSR.md`](docs/CEF_OSR.md) for the current implementation contracts.
-
 ## Colour model
 
 "ANSI" does **not** mean a 16-colour restriction here. ASCIIomium implements:
@@ -141,6 +190,8 @@ The 512/1024 modes remain RGB colours and use true-colour SGR after quantisation
 ## CEF source-frame model
 
 The baseline CEF integration uses CPU windowless rendering and copies callback-owned pixels into one bounded newest-view buffer plus one separately tracked newest-popup buffer. Historical paint generations are not queued. View resize is accepted only after a fresh post-resize `OnPaint` arrives with the requested dimensions.
+
+The live layer polls only lightweight generation metadata until a render slot is due. It then takes one coherent view/popup snapshot, composites the popup using CEF's premultiplied-alpha semantics, renders the newest presentation, and counts skipped intermediate generations as coalesced. The full-frame VT emitter remains the correctness reference until differential emission is introduced later.
 
 For this milestone the direct executable is built with the CEF sandbox disabled. That is an explicit temporary bootstrap exception caused by the conventional direct-`libcef` architecture established in issue #2; it is documented in [`docs/CEF_OSR.md`](docs/CEF_OSR.md) and is not the intended distribution security posture.
 
@@ -172,6 +223,7 @@ Start here before implementation:
 - [`docs/VT_EMITTER.md`](docs/VT_EMITTER.md) — reference full-frame serialization, SGR compression, UTF-8 and right-margin policy.
 - [`docs/BENCHMARKS_AND_FIXTURES.md`](docs/BENCHMARKS_AND_FIXTURES.md) — deterministic browser fixtures, manifest verification and JSON benchmark schema.
 - [`docs/CEF_OSR.md`](docs/CEF_OSR.md) — implemented CPU off-screen capture, frame ownership, popup, resize, diagnostics and sandbox exception.
+- [`docs/LIVE_PIPELINE.md`](docs/LIVE_PIPELINE.md) — live CEF-to-terminal scheduling, popup composition, metrics and teardown.
 - [`docs/INPUT_MODEL.md`](docs/INPUT_MODEL.md) — terminal input to browser-event mapping.
 - [`docs/CEF_AND_TERMINAL_REFERENCE.md`](docs/CEF_AND_TERMINAL_REFERENCE.md) — primary technical references and compatibility facts.
 - [`docs/QUALITY_AND_BENCHMARKS.md`](docs/QUALITY_AND_BENCHMARKS.md) — measurable quality/performance criteria.

@@ -71,6 +71,10 @@ int main() {
   Require(snapshot.bgra.size() == 16, "repeated paints retain one fixed-size view buffer");
   Require(store.ViewStorageCapacityBytes() == warmed_capacity,
           "same-size paints do not grow view storage capacity");
+  auto state = store.SnapshotState();
+  Require(state.presentation_generation == 1002 &&
+              state.view_generation == 1002 && state.view_paint_count == 1002,
+          "view paints advance lightweight presentation metadata exactly once");
 
   store.SetPopupVisible(true);
   store.SetPopupBounds(DirtyRect{5, 7, 2, 1});
@@ -88,11 +92,33 @@ int main() {
   Require(store.SnapshotView().paint_count == 1002,
           "popup paint does not mutate view generation");
 
+  const auto visible_state = store.SnapshotState();
+  Require(visible_state.presentation_generation == 1005,
+          "popup show, visible bounds and popup paint each wake presentation");
+
   store.SetPopupVisible(false);
   popup_snapshot = store.SnapshotPopup();
   Require(!popup_snapshot.visible, "popup hide tracked");
   Require(popup_snapshot.has_pixels(),
           "last popup pixels retained for diagnostic/composition handoff");
+
+  const auto hidden_generation = store.SnapshotState().presentation_generation;
+  store.SetPopupBounds(DirtyRect{9, 11, 2, 1});
+  state = store.SnapshotState();
+  Require(state.popup_bounds == DirtyRect{9, 11, 2, 1},
+          "hidden popup bounds bookkeeping remains current");
+  Require(state.presentation_generation == hidden_generation,
+          "hidden popup bounds changes do not wake a static presentation");
+
+  store.SetPopupVisible(true);
+  Require(store.SnapshotState().presentation_generation == hidden_generation + 1,
+          "showing popup wakes presentation using its latest bounds");
+
+  const auto coherent = store.SnapshotPresentation();
+  Require(coherent.presentation_generation ==
+              store.SnapshotState().presentation_generation &&
+              coherent.view.generation == 1002 && coherent.popup.generation == 1,
+          "coherent presentation snapshot carries matching newest metadata");
 
   if (failures != 0) {
     std::cerr << failures << " source-frame assertion(s) failed\n";
