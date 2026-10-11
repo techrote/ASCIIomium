@@ -19,6 +19,7 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <vector>
 
 #include "browser/cef_key_translator.h"
 #include "browser/osr_client.h"
@@ -143,7 +144,7 @@ void PrintUsage() {
       << "  --colors MODE           true|16|256|512|1024 (default 1024)\n"
       << "  --filter MODE           box|nearest (default box)\n"
       << "  --freeze                append ?freeze=1 to bundled fixture URL\n"
-      << "  --duration-ms N         stop after N ms; 0 means until Ctrl+C (default 0)\n"
+      << "  --duration-ms N         stop after N ms; 0 means until quit chord (default 0)\n"
       << "  --max-frames N          stop after N emitted frames; 0 means unlimited\n"
       << "  --no-terminal           serialize frames without acquiring a console (CI/benchmark)\n"
       << "  --columns N --rows N    logical target for --no-terminal (default 120x40)\n"
@@ -237,8 +238,8 @@ bool ParseArgs(int argc, char** argv, Options* options) {
   }
 
   // Headless/CI runs need a deterministic stop condition. Interactive terminal
-  // mode may intentionally run forever until the terminal control handler sees
-  // Ctrl+C.
+  // mode may intentionally run forever until the browser-mode quit chord is
+  // decoded (or a separate console-control shutdown occurs).
   if (!options->terminal_output && options->duration_ms == 0 &&
       options->max_frames == 0) {
     return false;
