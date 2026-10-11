@@ -97,3 +97,18 @@ Alternate-screen state, cursor visibility, input/mouse modes, and SGR state must
 **Status:** accepted.
 
 Dirty-region conversion, SIMD, threads, D3D shared textures, GPU compute, and custom frame pacing are welcome only when they preserve testable reference behaviour and have benchmark evidence.
+
+## D-015 — One immutable viewport transform owns render/input geometry
+
+**Status:** accepted.
+
+Milestone 1 keeps a fixed CEF browser viewport and fits it into the current
+terminal through one immutable `ViewportTransform`. The live default is
+aspect-preserving `contain` with configurable cell width/height ratio; stretch
+remains a reference mode.
+
+The transform owns half-block sample geometry, content bounds and both
+terminal-cell/browser-pixel mappings. Rendering and input must consume this
+shared object rather than duplicate coordinate formulas. Terminal-only resize
+publishes a new transform generation and forces a repaint without resizing CEF.
+CEF resize notification is reserved for actual browser pixel-dimension changes.
