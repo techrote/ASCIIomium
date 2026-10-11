@@ -98,6 +98,23 @@ void TestContainAndCellAspect() {
   Require(!transform.TerminalCellToBrowser(40, 31).has_value(),
           "terminal cell centres in bottom letterbox are rejected");
 
+  Require(transform.BrowserPixelToTerminal(0, 0) ==
+              asciiomium::geometry::TerminalPoint{0, 9},
+          "top-left browser pixel maps to first clickable content cell");
+  Require(transform.BrowserPixelToTerminal(1599, 899) ==
+              asciiomium::geometry::TerminalPoint{79, 30},
+          "bottom-right browser pixel maps to last clickable content cell");
+
+  const auto centre_browser = transform.TerminalCellToBrowser(40, 20);
+  Require(centre_browser.has_value(),
+          "terminal viewport centre maps into contained browser content");
+  if (centre_browser.has_value()) {
+    Require(transform.BrowserPixelToTerminal(
+                centre_browser->x, centre_browser->y) ==
+                asciiomium::geometry::TerminalPoint{40, 20},
+            "accepted cell centre round-trips through browser coordinates");
+  }
+
   config.cell_aspect = 0.25;
   const auto narrow_cells =
       asciiomium::geometry::ViewportTransform::Create(config);
