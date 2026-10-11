@@ -38,7 +38,7 @@ jobs:
 
       - name: Build Debug
         shell: pwsh
-        run: cmake --build build --config Debug --target asciiomium asciiomium_live asciiomium_tests terminal_logic_tests terminal_console_smoke full_frame_emitter_tests vt_console_smoke render_golden_tests color_quantizer_tests benchmark_result_tests source_frame_tests live_runtime_tests asciiomium_frame_dump asciiomium_color_ramp asciiomium_vt_preview asciiomium_benchmark asciiomium_cef_capture --parallel
+        run: cmake --build build --config Debug --target asciiomium asciiomium_live asciiomium_tests terminal_logic_tests terminal_console_smoke full_frame_emitter_tests vt_console_smoke render_golden_tests color_quantizer_tests benchmark_result_tests source_frame_tests live_runtime_tests viewport_transform_tests asciiomium_frame_dump asciiomium_color_ramp asciiomium_vt_preview asciiomium_benchmark asciiomium_cef_capture --parallel
 
       - name: Test Debug
         shell: pwsh
@@ -135,7 +135,7 @@ jobs:
 
       - name: Build Release
         shell: pwsh
-        run: cmake --build build --config Release --target asciiomium asciiomium_live asciiomium_tests terminal_logic_tests terminal_console_smoke full_frame_emitter_tests vt_console_smoke render_golden_tests color_quantizer_tests benchmark_result_tests source_frame_tests live_runtime_tests asciiomium_frame_dump asciiomium_color_ramp asciiomium_vt_preview asciiomium_benchmark asciiomium_cef_capture --parallel
+        run: cmake --build build --config Release --target asciiomium asciiomium_live asciiomium_tests terminal_logic_tests terminal_console_smoke full_frame_emitter_tests vt_console_smoke render_golden_tests color_quantizer_tests benchmark_result_tests source_frame_tests live_runtime_tests viewport_transform_tests asciiomium_frame_dump asciiomium_color_ramp asciiomium_vt_preview asciiomium_benchmark asciiomium_cef_capture --parallel
 
       - name: Test Release
         shell: pwsh
