@@ -53,16 +53,38 @@ Mouse coordinates are relative to the upper-left corner of the browser view. The
 
 ## Keyboard path
 
-The keyboard parser must distinguish:
+Issue #11 implements the baseline keyboard path as:
 
-- printable UTF-8 text;
-- Enter/Tab/Backspace/Escape;
-- arrows/Home/End/PageUp/PageDown;
-- function keys where practical;
-- Ctrl/Alt/Shift modifiers;
-- key press/release limitations imposed by terminal protocols.
+```text
+Windows Terminal VT/UTF-8 byte stream
+    -> incremental VtInputParser
+    -> transport-neutral KeyboardEvent
+    -> CEF key translator
+    -> CefBrowserHost::SendKeyEvent
+```
 
-Do not try to perfectly emulate native Chromium keyboard semantics in milestone 1. Establish correct typing, editing keys, navigation keys, and common modifiers first, and document remaining gaps.
+The parser is incremental and bounded: reads may split UTF-8 code points or VT escape sequences at arbitrary byte boundaries. An ambiguous lone `ESC` is held briefly by the live loop, then resolved after a 35 ms quiet period. Parser state is capped at 64 bytes so malformed/incomplete sequences cannot grow without bound.
+
+Implemented milestone keys:
+
+- printable UTF-8 text, including non-BMP code points represented to CEF as a UTF-16 surrogate pair;
+- Enter, Tab, Backspace and ordinary Escape;
+- arrows, Home/End, PageUp/PageDown, Insert/Delete;
+- Shift+Tab;
+- xterm-style modifier parameters for navigation keys;
+- Ctrl control-byte combinations including Ctrl+A/C/V;
+- Alt-prefixed printable/control combinations;
+- F1-F12 through common SS3/CSI encodings.
+
+The terminal transport does **not** report native physical key-up transitions or a complete hardware scan-code history. ASCIIomium therefore emits synthetic RAWKEYDOWN/KEYUP pairs for logical/navigation/shortcut keys and does not claim physical-key fidelity. Plain Unicode text stays a separate CHAR path; it is not reconstructed into fake physical keystrokes.
+
+Ordinary printable Shift state is generally already consumed by the terminal when it produces the resulting character, so `A` may arrive as text without a distinct Shift modifier. AltGr/IME composition fidelity is deferred to #24.
+
+### Application quit chord
+
+Live browser mode uses immediate/raw VT keyboard input. `ENABLE_PROCESSED_INPUT` is disabled there so Ctrl+C reaches Chromium instead of being consumed by the Windows console control handler. The browser-mode application quit chord is **Ctrl+Alt+Q** (normally encoded as `ESC` + Ctrl+Q).
+
+The non-browser terminal diagnostic retains its existing Ctrl+C control-handler exit path.
 
 A future Windows-specific path may use richer console APIs when launched outside ConPTY, but it must not complicate the Windows Terminal baseline.
 
@@ -107,10 +129,12 @@ Later work should explicitly define:
 
 ## Diagnostics
 
-Provide an input debug mode displaying at minimum:
+Issue #11 provides `--input-debug`, displaying at minimum:
 
 ```text
 raw bytes -> decoded event -> terminal coordinates -> browser coordinates -> CEF event type/modifiers
 ```
 
 This is essential because terminal input failures otherwise appear indistinguishable from browser/UI failures.
+
+The debug log contains the immediate bytes typed by the operator, escaped for visibility. It does not inspect browser DOM, cookies or page secrets, but typed input itself can be sensitive; do not enable it while entering credentials.
