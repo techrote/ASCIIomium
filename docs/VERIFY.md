@@ -24,6 +24,8 @@ Unit-test pure logic including:
 - VT SGR serialisation;
 - mouse-coordinate transforms;
 - VT mouse parser;
+- incremental VT keyboard/UTF-8 parser;
+- canonical keyboard-event to CEF translation;
 - resize geometry.
 
 ## V1 — Offline renderer
@@ -87,20 +89,48 @@ Resize repeatedly between narrow/wide and short/tall windows. Expected:
 recognisable content is repainted without stale rows/columns; geometry
 generations advance only on actual dimension changes; the fixed browser
 viewport remains unchanged; `cef_resize=false` is logged for terminal-only
-resizes; Ctrl+C restores the terminal.
+resizes; Ctrl+Alt+Q restores the terminal.
 
 ## V4 — Input
 
-Use the dedicated input fixture.
+Use the dedicated `input-focus` fixture.
 
-Acceptance:
+Issue #11 automates the keyboard-only portion of V4. `input_parser_tests`
+exercise ASCII, 2/3/4-byte UTF-8, arbitrary read fragmentation, editing and
+navigation keys, Ctrl/Alt modifiers, function keys, malformed input, and the
+bounded pending-state contract. `cef_key_translator_tests` verify the split
+between text/CHAR delivery and logical RAWKEYDOWN/KEYUP delivery, including
+the no-duplicate-character rule for shortcuts.
+
+CI also runs the real live CEF path headlessly with:
+
+```text
+--fixture input-focus --freeze --input-script asciiomium --no-terminal
+```
+
+The resulting `asciiomium-live-v1` report must show that the script was
+decoded without unsupported events, CEF key events were sent, and a later
+presentation generation was observed after injection.
+
+Actual Windows Terminal keyboard transport still requires a local observation
+because a hosted runner cannot prove which VT bytes the GUI terminal emits.
+Run:
+
+```powershell
+.\build\bin\RELEASE\asciiomium_live.exe --fixture input-focus --input-debug
+```
+
+Verify ordinary ASCII and representative non-ASCII UTF-8 text; Backspace,
+Enter, Tab/Shift+Tab, arrows, Home/End, PageUp/PageDown, Delete/Insert where
+available; ordinary Escape; Ctrl+A/C/V where CEF/clipboard policy permits; and
+Ctrl+Alt+Q teardown. Confirm that the parent prompt and input mode are normal
+after exit.
+
+Pointer-specific V4 acceptance remains issue #12:
 
 - pointer movement diagnostics decode correctly;
 - click targets work at centre and near each viewport corner;
 - wheel scroll works;
-- text entry works;
-- editing/navigation keys work at least for the documented milestone set;
-- focus/caret state remains usable;
 - resize does not desynchronise coordinates.
 
 ## V5 — Differential emitter
