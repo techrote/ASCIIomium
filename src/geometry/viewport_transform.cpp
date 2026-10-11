@@ -135,22 +135,46 @@ std::optional<TerminalPoint> ViewportTransform::BrowserPixelToTerminal(
     return std::nullopt;
   }
 
+  // Input can only target terminal-cell centres. A contain fit can begin or
+  // end part-way through a cell because rendering has half-cell vertical
+  // resolution, so derive the range of cells whose centres are actually
+  // inside browser content. This keeps the inverse from returning a
+  // letterbox cell that TerminalCellToBrowser would reject.
+  const int first_column = std::max(
+      0, static_cast<int>(std::ceil(content_terminal_rect_.x - 0.5)));
+  const int last_column = std::min(
+      config_.terminal_columns - 1,
+      static_cast<int>(
+          std::ceil(content_terminal_rect_.x +
+                    content_terminal_rect_.width - 0.5)) -
+          1);
+  const int first_row = std::max(
+      config_.reserved_rows,
+      static_cast<int>(std::ceil(content_terminal_rect_.y - 0.5)));
+  const int last_row = std::min(
+      config_.terminal_rows - 1,
+      static_cast<int>(
+          std::ceil(content_terminal_rect_.y +
+                    content_terminal_rect_.height - 0.5)) -
+          1);
+  if (first_column > last_column || first_row > last_row) {
+    return std::nullopt;
+  }
+
   const double u =
       (static_cast<double>(x) + 0.5) / config_.browser_width;
   const double v =
       (static_cast<double>(y) + 0.5) / config_.browser_height;
-  const double sample_x =
-      content_sample_rect_.x + u * content_sample_rect_.width;
-  const double sample_y =
-      content_sample_rect_.y + v * content_sample_rect_.height;
+  const double terminal_x =
+      content_terminal_rect_.x + u * content_terminal_rect_.width;
+  const double terminal_y =
+      content_terminal_rect_.y + v * content_terminal_rect_.height;
 
   const int column = std::clamp(
-      static_cast<int>(std::floor(sample_x)),
-      0, config_.terminal_columns - 1);
-  const int content_row = std::clamp(
-      static_cast<int>(std::floor(sample_y * 0.5)),
-      0, content_rows_ - 1);
-  return TerminalPoint{column, config_.reserved_rows + content_row};
+      static_cast<int>(std::floor(terminal_x)), first_column, last_column);
+  const int row = std::clamp(
+      static_cast<int>(std::floor(terminal_y)), first_row, last_row);
+  return TerminalPoint{column, row};
 }
 
 ViewportPublishResult ViewportState::Publish(
