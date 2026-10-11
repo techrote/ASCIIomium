@@ -145,6 +145,27 @@ void TestOddSizesAndReservedRows() {
           "odd browser dimensions map centre through reserved row offset");
 }
 
+void TestTinyGeometry() {
+  asciiomium::geometry::ViewportConfig config;
+  config.terminal_columns = 1;
+  config.terminal_rows = 1;
+  config.browser_width = 1;
+  config.browser_height = 1;
+  config.cell_aspect = 0.5;
+  config.fit_mode = asciiomium::geometry::FitMode::Contain;
+
+  const auto transform =
+      asciiomium::geometry::ViewportTransform::Create(config);
+  Require(transform.sample_columns() == 1 && transform.sample_rows() == 2,
+          "one-cell viewport retains the two-sample half-block lattice");
+  Require(transform.TerminalCellToBrowser(0, 0) ==
+              asciiomium::geometry::BrowserPoint{0, 0},
+          "one-cell terminal maps safely to one-pixel browser");
+  Require(transform.BrowserPixelToTerminal(0, 0) ==
+              asciiomium::geometry::TerminalPoint{0, 0},
+          "one-pixel browser maps safely to one-cell terminal");
+}
+
 void TestInvalidAndPathologicalGeometry() {
   asciiomium::geometry::ViewportConfig config;
   config.terminal_columns = 80;
@@ -264,6 +285,7 @@ int main() {
   TestStretchMapping();
   TestContainAndCellAspect();
   TestOddSizesAndReservedRows();
+  TestTinyGeometry();
   TestInvalidAndPathologicalGeometry();
   TestPublicationTransitions();
   TestCliParsingHelpers();
