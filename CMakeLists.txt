@@ -91,6 +91,16 @@ target_compile_features(asciiomium_terminal PUBLIC cxx_std_20)
 target_compile_definitions(asciiomium_terminal PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
 set_target_properties(asciiomium_terminal PROPERTIES FOLDER "ASCIIomium")
 
+# Transport-neutral terminal keyboard decoding. Keep this free of CEF so raw
+# byte-stream behaviour and fragmentation can be tested deterministically.
+add_library(asciiomium_input STATIC
+  src/input/keyboard_event.h
+  src/input/vt_input_parser.cpp
+  src/input/vt_input_parser.h)
+target_include_directories(asciiomium_input PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_compile_features(asciiomium_input PUBLIC cxx_std_20)
+set_target_properties(asciiomium_input PROPERTIES FOLDER "ASCIIomium")
+
 # Pure offline renderer. This target deliberately has no dependency on CEF,
 # Win32 terminal I/O, stdout or the terminal runtime.
 add_library(asciiomium_render STATIC
@@ -138,12 +148,15 @@ set_target_properties(asciiomium_source_frame PROPERTIES
   MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
 add_library(asciiomium_browser STATIC
+  src/browser/cef_key_translator.cpp
+  src/browser/cef_key_translator.h
   src/browser/osr_client.cpp
   src/browser/osr_client.h)
 target_include_directories(asciiomium_browser PUBLIC
   "${CMAKE_CURRENT_SOURCE_DIR}/src"
   "${CEF_ROOT}")
 target_link_libraries(asciiomium_browser PUBLIC
+  asciiomium_input
   asciiomium_source_frame
   libcef_dll_wrapper
   libcef_lib
@@ -327,6 +340,20 @@ target_link_libraries(benchmark_result_tests PRIVATE asciiomium_benchmark_suppor
 target_compile_features(benchmark_result_tests PRIVATE cxx_std_20)
 set_target_properties(benchmark_result_tests PROPERTIES FOLDER "Tests")
 add_test(NAME benchmark_result COMMAND "$<TARGET_FILE:benchmark_result_tests>")
+
+add_executable(input_parser_tests tests/input_parser_test.cpp)
+target_link_libraries(input_parser_tests PRIVATE asciiomium_input)
+target_compile_features(input_parser_tests PRIVATE cxx_std_20)
+set_target_properties(input_parser_tests PROPERTIES FOLDER "Tests")
+add_test(NAME input_parser COMMAND "$<TARGET_FILE:input_parser_tests>")
+
+add_executable(cef_key_translator_tests tests/cef_key_translator_test.cpp)
+target_link_libraries(cef_key_translator_tests PRIVATE asciiomium_browser)
+target_compile_features(cef_key_translator_tests PRIVATE cxx_std_20)
+set_target_properties(cef_key_translator_tests PROPERTIES
+  FOLDER "Tests"
+  MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+add_test(NAME cef_key_translator COMMAND "$<TARGET_FILE:cef_key_translator_tests>")
 
 add_executable(source_frame_tests tests/source_frame_test.cpp)
 target_link_libraries(source_frame_tests PRIVATE asciiomium_source_frame)
