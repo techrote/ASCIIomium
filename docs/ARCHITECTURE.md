@@ -103,7 +103,8 @@ The mapping must account for the logical browser viewport and terminal cell geom
 
 ## Viewport model
 
-The browser viewport and terminal grid are deliberately decoupled.
+The browser viewport and terminal grid are deliberately decoupled and are now
+described by one immutable `geometry::ViewportTransform`.
 
 Example:
 
@@ -113,9 +114,32 @@ half-block:     160 x 100 logical colour samples
 CEF viewport:   1280 x 800 pixels
 ```
 
-The renderer resamples the CEF viewport into its logical sample grid. Mouse coordinates map through the inverse transform.
+Milestone 1 uses a **fixed CEF viewport** (configured by `--width/--height`)
+and resamples it into the current terminal grid. The live default fit policy is
+`contain`: source aspect is preserved after applying the configured terminal
+cell width/height ratio, with symmetric letterboxing where required.
+`--fit stretch` remains available as a diagnostic/reference policy.
 
-The browser viewport may initially use a fixed virtual resolution. A later mode may derive a target viewport from terminal dimensions and configurable browser-pixels-per-cell.
+`ViewportTransform` owns:
+
+- terminal rows/columns and any reserved UI rows;
+- the doubled half-block sample lattice;
+- browser viewport dimensions;
+- cell aspect and fit policy;
+- the fractional content rectangle;
+- terminal-cell-centre -> browser-pixel mapping;
+- browser-pixel -> terminal-cell inverse mapping.
+
+Pointer precision remains cell-granular. A terminal cell maps by its centre;
+cells whose centres lie in a contain-mode letterbox are rejected. Right and
+bottom bounds are exclusive. Rendering consumes the same immutable transform
+that later input work will snapshot through `ViewportState`.
+
+Terminal resize republishes a new transform generation and forces a full
+terminal refresh. It does **not** resize CEF under the fixed-viewport policy.
+CEF `WasResized()` is requested only when browser pixel dimensions actually
+change. A later policy may derive browser pixels from terminal dimensions
+without changing the transform API.
 
 ## Frame ownership and concurrency
 

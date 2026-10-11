@@ -69,6 +69,26 @@ Issue #9 adds two automated V3 checks in addition to the interactive Windows Ter
 
 The automated/headless path intentionally skips only the final console `WriteFile`; it does not replace CEF capture, sampling, quantisation, glyph generation or VT serialization. Actual Windows Terminal visual behaviour remains an interactive V3 observation because a hosted CI runner cannot provide that UI.
 
+### V3 geometry/resize checks
+
+Issue #10 adds a pure geometry test suite covering stretch/contain transforms,
+cell aspect, letterbox rejection, corners, inverse mapping, odd sizes, reserved
+rows, unsafe dimensions, and geometry generation transitions. The test log
+prints deterministic resize transitions including terminal size, browser size,
+logical sample lattice, generation and whether a browser resize is implied.
+
+For an interactive Windows Terminal observation, run:
+
+```powershell
+.\build\bin\RELEASE\asciiomium_live.exe --geometry-debug
+```
+
+Resize repeatedly between narrow/wide and short/tall windows. Expected:
+recognisable content is repainted without stale rows/columns; geometry
+generations advance only on actual dimension changes; the fixed browser
+viewport remains unchanged; `cef_resize=false` is logged for terminal-only
+resizes; Ctrl+C restores the terminal.
+
 ## V4 — Input
 
 Use the dedicated input fixture.

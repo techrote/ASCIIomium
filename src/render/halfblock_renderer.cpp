@@ -10,13 +10,6 @@
 namespace asciiomium::render {
 namespace {
 
-struct RectD {
-  double x = 0.0;
-  double y = 0.0;
-  double width = 0.0;
-  double height = 0.0;
-};
-
 [[nodiscard]] Rgba8 ReadPixel(ImageView image, int x, int y) noexcept {
   const auto* pixel = image.data +
                       static_cast<std::size_t>(y) * image.stride_bytes +
@@ -49,50 +42,15 @@ struct RectD {
               CompositeChannel(source.b, source.a, background.b)};
 }
 
-[[nodiscard]] RectD ComputeContentRect(ImageView source,
-                                       RenderTarget target,
-                                       const RenderConfig& config) {
-  const double sample_columns = static_cast<double>(target.columns);
-  const double sample_rows = static_cast<double>(target.rows) * 2.0;
-
-  if (config.fit_mode == FitMode::Stretch) {
-    return RectD{0.0, 0.0, sample_columns, sample_rows};
-  }
-
-  const double source_aspect =
-      static_cast<double>(source.width) / static_cast<double>(source.height);
-  const double sample_physical_aspect = 2.0 * config.cell_aspect;
-  const double desired_lattice_aspect = source_aspect / sample_physical_aspect;
-  const double target_lattice_aspect = sample_columns / sample_rows;
-
-  RectD rect;
-  if (target_lattice_aspect > desired_lattice_aspect) {
-    rect.height = sample_rows;
-    rect.width = desired_lattice_aspect * rect.height;
-    rect.x = (sample_columns - rect.width) * 0.5;
-    rect.y = 0.0;
-  } else {
-    rect.width = sample_columns;
-    rect.height = rect.width / desired_lattice_aspect;
-    rect.x = 0.0;
-    rect.y = (sample_rows - rect.height) * 0.5;
-  }
-  return rect;
-}
-
-[[nodiscard]] bool Contains(const RectD& rect, double x, double y) noexcept {
-  return x >= rect.x && y >= rect.y && x < rect.x + rect.width &&
-         y < rect.y + rect.height;
-}
-
-[[nodiscard]] Rgb8 NearestSample(ImageView source,
-                                 const RectD& content,
-                                 int sample_x,
-                                 int sample_y,
-                                 Rgb8 background) noexcept {
+[[nodiscard]] Rgb8 NearestSample(
+    ImageView source,
+    const asciiomium::geometry::RectD& content,
+    int sample_x,
+    int sample_y,
+    Rgb8 background) noexcept {
   const double x = static_cast<double>(sample_x) + 0.5;
   const double y = static_cast<double>(sample_y) + 0.5;
-  if (!Contains(content, x, y)) {
+  if (!content.Contains(x, y)) {
     return background;
   }
 
@@ -107,11 +65,12 @@ struct RectD {
   return Composite(ReadPixel(source, source_x, source_y), background);
 }
 
-[[nodiscard]] Rgb8 BoxSample(ImageView source,
-                             const RectD& content,
-                             int sample_x,
-                             int sample_y,
-                             Rgb8 background) noexcept {
+[[nodiscard]] Rgb8 BoxSample(
+    ImageView source,
+    const asciiomium::geometry::RectD& content,
+    int sample_x,
+    int sample_y,
+    Rgb8 background) noexcept {
   const double output_x0 = static_cast<double>(sample_x);
   const double output_y0 = static_cast<double>(sample_y);
   const double output_x1 = output_x0 + 1.0;
@@ -194,11 +153,12 @@ struct RectD {
               channel(image_blue, background.b)};
 }
 
-[[nodiscard]] Rgb8 Sample(ImageView source,
-                          const RectD& content,
-                          int sample_x,
-                          int sample_y,
-                          const RenderConfig& config) noexcept {
+[[nodiscard]] Rgb8 Sample(
+    ImageView source,
+    const asciiomium::geometry::RectD& content,
+    int sample_x,
+    int sample_y,
+    const RenderConfig& config) noexcept {
   if (config.filter == SamplingFilter::Nearest) {
     return NearestSample(source, content, sample_x, sample_y,
                          config.alpha_background);
@@ -224,24 +184,57 @@ TerminalFrame RenderHalfBlock(ImageView source,
   if (!source.valid()) {
     throw std::invalid_argument("RenderHalfBlock requires a valid image view");
   }
-  if (target.columns <= 0 || target.rows <= 0) {
-    throw std::invalid_argument("RenderHalfBlock target dimensions must be positive");
+
+  asciiomium::geometry::ViewportConfig viewport_config;
+  viewport_config.terminal_columns = target.columns;
+  viewport_config.terminal_rows = target.rows;
+  viewport_config.browser_width = source.width;
+  viewport_config.browser_height = source.height;
+  viewport_config.cell_aspect = config.cell_aspect;
+  viewport_config.fit_mode = config.fit_mode;
+  const auto transform =
+      asciiomium::geometry::ViewportTransform::Create(viewport_config);
+  return RenderHalfBlock(source, transform, config);
+}
+
+TerminalFrame RenderHalfBlock(
+    ImageView source,
+    const asciiomium::geometry::ViewportTransform& transform,
+    const RenderConfig& config) {
+  if (!source.valid()) {
+    throw std::invalid_argument("RenderHalfBlock requires a valid image view");
   }
-  if (!std::isfinite(config.cell_aspect) || config.cell_aspect <= 0.0) {
-    throw std::invalid_argument("RenderHalfBlock cell_aspect must be finite and positive");
+  if (source.width != transform.browser_width() ||
+      source.height != transform.browser_height()) {
+    throw std::invalid_argument(
+        "source dimensions do not match authoritative browser viewport");
   }
 
-  const RectD content = ComputeContentRect(source, target, config);
+  const RenderTarget target{transform.terminal_columns(),
+                            transform.terminal_rows()};
+  const auto& content = transform.content_sample_rect();
+
   static const ModeQuantizer kTrueColor(ColorMode::TrueColor);
   const ColorQuantizer& quantizer =
       config.quantizer == nullptr ? static_cast<const ColorQuantizer&>(kTrueColor)
                                   : *config.quantizer;
+  const TerminalColor empty_upper = quantizer.Quantize(config.alpha_background);
+  const TerminalColor empty_lower = quantizer.Quantize(config.alpha_background);
 
   std::vector<TerminalCell> cells;
   cells.reserve(CheckedCellCount(target));
 
   for (int row = 0; row < target.rows; ++row) {
-    const int upper_sample_y = row * 2;
+    if (row < transform.reserved_rows()) {
+      for (int column = 0; column < target.columns; ++column) {
+        cells.push_back(
+            TerminalCell{kUpperHalfBlock, empty_upper, empty_lower});
+      }
+      continue;
+    }
+
+    const int content_row = row - transform.reserved_rows();
+    const int upper_sample_y = content_row * 2;
     const int lower_sample_y = upper_sample_y + 1;
     for (int column = 0; column < target.columns; ++column) {
       const TerminalColor upper = quantizer.Quantize(

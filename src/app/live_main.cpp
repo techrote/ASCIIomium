@@ -23,6 +23,7 @@
 #include "browser/osr_client.h"
 #include "browser/popup_compositor.h"
 #include "browser/source_frame.h"
+#include "geometry/viewport_transform.h"
 #include "include/cef_app.h"
 #include "include/cef_browser.h"
 #include "include/cef_version.h"
@@ -50,9 +51,13 @@ struct Options {
   int rows = 40;
   int duration_ms = 0;
   int max_frames = 0;
+  double cell_aspect = 0.5;
+  asciiomium::geometry::FitMode fit_mode =
+      asciiomium::geometry::FitMode::Contain;
   bool freeze = false;
   bool terminal_output = true;
   bool quiet = false;
+  bool geometry_debug = false;
   asciiomium::render::ColorMode color_mode =
       asciiomium::render::ColorMode::Rgb1024;
   asciiomium::render::SamplingFilter filter =
@@ -79,6 +84,12 @@ struct LiveEvidence {
   std::uint64_t loop_iterations = 0;
   std::uint64_t idle_iterations = 0;
   std::size_t last_vt_bytes = 0;
+  std::uint64_t geometry_generation = 0;
+  std::uint64_t cef_resize_requests = 0;
+  int sample_columns = 0;
+  int sample_rows = 0;
+  asciiomium::geometry::RectD content_sample_rect{};
+  asciiomium::geometry::RectD content_terminal_rect{};
   asciiomium::browser::SourceFrameState source_state{};
   asciiomium::runtime::FrameSchedulerStats scheduler{};
   asciiomium::runtime::TimingSeries conversion_timing;
@@ -131,6 +142,9 @@ void PrintUsage() {
       << "  --cef-fps N             CEF windowless frame-rate cap, 1..60 (default 60)\n"
       << "  --colors MODE           true|16|256|512|1024 (default 1024)\n"
       << "  --filter MODE           box|nearest (default box)\n"
+      << "  --fit MODE              contain|stretch (default contain)\n"
+      << "  --cell-aspect RATIO     cell width/height, 0.05..4 (default 0.5)\n"
+      << "  --geometry-debug        log viewport generations and mappings to stderr\n"
       << "  --freeze                append ?freeze=1 to bundled fixture URL\n"
       << "  --duration-ms N         stop after N ms; 0 means until Ctrl+C (default 0)\n"
       << "  --max-frames N          stop after N emitted frames; 0 means unlimited\n"
@@ -202,6 +216,20 @@ bool ParseArgs(int argc, char** argv, Options* options) {
         return false;
       }
       ++i;
+    } else if (arg == "--fit") {
+      if (i + 1 >= argc ||
+          !asciiomium::geometry::TryParseFitMode(argv[i + 1],
+                                                 &options->fit_mode)) {
+        return false;
+      }
+      ++i;
+    } else if (arg == "--cell-aspect") {
+      if (i + 1 >= argc ||
+          !asciiomium::geometry::TryParseCellAspect(argv[i + 1],
+                                                    &options->cell_aspect)) {
+        return false;
+      }
+      ++i;
     } else if (arg == "--report") {
       if (!take_path(&options->report)) return false;
     } else if (arg == "--evidence-svg") {
@@ -214,6 +242,8 @@ bool ParseArgs(int argc, char** argv, Options* options) {
       options->terminal_output = false;
     } else if (arg == "--quiet") {
       options->quiet = true;
+    } else if (arg == "--geometry-debug") {
+      options->geometry_debug = true;
     } else {
       return false;
     }
@@ -426,7 +456,24 @@ void WriteReport(const std::filesystem::path& path,
       << "\",\"sampling_filter\":\"" << FilterName(options.filter)
       << "\",\"max_fps\":" << options.fps
       << ",\"terminal_columns\":" << evidence.terminal_columns
-      << ",\"terminal_rows\":" << evidence.terminal_rows << "},\n"
+      << ",\"terminal_rows\":" << evidence.terminal_rows
+      << ",\"fit_mode\":\""
+      << asciiomium::geometry::FitModeName(options.fit_mode)
+      << "\",\"cell_aspect\":" << options.cell_aspect << "},\n"
+      << "  \"geometry\":{\"generation\":" << evidence.geometry_generation
+      << ",\"sample_columns\":" << evidence.sample_columns
+      << ",\"sample_rows\":" << evidence.sample_rows
+      << ",\"content_sample_rect\":["
+      << evidence.content_sample_rect.x << ',' << evidence.content_sample_rect.y
+      << ',' << evidence.content_sample_rect.width << ','
+      << evidence.content_sample_rect.height << "]"
+      << ",\"content_terminal_rect\":["
+      << evidence.content_terminal_rect.x << ','
+      << evidence.content_terminal_rect.y << ','
+      << evidence.content_terminal_rect.width << ','
+      << evidence.content_terminal_rect.height << "]"
+      << ",\"cef_resize_requests\":" << evidence.cef_resize_requests
+      << "},\n"
       << "  \"scheduler\":{\"latest_source_generation\":"
       << evidence.scheduler.latest_source_generation
       << ",\"last_rendered_source_generation\":"
@@ -462,6 +509,54 @@ void WriteReport(const std::filesystem::path& path,
 
 double Milliseconds(Clock::time_point start, Clock::time_point end) {
   return std::chrono::duration<double, std::milli>(end - start).count();
+}
+
+asciiomium::geometry::ViewportTransform MakeViewportTransform(
+    const Options& options, int columns, int rows) {
+  asciiomium::geometry::ViewportConfig config;
+  config.terminal_columns = columns;
+  config.terminal_rows = rows;
+  config.browser_width = options.width;
+  config.browser_height = options.height;
+  config.cell_aspect = options.cell_aspect;
+  config.fit_mode = options.fit_mode;
+  return asciiomium::geometry::ViewportTransform::Create(config);
+}
+
+void RecordGeometry(const asciiomium::geometry::ViewportSnapshot& snapshot,
+                    LiveEvidence* evidence) {
+  if (!snapshot.valid()) {
+    return;
+  }
+  evidence->geometry_generation = snapshot.generation;
+  evidence->terminal_columns = snapshot.transform->terminal_columns();
+  evidence->terminal_rows = snapshot.transform->terminal_rows();
+  evidence->sample_columns = snapshot.transform->sample_columns();
+  evidence->sample_rows = snapshot.transform->sample_rows();
+  evidence->content_sample_rect = snapshot.transform->content_sample_rect();
+  evidence->content_terminal_rect = snapshot.transform->content_terminal_rect();
+}
+
+void LogGeometry(const asciiomium::geometry::ViewportSnapshot& snapshot,
+                 bool cef_resize_requested) {
+  if (!snapshot.valid()) {
+    return;
+  }
+  const auto& transform = *snapshot.transform;
+  const auto& content = transform.content_sample_rect();
+  std::cerr << "geometry generation=" << snapshot.generation
+            << " terminal=" << transform.terminal_columns() << 'x'
+            << transform.terminal_rows()
+            << " browser=" << transform.browser_width() << 'x'
+            << transform.browser_height()
+            << " samples=" << transform.sample_columns() << 'x'
+            << transform.sample_rows()
+            << " fit=" << asciiomium::geometry::FitModeName(transform.fit_mode())
+            << " cell_aspect=" << transform.cell_aspect()
+            << " content_sample=[" << content.x << ',' << content.y << ','
+            << content.width << ',' << content.height << ']'
+            << " cef_resize=" << (cef_resize_requested ? "true" : "false")
+            << '\n';
 }
 
 int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
@@ -509,8 +604,11 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
   asciiomium::render::ModeQuantizer quantizer(options.color_mode);
   asciiomium::render::RenderConfig render_config;
   render_config.filter = options.filter;
+  render_config.fit_mode = options.fit_mode;
+  render_config.cell_aspect = options.cell_aspect;
   render_config.quantizer = &quantizer;
 
+  asciiomium::geometry::ViewportState viewport_state;
   int target_columns = options.columns;
   int target_rows = options.rows;
 
@@ -526,8 +624,16 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
       target_rows = terminal_session->geometry().rows;
     }
 
-    evidence.terminal_columns = target_columns;
-    evidence.terminal_rows = target_rows;
+    auto initial_geometry =
+        viewport_state.Publish(MakeViewportTransform(
+            options, target_columns, target_rows));
+    auto viewport_snapshot = initial_geometry.snapshot;
+    RecordGeometry(viewport_snapshot, &evidence);
+    if (options.geometry_debug) {
+      // CEF was created with these dimensions already, so initial publication
+      // is not itself a WasResized request.
+      LogGeometry(viewport_snapshot, false);
+    }
 
     const auto started = Clock::now();
     auto last_geometry_poll = started;
@@ -564,9 +670,38 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
         if (terminal_session->RefreshGeometry()) {
           target_columns = terminal_session->geometry().columns;
           target_rows = terminal_session->geometry().rows;
-          evidence.terminal_columns = target_columns;
-          evidence.terminal_rows = target_rows;
-          scheduler.RequestRefresh();
+          const auto next_transform =
+              asciiomium::geometry::ViewportTransform::TryCreate(
+                  asciiomium::geometry::ViewportConfig{
+                      target_columns, target_rows, 0,
+                      options.width, options.height,
+                      options.cell_aspect, options.fit_mode});
+          if (!next_transform.has_value()) {
+            if (options.geometry_debug) {
+              std::cerr << "geometry rejected terminal=" << target_columns
+                        << 'x' << target_rows
+                        << " (invalid or unsafe dimensions)\n";
+            }
+          } else {
+            const auto change = viewport_state.Publish(*next_transform);
+            if (change.changed) {
+              bool cef_resize_requested = false;
+              if (change.browser_changed) {
+                cef_resize_requested =
+                    client->Resize(change.snapshot.transform->browser_width(),
+                                   change.snapshot.transform->browser_height());
+                if (cef_resize_requested) {
+                  ++evidence.cef_resize_requests;
+                }
+              }
+              viewport_snapshot = change.snapshot;
+              RecordGeometry(viewport_snapshot, &evidence);
+              scheduler.RequestRefresh();
+              if (options.geometry_debug) {
+                LogGeometry(viewport_snapshot, cef_resize_requested);
+              }
+            }
+          }
         }
       }
 
@@ -586,17 +721,30 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
         continue;
       }
 
+      viewport_snapshot = viewport_state.Snapshot();
+      if (!viewport_snapshot.valid()) {
+        ++evidence.idle_iterations;
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        continue;
+      }
+
       const auto conversion_started = Clock::now();
       const auto composed = asciiomium::browser::ComposeViewAndPopup(
           presentation.view, presentation.popup);
+      if (composed.width != viewport_snapshot.transform->browser_width() ||
+          composed.height != viewport_snapshot.transform->browser_height()) {
+        // A browser viewport change is not presentable until CEF supplies a
+        // fresh OnPaint at the authoritative dimensions.
+        ++evidence.idle_iterations;
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        continue;
+      }
       asciiomium::render::ImageView source_view{
           composed.bgra.data(), composed.width, composed.height,
           static_cast<std::size_t>(composed.width) * 4u,
           asciiomium::render::PixelFormat::BGRA8};
       auto terminal_frame = asciiomium::render::RenderHalfBlock(
-          source_view,
-          asciiomium::render::RenderTarget{target_columns, target_rows},
-          render_config);
+          source_view, *viewport_snapshot.transform, render_config);
       const auto conversion_finished = Clock::now();
 
       const auto serialization_started = conversion_finished;
@@ -698,6 +846,7 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
               << evidence.conversion_timing.average_ms()
               << " conversion_p95_ms="
               << evidence.conversion_timing.percentile_ms(0.95)
+              << " geometry_gen=" << evidence.geometry_generation
               << " exit=" << evidence.exit_reason << '\n';
   }
 

@@ -38,7 +38,7 @@ jobs:
 
       - name: Build Debug
         shell: pwsh
-        run: cmake --build build --config Debug --target asciiomium asciiomium_live asciiomium_tests terminal_logic_tests terminal_console_smoke full_frame_emitter_tests vt_console_smoke render_golden_tests color_quantizer_tests benchmark_result_tests source_frame_tests live_runtime_tests asciiomium_frame_dump asciiomium_color_ramp asciiomium_vt_preview asciiomium_benchmark asciiomium_cef_capture --parallel
+        run: cmake --build build --config Debug --target asciiomium asciiomium_live asciiomium_tests terminal_logic_tests terminal_console_smoke full_frame_emitter_tests vt_console_smoke render_golden_tests color_quantizer_tests benchmark_result_tests source_frame_tests live_runtime_tests viewport_transform_tests asciiomium_frame_dump asciiomium_color_ramp asciiomium_vt_preview asciiomium_benchmark asciiomium_cef_capture --parallel
 
       - name: Test Debug
         shell: pwsh
@@ -125,6 +125,11 @@ jobs:
           if ($data.renderer.glyph_encoder -ne 'halfblock-u2580') { throw 'wrong live glyph encoder' }
           if ($data.renderer.color_mode -ne '1024') { throw '1024 colour is not the live default' }
           if ($data.renderer.sampling_filter -ne 'box') { throw 'box filter is not the live default' }
+          if ($data.renderer.fit_mode -ne 'contain') { throw 'contain fit is not the live default' }
+          if ([math]::Abs($data.renderer.cell_aspect - 0.5) -gt 0.000001) { throw 'wrong live cell aspect' }
+          if ($data.geometry.generation -lt 1) { throw 'viewport geometry was not published' }
+          if ($data.geometry.sample_columns -ne 100 -or $data.geometry.sample_rows -ne 60) { throw 'wrong static logical sample geometry' }
+          if ($data.geometry.cef_resize_requests -ne 0) { throw 'fixed viewport unexpectedly resized CEF' }
           if ($data.scheduler.rendered_frames -ne $data.scheduler.emitted_frames) { throw 'render/emission accounting mismatch' }
           if ($data.scheduler.emitted_frames -lt 1) { throw 'static live fixture emitted no terminal frames' }
           if ($data.scheduler.emitted_frames -gt 8) { throw 'static page kept repainting instead of idling' }
@@ -135,7 +140,7 @@ jobs:
 
       - name: Build Release
         shell: pwsh
-        run: cmake --build build --config Release --target asciiomium asciiomium_live asciiomium_tests terminal_logic_tests terminal_console_smoke full_frame_emitter_tests vt_console_smoke render_golden_tests color_quantizer_tests benchmark_result_tests source_frame_tests live_runtime_tests asciiomium_frame_dump asciiomium_color_ramp asciiomium_vt_preview asciiomium_benchmark asciiomium_cef_capture --parallel
+        run: cmake --build build --config Release --target asciiomium asciiomium_live asciiomium_tests terminal_logic_tests terminal_console_smoke full_frame_emitter_tests vt_console_smoke render_golden_tests color_quantizer_tests benchmark_result_tests source_frame_tests live_runtime_tests viewport_transform_tests asciiomium_frame_dump asciiomium_color_ramp asciiomium_vt_preview asciiomium_benchmark asciiomium_cef_capture --parallel
 
       - name: Test Release
         shell: pwsh
@@ -211,6 +216,11 @@ jobs:
           if ($data.schema -ne 'asciiomium-live-v1') { throw 'wrong live schema' }
           if (-not $data.load.complete) { throw 'animated live fixture did not complete loading' }
           if ($data.renderer.max_fps -ne 20) { throw 'wrong live FPS cap' }
+          if ($data.renderer.fit_mode -ne 'contain') { throw 'contain fit is not the live default' }
+          if ([math]::Abs($data.renderer.cell_aspect - 0.5) -gt 0.000001) { throw 'wrong live cell aspect' }
+          if ($data.geometry.generation -lt 1) { throw 'viewport geometry was not published' }
+          if ($data.geometry.sample_columns -ne 120 -or $data.geometry.sample_rows -ne 80) { throw 'wrong animated logical sample geometry' }
+          if ($data.geometry.cef_resize_requests -ne 0) { throw 'fixed viewport unexpectedly resized CEF' }
           if ($data.scheduler.emitted_frames -lt 10) { throw 'animated live fixture emitted too few frames' }
           if ($data.scheduler.rendered_frames -ne $data.scheduler.emitted_frames) { throw 'render/emission accounting mismatch' }
           if ($data.source.view_paint_count -le $data.scheduler.emitted_frames) { throw 'source did not outrun terminal output' }

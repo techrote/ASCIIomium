@@ -44,7 +44,7 @@ The implementation now has a reproducible Windows x64 C++20/CMake foundation, an
 
 It pins CEF `151.3.17+gf059e67+chromium-151.0.7922.138`, captures newest-frame BGRA pixels from Chromium `OnPaint` callbacks, composites CEF popup widgets, converts them through the existing half-block renderer, quantises to the selected colour mode, and continuously serialises the resulting `TerminalFrame` to Windows Terminal. The live scheduler deliberately keeps only newest-frame semantics: source paints may run faster than terminal output, but superseded generations are coalesced instead of queued.
 
-The practical live default is **U+2580 half-blocks, box-average sampling, 1024 colours, a 20 FPS terminal cap, and a 60 FPS CEF OSR cap**. Static pages stop producing terminal frames once the source stops changing; terminal resize forces a resample without inventing a browser frame.
+The practical live default is **U+2580 half-blocks, box-average sampling, 1024 colours, a 20 FPS terminal cap, a 60 FPS CEF OSR cap, aspect-preserving contain fit, and a 0.5 cell width/height ratio**. Static pages stop producing terminal frames once the source stops changing; terminal resize republishes the shared viewport transform and forces a resample without inventing a browser frame or resizing the fixed CEF viewport.
 
 The next major integration step is browser input forwarding: keyboard, mouse, wheel and focus events from Windows Terminal back into CEF.
 
@@ -62,7 +62,8 @@ The default target is the bundled animated `motion-scroll` fixture. An explicit 
 .\build\bin\RELEASE\asciiomium_live.exe `
   --fixture motion-scroll `
   --width 960 --height 540 `
-  --fps 20 --colors 1024 --filter box
+  --fps 20 --colors 1024 --filter box `
+  --fit contain --cell-aspect 0.5
 ```
 
 Press `Ctrl+C` to exit. The terminal session restores SGR state, cursor visibility, alternate-screen state, console modes and code pages during normal teardown.

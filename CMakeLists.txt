@@ -75,6 +75,16 @@ target_compile_definitions(asciiomium_build_info PRIVATE
   ASCIIOMIUM_ARCH="x64")
 set_target_properties(asciiomium_build_info PROPERTIES FOLDER "ASCIIomium")
 
+# Browser/terminal geometry is a neutral subsystem shared by rendering and
+# later input. Keep it free of CEF and Win32 so coordinate semantics are
+# deterministic and directly unit-testable.
+add_library(asciiomium_geometry STATIC
+  src/geometry/viewport_transform.cpp
+  src/geometry/viewport_transform.h)
+target_include_directories(asciiomium_geometry PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_compile_features(asciiomium_geometry PUBLIC cxx_std_20)
+set_target_properties(asciiomium_geometry PROPERTIES FOLDER "ASCIIomium")
+
 add_library(asciiomium_terminal STATIC
   src/terminal/full_frame_emitter.cpp
   src/terminal/full_frame_emitter.h
@@ -102,6 +112,7 @@ add_library(asciiomium_render STATIC
   src/render/ppm_loader.h
   src/render/render_types.h)
 target_include_directories(asciiomium_render PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_link_libraries(asciiomium_render PUBLIC asciiomium_geometry)
 target_compile_features(asciiomium_render PUBLIC cxx_std_20)
 set_target_properties(asciiomium_render PROPERTIES FOLDER "ASCIIomium")
 
@@ -343,6 +354,12 @@ target_link_libraries(live_runtime_tests PRIVATE
 target_compile_features(live_runtime_tests PRIVATE cxx_std_20)
 set_target_properties(live_runtime_tests PROPERTIES FOLDER "Tests")
 add_test(NAME live_runtime COMMAND "$<TARGET_FILE:live_runtime_tests>")
+
+add_executable(viewport_transform_tests tests/viewport_transform_test.cpp)
+target_link_libraries(viewport_transform_tests PRIVATE asciiomium_geometry)
+target_compile_features(viewport_transform_tests PRIVATE cxx_std_20)
+set_target_properties(viewport_transform_tests PROPERTIES FOLDER "Tests")
+add_test(NAME viewport_transform COMMAND "$<TARGET_FILE:viewport_transform_tests>")
 
 message(STATUS "ASCIIomium version: ${PROJECT_VERSION}")
 message(STATUS "Pinned CEF: ${ASCIIOMIUM_CEF_VERSION}")

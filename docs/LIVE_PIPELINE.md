@@ -79,6 +79,26 @@ The differential terminal emitter is intentionally not part of issue #9. Every s
 
 CEF source dimensions and terminal geometry are decoupled. In terminal mode the current Windows Terminal viewport determines output columns/rows. In `--no-terminal` diagnostic mode `--columns` and `--rows` provide deterministic geometry for CI.
 
+### Authoritative viewport transform
+
+The live loop publishes one immutable `ViewportTransform` containing terminal
+geometry, the doubled half-block sample lattice, fixed CEF viewport dimensions,
+cell aspect, fit policy and bidirectional terminal/browser coordinate mapping.
+The live defaults are `--fit contain --cell-aspect 0.5`; `--fit stretch`
+remains available for reference comparisons.
+
+A terminal resize republishes the transform and requests one forced full-frame
+refresh without inventing a source generation. Under the milestone-1 fixed CEF
+viewport policy, terminal resize does not call `WasResized()`. If browser
+pixel dimensions change under a future policy, `OsrClient::Resize` is
+idempotent and sends CEF resize notifications only for a genuine dimension
+change. A stale pre-resize CEF frame is not rendered through a transform whose
+browser dimensions do not match it.
+
+`--geometry-debug` prints concise generation/terminal/browser/sample/content
+geometry transitions to stderr. The JSON live report also records the final
+geometry generation, content rectangles and CEF resize-request count.
+
 ## Running
 
 After a Release build, the default animated fixture can be shown directly in Windows Terminal:
