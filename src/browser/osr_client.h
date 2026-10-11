@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <cstddef>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -60,6 +61,9 @@ class OsrClient final : public CefClient,
                    const CefString& failed_url) override;
 
   void Resize(int width, int height);
+  void SetFocus(bool focused);
+  [[nodiscard]] std::size_t SendKeyEvents(
+      const std::vector<CefKeyEvent>& events);
   void CloseBrowser();
 
   [[nodiscard]] bool browser_created() const noexcept {
