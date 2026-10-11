@@ -59,7 +59,8 @@ class OsrClient final : public CefClient,
                    const CefString& error_text,
                    const CefString& failed_url) override;
 
-  // Returns true only when the requested CEF viewport actually changes.\n  bool Resize(int width, int height);
+  // Returns true only when the requested CEF viewport actually changes.
+  bool Resize(int width, int height);
   void CloseBrowser();
 
   [[nodiscard]] bool browser_created() const noexcept {
