@@ -111,13 +111,22 @@ void OsrClient::OnLoadError(CefRefPtr<CefBrowser>,
   }
 }
 
-void OsrClient::Resize(int width, int height) {
-  width_.store(std::max(1, width), std::memory_order_relaxed);
-  height_.store(std::max(1, height), std::memory_order_relaxed);
+bool OsrClient::Resize(int width, int height) {
+  const int next_width = std::max(1, width);
+  const int next_height = std::max(1, height);
+  const int previous_width = width_.load(std::memory_order_relaxed);
+  const int previous_height = height_.load(std::memory_order_relaxed);
+  if (previous_width == next_width && previous_height == next_height) {
+    return false;
+  }
+
+  width_.store(next_width, std::memory_order_relaxed);
+  height_.store(next_height, std::memory_order_relaxed);
   if (browser_) {
     browser_->GetHost()->NotifyScreenInfoChanged();
     browser_->GetHost()->WasResized();
   }
+  return true;
 }
 
 void OsrClient::CloseBrowser() {
