@@ -30,19 +30,30 @@ For terminal geometry `C x R`, half-block mode has a logical sample lattice of `
 
 The browser image should be mapped to that lattice using the viewport's full visible area unless cropping/letterboxing is explicitly selected.
 
-## Cell aspect ratio
+## Cell aspect ratio and fit geometry
 
-Terminal cells are not square. Correct visual proportions require a scale parameter.
-
-Do not hard-code a universal ratio. Support:
+Terminal cells are not square. Correct visual proportions require a scale
+parameter:
 
 ```text
 --cell-aspect <width/height>
 ```
 
-and a practical default tuned for common Windows Terminal monospace fonts. Later work may infer actual pixel dimensions through terminal/window APIs or user calibration.
+The live browser default is `0.5`, with accepted startup values bounded to
+`0.05..4.0`. The value is not embedded in sampling code: it is part of the
+shared immutable `ViewportTransform` used by rendering and input mapping.
 
-The renderer must keep coordinate mapping and visual sampling consistent with the chosen geometry.
+Half-block mode has two vertical logical samples per terminal cell, so one
+sample has physical width/height ratio `2 * cell_aspect`. In the live default
+`--fit contain` policy this ratio participates in aspect-preserving fit and
+may produce symmetric letterbox rows/columns. `--fit stretch` consumes the
+complete sample lattice and intentionally ignores aspect preservation.
+
+The offline renderer's legacy/reference convenience overload retains stretch
+as its default for compatibility, but it delegates all geometry calculation to
+`ViewportTransform`; the live path supplies its authoritative transform
+directly. Later work may infer real cell dimensions from terminal/window APIs
+or user calibration without duplicating renderer formulas.
 
 ## Colour modes
 
