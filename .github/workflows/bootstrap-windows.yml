@@ -38,7 +38,7 @@ jobs:
 
       - name: Build Debug
         shell: pwsh
-        run: cmake --build build --config Debug --target asciiomium asciiomium_live asciiomium_tests terminal_logic_tests terminal_console_smoke full_frame_emitter_tests vt_console_smoke render_golden_tests color_quantizer_tests benchmark_result_tests source_frame_tests live_runtime_tests viewport_transform_tests asciiomium_frame_dump asciiomium_color_ramp asciiomium_vt_preview asciiomium_benchmark asciiomium_cef_capture --parallel
+        run: cmake --build build --config Debug --target asciiomium asciiomium_live asciiomium_tests terminal_logic_tests terminal_console_smoke full_frame_emitter_tests vt_console_smoke render_golden_tests color_quantizer_tests benchmark_result_tests input_parser_tests cef_key_translator_tests source_frame_tests live_runtime_tests viewport_transform_tests asciiomium_frame_dump asciiomium_color_ramp asciiomium_vt_preview asciiomium_benchmark asciiomium_cef_capture --parallel
 
       - name: Test Debug
         shell: pwsh
@@ -140,7 +140,7 @@ jobs:
 
       - name: Build Release
         shell: pwsh
-        run: cmake --build build --config Release --target asciiomium asciiomium_live asciiomium_tests terminal_logic_tests terminal_console_smoke full_frame_emitter_tests vt_console_smoke render_golden_tests color_quantizer_tests benchmark_result_tests source_frame_tests live_runtime_tests viewport_transform_tests asciiomium_frame_dump asciiomium_color_ramp asciiomium_vt_preview asciiomium_benchmark asciiomium_cef_capture --parallel
+        run: cmake --build build --config Release --target asciiomium asciiomium_live asciiomium_tests terminal_logic_tests terminal_console_smoke full_frame_emitter_tests vt_console_smoke render_golden_tests color_quantizer_tests benchmark_result_tests input_parser_tests cef_key_translator_tests source_frame_tests live_runtime_tests viewport_transform_tests asciiomium_frame_dump asciiomium_color_ramp asciiomium_vt_preview asciiomium_benchmark asciiomium_cef_capture --parallel
 
       - name: Test Release
         shell: pwsh
@@ -231,6 +231,32 @@ jobs:
           if (-not $data.runtime.closed_cleanly) { throw 'CEF did not close cleanly after live run' }
           if ($data.runtime.last_vt_bytes -le 0) { throw 'animated live VT payload missing' }
 
+      - name: Run Release keyboard-to-CEF acceptance
+        shell: pwsh
+        run: |
+          .\build\bin\RELEASE\asciiomium_live.exe `
+            --fixture input-focus --freeze `
+            --width 640 --height 360 `
+            --columns 100 --rows 30 `
+            --fps 20 --cef-fps 60 --duration-ms 1500 `
+            --input-script asciiomium `
+            --no-terminal --quiet `
+            --report .\build\live-input-release.json
+
+      - name: Validate Release keyboard-to-CEF acceptance
+        shell: pwsh
+        run: |
+          $data = Get-Content -Raw .\build\live-input-release.json | ConvertFrom-Json
+          if ($data.schema -ne 'asciiomium-live-v1') { throw 'wrong input live schema' }
+          if (-not $data.load.complete) { throw 'input fixture did not complete loading' }
+          if (-not $data.input.script_sent) { throw 'input script was not dispatched' }
+          if ($data.input.decoded_events -lt 9) { throw 'input parser decoded too few events' }
+          if ($data.input.unsupported_events -ne 0) { throw 'input script produced unsupported events' }
+          if ($data.input.cef_events -lt 9) { throw 'input events did not reach CEF' }
+          if (-not $data.input.effect_observed) { throw 'CEF input caused no observable paint generation' }
+          if (-not $data.runtime.terminal_restored) { throw 'input live teardown did not complete' }
+          if (-not $data.runtime.closed_cleanly) { throw 'CEF did not close cleanly after input run' }
+
       - name: Upload colour-ramp evidence
         uses: actions/upload-artifact@v4
         with:
@@ -274,4 +300,5 @@ jobs:
             build/live-motion-release.json
             build/live-motion-release.svg
             build/live-motion-release.vt
+            build/live-input-release.json
           if-no-files-found: error
