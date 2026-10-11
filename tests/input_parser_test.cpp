@@ -183,6 +183,43 @@ int main() {
 
   {
     VtInputParser parser;
+    const auto events = parser.Feed("\x1b[Z");
+    Require(events.size() == 1, "Shift+Tab event count");
+    if (events.size() == 1) {
+      RequireEvent(events[0], KeyboardEventKind::Key, KeyCode::Tab, 0,
+                   kModifierShift, "Shift+Tab");
+    }
+  }
+
+  {
+    VtInputParser parser;
+    Require(parser.Feed("\x1b[").empty(), "incomplete CSI waits");
+    const auto events = parser.FlushPending();
+    Require(events.size() == 1, "incomplete CSI flush count");
+    if (events.size() == 1) {
+      Require(events[0].event.kind == KeyboardEventKind::Unsupported,
+              "incomplete CSI is unsupported");
+      Require(events[0].diagnostic == "incomplete-csi",
+              "incomplete CSI diagnostic");
+    }
+  }
+
+  {
+    VtInputParser parser;
+    const std::string incomplete{"\xE2\x82", 2};
+    Require(parser.Feed(incomplete).empty(), "incomplete UTF-8 waits");
+    const auto events = parser.FlushPending();
+    Require(events.size() == 1, "incomplete UTF-8 flush count");
+    if (events.size() == 1) {
+      Require(events[0].event.kind == KeyboardEventKind::Unsupported,
+              "incomplete UTF-8 is unsupported");
+      Require(events[0].diagnostic == "incomplete-utf8",
+              "incomplete UTF-8 diagnostic");
+    }
+  }
+
+  {
+    VtInputParser parser;
     const std::string malformed{"\xE2\x28\xA1", 3};
     const auto events = parser.Feed(malformed);
     Require(!events.empty(), "malformed UTF-8 reported");
