@@ -80,6 +80,7 @@ int main() {
     options.use_alternate_screen = false;
     options.hide_cursor = false;
     options.enable_vt_input = true;
+    options.raw_keyboard_input = cycle == 9;
 
     {
       asciiomium::terminal::TerminalSession session(options, input, output);
@@ -92,6 +93,13 @@ int main() {
       }
       if ((input_mode & ENABLE_VIRTUAL_TERMINAL_INPUT) == 0) {
         std::cerr << "FAIL: VT input mode not enabled on cycle " << cycle << '\n';
+        return 1;
+      }
+      if (options.raw_keyboard_input &&
+          ((input_mode & ENABLE_LINE_INPUT) != 0 ||
+           (input_mode & ENABLE_ECHO_INPUT) != 0 ||
+           (input_mode & ENABLE_PROCESSED_INPUT) != 0)) {
+        std::cerr << "FAIL: raw keyboard mode retained cooked-input flags\n";
         return 1;
       }
       if ((output_mode & ENABLE_VIRTUAL_TERMINAL_PROCESSING) == 0) {
