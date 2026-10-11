@@ -19,26 +19,29 @@ Because Windows Terminal/ConPTY input behaviour has had historical edge cases, k
 
 ## Coordinate transform
 
-Terminal mouse reports are cell-addressed. CEF expects browser-view coordinates.
+Terminal mouse reports are cell-addressed. CEF expects browser-view pixel
+coordinates. Issue #10 establishes `geometry::ViewportTransform` as the sole
+authority for this mapping; #12 must consume it rather than reproduce formulas.
 
-Let:
-
-```text
-terminal cell = (cx, cy)
-terminal grid = (cols, rows)
-CEF viewport  = (width_px, height_px)
-```
-
-A baseline mapping is:
+For stretch mode, the intuitive mapping is still the terminal-cell centre:
 
 ```text
-x = ((cx + 0.5) / cols) * width_px
-y = ((cy + 0.5) / rows) * height_px
+x ~= ((cx + 0.5) / cols) * width_px
+y ~= ((cy + 0.5) / rows) * height_px
 ```
 
-This must use the same effective visible viewport transform as the renderer. If the renderer letterboxes, crops, or reserves UI rows, input mapping must apply the inverse transform and reject coordinates outside the browser viewport.
+The implementation generalises that through the half-block logical sample
+lattice and the transform's content rectangle. In contain mode, a cell centre
+inside letterbox space has no browser coordinate and is rejected. Browser
+right/bottom bounds are exclusive and final integer CEF coordinates are
+clamped to `[0,width-1]` / `[0,height-1]`.
 
-Half-block visual sampling does not double mouse rows: pointer events still originate at terminal-cell resolution unless a future pixel-addressed mouse protocol is available.
+Half-block visual sampling doubles logical sample rows, **not mouse rows**:
+pointer events remain terminal-cell granular and use the centre spanning both
+half-block samples. No sub-cell pointer precision is fabricated.
+
+The reciprocal browser-pixel -> terminal-cell helper exists for diagnostics and
+future UI work. Both directions are part of the same immutable transform.
 
 ## CEF forwarding
 
@@ -86,13 +89,23 @@ Keyboard PageUp/PageDown should normally be forwarded to Chromium rather than co
 
 ## Terminal resize
 
-When columns/rows change:
+The milestone-1 policy keeps the CEF viewport fixed while terminal rows/columns
+change.
 
-1. recompute terminal render geometry;
-2. decide whether CEF viewport dimensions remain fixed or change according to configured browser-pixels-per-cell policy;
-3. call `WasResized()` when the CEF view dimensions change;
-4. invalidate/re-render the entire terminal frame;
-5. update the coordinate transform atomically so input never uses stale geometry.
+On resize:
+
+1. validate the new terminal dimensions against bounded geometry limits;
+2. build a new immutable `ViewportTransform`;
+3. publish it through `ViewportState`, advancing the geometry generation only
+   when something changed;
+4. force a full terminal refresh using that snapshot;
+5. leave CEF pixel dimensions unchanged for terminal-only resizes;
+6. request `NotifyScreenInfoChanged()/WasResized()` only if a future geometry
+   policy actually changes browser width/height.
+
+Input code snapshots the same published transform, preventing render/input
+coordinate desynchronisation. Temporary invalid/zero geometry is ignored rather
+than propagated into CEF or pathological allocations.
 
 ## Clipboard
 
