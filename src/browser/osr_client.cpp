@@ -75,6 +75,7 @@ void OsrClient::OnPaint(CefRefPtr<CefBrowser>,
 
 void OsrClient::OnAfterCreated(CefRefPtr<CefBrowser> browser) {
   browser_ = browser;
+  browser_->GetHost()->SetFocus(true);
   browser_created_.store(true, std::memory_order_release);
 }
 
@@ -127,6 +128,23 @@ bool OsrClient::Resize(int width, int height) {
     browser_->GetHost()->WasResized();
   }
   return true;
+}
+
+void OsrClient::SetFocus(bool focused) {
+  if (browser_) {
+    browser_->GetHost()->SetFocus(focused);
+  }
+}
+
+std::size_t OsrClient::SendKeyEvents(
+    const std::vector<CefKeyEvent>& events) {
+  if (!browser_) {
+    return 0;
+  }
+  for (const auto& event : events) {
+    browser_->GetHost()->SendKeyEvent(event);
+  }
+  return events.size();
 }
 
 void OsrClient::CloseBrowser() {
