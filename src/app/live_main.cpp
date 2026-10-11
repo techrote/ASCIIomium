@@ -19,7 +19,9 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <vector>
 
+#include "browser/cef_key_translator.h"
 #include "browser/osr_client.h"
 #include "browser/popup_compositor.h"
 #include "browser/source_frame.h"
@@ -28,6 +30,7 @@
 #include "include/cef_browser.h"
 #include "include/cef_version.h"
 #include "include/cef_version_info.h"
+#include "input/vt_input_parser.h"
 #include "render/color_quantizer.h"
 #include "render/halfblock_renderer.h"
 #include "render/render_types.h"
@@ -58,6 +61,8 @@ struct Options {
   bool terminal_output = true;
   bool quiet = false;
   bool geometry_debug = false;
+  bool input_debug = false;
+  std::string input_script;
   asciiomium::render::ColorMode color_mode =
       asciiomium::render::ColorMode::Rgb1024;
   asciiomium::render::SamplingFilter filter =
@@ -83,6 +88,13 @@ struct LiveEvidence {
   std::uint64_t popup_composited_frames = 0;
   std::uint64_t loop_iterations = 0;
   std::uint64_t idle_iterations = 0;
+  std::uint64_t input_decoded_events = 0;
+  std::uint64_t input_unsupported_events = 0;
+  std::uint64_t input_cef_events = 0;
+  bool input_script_sent = false;
+  bool input_effect_observed = false;
+  std::uint64_t input_generation_before = 0;
+  std::uint64_t input_generation_after = 0;
   std::size_t last_vt_bytes = 0;
   std::uint64_t geometry_generation = 0;
   std::uint64_t cef_resize_requests = 0;
@@ -146,15 +158,17 @@ void PrintUsage() {
       << "  --cell-aspect RATIO     cell width/height, 0.05..4 (default 0.5)\n"
       << "  --geometry-debug        log viewport generations and mappings to stderr\n"
       << "  --freeze                append ?freeze=1 to bundled fixture URL\n"
-      << "  --duration-ms N         stop after N ms; 0 means until Ctrl+C (default 0)\n"
+      << "  --duration-ms N         stop after N ms; 0 means until quit chord (default 0)\n"
       << "  --max-frames N          stop after N emitted frames; 0 means unlimited\n"
       << "  --no-terminal           serialize frames without acquiring a console (CI/benchmark)\n"
       << "  --columns N --rows N    logical target for --no-terminal (default 120x40)\n"
       << "  --report FILE.json      write live-run metrics\n"
       << "  --evidence-svg FILE     write the final logical half-block frame as SVG\n"
       << "  --vt-output FILE        write the final full-frame VT payload verbatim\n"
+      << "  --input-debug           log raw/decoded/CEF keyboard events to stderr\n"
+      << "  --input-script TEXT     inject UTF-8 bytes through the parser (CI/test aid)\n"
       << "  --quiet                 suppress final one-line summary\n"
-      << "\nCtrl+C exits terminal mode and restores the console.\n";
+      << "\nCtrl+Alt+Q exits interactive browser mode. Ctrl+C is forwarded to CEF.\n";
 }
 
 bool ParseArgs(int argc, char** argv, Options* options) {
@@ -236,6 +250,10 @@ bool ParseArgs(int argc, char** argv, Options* options) {
       if (!take_path(&options->evidence_svg)) return false;
     } else if (arg == "--vt-output") {
       if (!take_path(&options->vt_output)) return false;
+    } else if (arg == "--input-script") {
+      if (!take_string(&options->input_script)) return false;
+    } else if (arg == "--input-debug") {
+      options->input_debug = true;
     } else if (arg == "--freeze") {
       options->freeze = true;
     } else if (arg == "--no-terminal") {
@@ -250,8 +268,8 @@ bool ParseArgs(int argc, char** argv, Options* options) {
   }
 
   // Headless/CI runs need a deterministic stop condition. Interactive terminal
-  // mode may intentionally run forever until the terminal control handler sees
-  // Ctrl+C.
+  // mode may intentionally run forever until the browser-mode quit chord is
+  // decoded (or a separate console-control shutdown occurs).
   if (!options->terminal_output && options->duration_ms == 0 &&
       options->max_frames == 0) {
     return false;
@@ -493,6 +511,16 @@ void WriteReport(const std::filesystem::path& path,
       << "},\"terminal_write\":{\"average\":"
       << evidence.write_timing.average_ms() << ",\"p95\":"
       << evidence.write_timing.percentile_ms(0.95) << "}},\n"
+      << "  \"input\":{\"decoded_events\":" << evidence.input_decoded_events
+      << ",\"unsupported_events\":" << evidence.input_unsupported_events
+      << ",\"cef_events\":" << evidence.input_cef_events
+      << ",\"script_sent\":"
+      << (evidence.input_script_sent ? "true" : "false")
+      << ",\"effect_observed\":"
+      << (evidence.input_effect_observed ? "true" : "false")
+      << ",\"generation_before\":" << evidence.input_generation_before
+      << ",\"generation_after\":" << evidence.input_generation_after
+      << "},\n"
       << "  \"runtime\":{\"duration_seconds\":" << evidence.duration_seconds
       << ",\"loop_iterations\":" << evidence.loop_iterations
       << ",\"idle_iterations\":" << evidence.idle_iterations
@@ -509,6 +537,61 @@ void WriteReport(const std::filesystem::path& path,
 
 double Milliseconds(Clock::time_point start, Clock::time_point end) {
   return std::chrono::duration<double, std::milli>(end - start).count();
+}
+
+bool IsQuitChord(const asciiomium::input::KeyboardEvent& event) {
+  using namespace asciiomium::input;
+  return event.kind == KeyboardEventKind::Key &&
+         event.key == KeyCode::Character &&
+         (event.codepoint == U'Q' || event.codepoint == U'q') &&
+         HasModifier(event.modifiers, kModifierControl) &&
+         HasModifier(event.modifiers, kModifierAlt);
+}
+
+void ForwardInput(
+    const std::vector<asciiomium::input::DecodedInputEvent>& decoded_events,
+    CefRefPtr<asciiomium::browser::OsrClient> client,
+    const Options& options,
+    LiveEvidence* evidence,
+    bool* quit_requested) {
+  for (const auto& decoded : decoded_events) {
+    ++evidence->input_decoded_events;
+
+    if (options.input_debug) {
+      std::cerr << "[input] raw="
+                << asciiomium::input::EscapeBytes(decoded.raw_bytes)
+                << " decoded="
+                << asciiomium::input::DescribeKeyboardEvent(decoded.event);
+      if (!decoded.diagnostic.empty()) {
+        std::cerr << " note=" << decoded.diagnostic;
+      }
+      std::cerr << '\n';
+    }
+
+    if (decoded.event.kind ==
+        asciiomium::input::KeyboardEventKind::Unsupported) {
+      ++evidence->input_unsupported_events;
+      continue;
+    }
+
+    if (IsQuitChord(decoded.event)) {
+      *quit_requested = true;
+      if (options.input_debug) {
+        std::cerr << "[input] application quit chord consumed\n";
+      }
+      continue;
+    }
+
+    const auto cef_events =
+        asciiomium::browser::TranslateKeyboardEvent(decoded.event);
+    if (options.input_debug) {
+      for (const auto& event : cef_events) {
+        std::cerr << "[input] cef="
+                  << asciiomium::browser::DescribeCefKeyEvent(event) << '\n';
+      }
+    }
+    evidence->input_cef_events += client->SendKeyEvents(cef_events);
+  }
 }
 
 asciiomium::geometry::ViewportTransform MakeViewportTransform(
@@ -584,6 +667,10 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
   asciiomium::render::TerminalFrame last_terminal_frame;
   std::string last_vt_payload;
   bool have_terminal_frame = false;
+  asciiomium::input::VtInputParser input_parser;
+  bool quit_requested = false;
+  bool input_script_injected = false;
+  auto last_input_byte_at = Clock::now();
 
   CefWindowInfo window_info;
   window_info.SetAsWindowless(nullptr);
@@ -617,7 +704,8 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
       asciiomium::terminal::TerminalSessionOptions terminal_options;
       terminal_options.use_alternate_screen = true;
       terminal_options.hide_cursor = true;
-      terminal_options.enable_vt_input = false;
+      terminal_options.enable_vt_input = true;
+      terminal_options.raw_keyboard_input = true;
       terminal_session =
           std::make_unique<asciiomium::terminal::TerminalSession>(terminal_options);
       target_columns = terminal_session->geometry().columns;
@@ -644,7 +732,25 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
       const auto now = Clock::now();
 
       if (terminal_session && terminal_session->stop_requested()) {
-        evidence.exit_reason = "ctrl-c";
+        evidence.exit_reason = "console-control";
+        break;
+      }
+
+      if (terminal_session && client->browser_created()) {
+        const std::string input_bytes = terminal_session->ReadInputAvailable();
+        if (!input_bytes.empty()) {
+          last_input_byte_at = now;
+          ForwardInput(input_parser.Feed(input_bytes), client, options,
+                       &evidence, &quit_requested);
+        } else if (input_parser.has_pending() &&
+                   now - last_input_byte_at >=
+                       std::chrono::milliseconds(35)) {
+          ForwardInput(input_parser.FlushPending(), client, options,
+                       &evidence, &quit_requested);
+        }
+      }
+      if (quit_requested) {
+        evidence.exit_reason = "quit-chord";
         break;
       }
       if (options.duration_ms > 0 &&
@@ -706,6 +812,23 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
       }
 
       const auto state = frame_store->SnapshotState();
+
+      if (!input_script_injected && !options.input_script.empty() &&
+          client->browser_created() && client->load_complete() &&
+          state.view_generation > 0) {
+        input_script_injected = true;
+        evidence.input_script_sent = true;
+        evidence.input_generation_before = state.presentation_generation;
+        ForwardInput(input_parser.Feed(options.input_script), client, options,
+                     &evidence, &quit_requested);
+        ForwardInput(input_parser.FlushPending(), client, options,
+                     &evidence, &quit_requested);
+      }
+      if (quit_requested) {
+        evidence.exit_reason = "quit-chord";
+        break;
+      }
+
       scheduler.ObserveSource(state.presentation_generation);
       if (!scheduler.Ready(now)) {
         ++evidence.idle_iterations;
@@ -813,6 +936,11 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
   }
 
   evidence.source_state = frame_store->SnapshotState();
+  evidence.input_generation_after =
+      evidence.source_state.presentation_generation;
+  evidence.input_effect_observed =
+      evidence.input_script_sent &&
+      evidence.input_generation_after > evidence.input_generation_before;
   evidence.scheduler = scheduler.stats();
 
   client = nullptr;
