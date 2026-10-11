@@ -70,6 +70,11 @@ struct ViewportConfig {
 //   sub-cell pointer precision.
 class ViewportTransform {
  public:
+  ViewportTransform(const ViewportTransform&) = default;
+  ViewportTransform& operator=(const ViewportTransform&) = default;
+  ViewportTransform(ViewportTransform&&) noexcept = default;
+  ViewportTransform& operator=(ViewportTransform&&) noexcept = default;
+
   [[nodiscard]] static std::optional<ViewportTransform> TryCreate(
       const ViewportConfig& config) noexcept;
   [[nodiscard]] static ViewportTransform Create(const ViewportConfig& config);
