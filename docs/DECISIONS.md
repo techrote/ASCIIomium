@@ -97,3 +97,15 @@ Alternate-screen state, cursor visibility, input/mouse modes, and SGR state must
 **Status:** accepted.
 
 Dirty-region conversion, SIMD, threads, D3D shared textures, GPU compute, and custom frame pacing are welcome only when they preserve testable reference behaviour and have benchmark evidence.
+
+## D-015 — Preserve Ctrl+C for the browser; use Ctrl+Alt+Q to quit live mode
+
+**Status:** accepted.
+
+Interactive browser mode disables processed console input and treats Windows
+Terminal as an immediate VT/UTF-8 byte stream. This allows Ctrl+C to reach CEF
+for ordinary browser copy/shortcut semantics instead of being unconditionally
+claimed by the host application.
+
+ASCIIomium reserves Ctrl+Alt+Q as its live-browser quit chord. The simpler
+terminal diagnostics retain Ctrl+C because they do not host browser input.
