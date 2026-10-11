@@ -48,6 +48,10 @@ Reference example:
 
 Mouse coordinates are relative to the upper-left of the browser view.
 
+For the pinned CEF keyboard path, ASCIIomium uses `CefKeyEvent` with `KEYEVENT_RAWKEYDOWN`, `KEYEVENT_KEYUP` and `KEYEVENT_CHAR`. `windows_key_code` carries Win32 `VK_*` values for logical/navigation keys; `native_key_code` is a best-effort synthetic Windows scan/lParam representation because VT input does not preserve a real native key record. CEF modifiers use `EVENTFLAG_SHIFT_DOWN`, `EVENTFLAG_CONTROL_DOWN` and `EVENTFLAG_ALT_DOWN`.
+
+Plain UTF-8 text is forwarded as CHAR events. ASCIIomium deliberately keeps text/codepoint delivery separate from shortcut/navigation key translation so future IME/composition support can be added without replacing the parser.
+
 ## CEF distribution/build strategy
 
 Use upstream CEF binary distributions or the standard `cef-project`/CMake integration rather than building Chromium from source for milestone 1.
@@ -129,3 +133,8 @@ Microsoft DirectWrite supports Unicode shaping broadly, including Braille when a
 ## Compatibility rule
 
 Repository documentation records concepts and tested behaviour; the pinned dependency versions in the source tree are authoritative for exact API signatures. When an upstream CEF or Terminal behaviour differs from these notes, update this document alongside the implementation.
+## Windows Terminal keyboard stream
+
+Issue #11's live browser mode enables `ENABLE_VIRTUAL_TERMINAL_INPUT`, switches the console from line/echo/processed input into an immediate byte stream, and reads available bytes with `ReadFile` only after the input handle is signalled. The original input mode/code page is restored by `TerminalSession`.
+
+Disabling `ENABLE_PROCESSED_INPUT` is intentional in browser mode: Ctrl+C must be available to web content. Browser-mode application quit is Ctrl+Alt+Q. Non-browser diagnostics retain processed-input Ctrl+C handling.
