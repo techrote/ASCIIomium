@@ -170,3 +170,21 @@ CefSettings.no_sandbox=true
 ```
 
 This remains a development-bootstrap constraint of the current direct-`libcef` architecture, not an intended distribution security posture. It must be revisited before packaging a general browser build.
+
+
+## Keyboard input integration
+
+Issue #11 adds keyboard transport without changing the bounded newest-frame
+scheduler. In interactive terminal mode, `TerminalSession` exposes immediate
+VT/UTF-8 bytes to an incremental bounded parser. Canonical keyboard/text events
+are translated into CEF key events and sent on the same browser-process/UI
+thread that calls `CefDoMessageLoopWork()`.
+
+`OsrClient::OnAfterCreated` gives the windowless browser focus. Plain Unicode
+text follows the CHAR path, while editing/navigation/shortcut events use
+logical RAWKEYDOWN/KEYUP sequences. A pending lone Escape is resolved after a
+short quiet interval so it can remain distinguishable from Alt-prefixed input.
+
+Mouse tracking is deliberately not enabled here; pointer and wheel transport
+remain issue #12. Keyboard traffic also does not create a separate visual frame
+queue: any resulting CEF paints enter the existing newest-presentation path.
