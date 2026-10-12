@@ -170,6 +170,20 @@ Run the reproducible offline benchmark and emit JSON with:
   --json .\build\benchmark.json
 ```
 
+## Keyboard input
+
+Interactive `asciiomium_live` sessions enable immediate VT keyboard input and forward decoded keyboard/text events into the focused CEF browser. Ordinary UTF-8 text, editing/navigation keys, common Ctrl/Alt chords and F1-F12 are supported by the milestone parser. Full IME/composition fidelity is deferred.
+
+Because browser mode must forward `Ctrl+C` for copy/shortcut semantics, its application quit chord is **Ctrl+Alt+Q**. Terminal diagnostics outside the live browser retain their existing `Ctrl+C` exit behaviour.
+
+To inspect the transport boundary:
+
+```powershell
+.\build\bin\RELEASE\asciiomium_live.exe --fixture input-focus --input-debug
+```
+
+`--input-debug` prints escaped input bytes, the canonical decoded event and the outgoing CEF event sequence to stderr. Do not use it while entering sensitive text. Mouse/wheel capture remains issue #12 scope.
+
 ## Colour model
 
 "ANSI" does **not** mean a 16-colour restriction here. ASCIIomium implements:
