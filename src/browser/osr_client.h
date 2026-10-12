@@ -10,6 +10,7 @@
 
 #include "browser/source_frame.h"
 #include "include/cef_client.h"
+#include "include/cef_display_handler.h"
 #include "include/cef_render_handler.h"
 
 namespace asciiomium::browser {
@@ -23,7 +24,8 @@ struct CefPointerDispatch;
 class OsrClient final : public CefClient,
                         public CefRenderHandler,
                         public CefLifeSpanHandler,
-                        public CefLoadHandler {
+                        public CefLoadHandler,
+                        public CefDisplayHandler {
  public:
   OsrClient(std::shared_ptr<SourceFrameStore> frame_store,
             int initial_width,
@@ -32,6 +34,7 @@ class OsrClient final : public CefClient,
   CefRefPtr<CefRenderHandler> GetRenderHandler() override { return this; }
   CefRefPtr<CefLifeSpanHandler> GetLifeSpanHandler() override { return this; }
   CefRefPtr<CefLoadHandler> GetLoadHandler() override { return this; }
+  CefRefPtr<CefDisplayHandler> GetDisplayHandler() override { return this; }
 
   void GetViewRect(CefRefPtr<CefBrowser> browser, CefRect& rect) override;
   bool GetRootScreenRect(CefRefPtr<CefBrowser> browser, CefRect& rect) override;
@@ -62,6 +65,8 @@ class OsrClient final : public CefClient,
                    ErrorCode error_code,
                    const CefString& error_text,
                    const CefString& failed_url) override;
+  void OnTitleChange(CefRefPtr<CefBrowser> browser,
+                     const CefString& title) override;
 
   // Returns true only when the requested CEF viewport actually changes.
   bool Resize(int width, int height);
@@ -69,7 +74,7 @@ class OsrClient final : public CefClient,
   [[nodiscard]] std::size_t SendKeyEvents(
       const std::vector<CefKeyEvent>& events);
   [[nodiscard]] bool SendPointerEvent(const CefPointerDispatch& dispatch);
-  [[nodiscard]] std::string MainFrameUrl() const;
+  [[nodiscard]] std::string MainTitle() const;
   [[nodiscard]] bool ExecuteMainFrameJavaScript(std::string_view code);
   void CloseBrowser();
 
@@ -106,6 +111,8 @@ class OsrClient final : public CefClient,
   mutable std::mutex load_error_mutex_;
   std::string load_error_text_;
   std::string failed_url_;
+  mutable std::mutex display_mutex_;
+  std::string main_title_;
 
   IMPLEMENT_REFCOUNTING(OsrClient);
 };
