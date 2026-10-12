@@ -92,7 +92,8 @@ struct LiveEvidence {
   std::uint64_t input_unsupported_events = 0;
   std::uint64_t input_cef_events = 0;
   bool input_script_sent = false;
-  bool input_effect_observed = false;
+  bool input_dom_observed = false;
+  bool input_paint_observed = false;
   std::uint64_t input_generation_before = 0;
   std::uint64_t input_generation_after = 0;
   std::size_t last_vt_bytes = 0;
@@ -516,8 +517,10 @@ void WriteReport(const std::filesystem::path& path,
       << ",\"cef_events\":" << evidence.input_cef_events
       << ",\"script_sent\":"
       << (evidence.input_script_sent ? "true" : "false")
-      << ",\"effect_observed\":"
-      << (evidence.input_effect_observed ? "true" : "false")
+      << ",\"dom_observed\":"
+      << (evidence.input_dom_observed ? "true" : "false")
+      << ",\"paint_observed\":"
+      << (evidence.input_paint_observed ? "true" : "false")
       << ",\"generation_before\":" << evidence.input_generation_before
       << ",\"generation_after\":" << evidence.input_generation_after
       << "},\n"
@@ -824,6 +827,11 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
         ForwardInput(input_parser.FlushPending(), client, options,
                      &evidence, &quit_requested);
       }
+      if (input_script_injected && !evidence.input_dom_observed) {
+        evidence.input_dom_observed =
+            client->MainFrameUrl().find("#keyboard-input-observed") !=
+            std::string::npos;
+      }
       if (quit_requested) {
         evidence.exit_reason = "quit-chord";
         break;
@@ -938,7 +946,7 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
   evidence.source_state = frame_store->SnapshotState();
   evidence.input_generation_after =
       evidence.source_state.presentation_generation;
-  evidence.input_effect_observed =
+  evidence.input_paint_observed =
       evidence.input_script_sent &&
       evidence.input_generation_after > evidence.input_generation_before;
   evidence.scheduler = scheduler.stats();
