@@ -133,8 +133,11 @@ void TerminalSession::Acquire() {
   Write(BuildAcquireSequence(options_.use_alternate_screen,
                              options_.hide_cursor));
   if (options_.mouse_tracking != MouseTrackingMode::Disabled) {
-    Write(BuildMouseTrackingEnableSequence(options_.mouse_tracking));
+    // Mark ownership before the write so constructor-failure cleanup still
+    // emits the disable sequence if the enable sequence was only partially
+    // written before an I/O error.
     mouse_tracking_acquired_ = true;
+    Write(BuildMouseTrackingEnableSequence(options_.mouse_tracking));
   }
 }
 
