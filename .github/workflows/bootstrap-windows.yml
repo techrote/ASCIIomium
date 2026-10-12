@@ -231,7 +231,7 @@ jobs:
           if (-not $data.runtime.closed_cleanly) { throw 'CEF did not close cleanly after live run' }
           if ($data.runtime.last_vt_bytes -le 0) { throw 'animated live VT payload missing' }
 
-      - name: Run Release mouse-to-CEF acceptance
+      - name: Run Release mouse-click-to-CEF acceptance
         shell: pwsh
         run: |
           .\build\bin\RELEASE\asciiomium_live.exe `
@@ -239,28 +239,58 @@ jobs:
             --width 640 --height 360 `
             --columns 100 --rows 30 `
             --fps 20 --cef-fps 60 --duration-ms 2000 `
-            --input-hex 1b5b3c33353b35313b31364d1b5b3c303b35313b31364d1b5b3c303b35313b31366d1b5b3c36353b35313b31364d `
+            --input-hex 1b5b3c33353b35313b31364d1b5b3c303b35313b31364d1b5b3c303b35313b31366d `
             --no-terminal --quiet `
-            --report .\build\live-mouse-release.json
+            --report .\build\live-mouse-click-release.json
 
-      - name: Validate Release mouse-to-CEF acceptance
+      - name: Validate Release mouse-click-to-CEF acceptance
         shell: pwsh
         run: |
-          $data = Get-Content -Raw .\build\live-mouse-release.json | ConvertFrom-Json
+          $data = Get-Content -Raw .\build\live-mouse-click-release.json | ConvertFrom-Json
           Write-Host ($data.input | ConvertTo-Json -Compress)
-          if ($data.schema -ne 'asciiomium-live-v1') { throw 'wrong mouse live schema' }
-          if (-not $data.load.complete) { throw 'mouse fixture did not complete loading' }
-          if (-not $data.input.hex_sent) { throw 'raw mouse byte script was not dispatched' }
-          if ($data.input.pointer_decoded_events -lt 4) { throw 'mouse parser decoded too few pointer events' }
-          if ($data.input.pointer_cef_events -lt 4) { throw 'pointer events did not reach CEF' }
-          if ($data.input.pointer_rejected_events -ne 0) { throw 'valid pointer script was rejected by geometry' }
-          if ($data.input.unsupported_events -ne 0) { throw 'mouse script produced unsupported events' }
+          if ($data.schema -ne 'asciiomium-live-v1') { throw 'wrong mouse click live schema' }
+          if (-not $data.load.complete) { throw 'mouse click fixture did not complete loading' }
+          if (-not $data.input.hex_sent) { throw 'raw mouse click bytes were not dispatched' }
+          if ($data.input.pointer_decoded_events -lt 3) { throw 'mouse parser decoded too few click events' }
+          if ($data.input.pointer_cef_events -lt 3) { throw 'click events did not reach CEF' }
+          if ($data.input.pointer_rejected_events -ne 0) { throw 'valid click script was rejected by geometry' }
+          if ($data.input.unsupported_events -ne 0) { throw 'click script produced unsupported events' }
           if (-not $data.input.pointer_dom_observed) { throw 'CEF click did not reach the centre fixture target' }
+          if (-not $data.input.paint_observed) { throw 'CEF click caused no observable paint generation' }
+          if ($data.geometry.generation -lt 1) { throw 'click path had no viewport transform' }
+          if (-not $data.runtime.terminal_restored) { throw 'mouse click live teardown did not complete' }
+          if (-not $data.runtime.closed_cleanly) { throw 'CEF did not close cleanly after click run' }
+
+      - name: Run Release mouse-wheel-to-CEF acceptance
+        shell: pwsh
+        run: |
+          .\build\bin\RELEASE\asciiomium_live.exe `
+            --fixture input-focus --freeze `
+            --width 640 --height 360 `
+            --columns 100 --rows 30 `
+            --fps 20 --cef-fps 60 --duration-ms 2000 `
+            --input-hex 1b5b3c36353b35313b31364d `
+            --no-terminal --quiet `
+            --report .\build\live-mouse-wheel-release.json
+
+      - name: Validate Release mouse-wheel-to-CEF acceptance
+        shell: pwsh
+        run: |
+          $data = Get-Content -Raw .\build\live-mouse-wheel-release.json | ConvertFrom-Json
+          Write-Host ($data.input | ConvertTo-Json -Compress)
+          if ($data.schema -ne 'asciiomium-live-v1') { throw 'wrong mouse wheel live schema' }
+          if (-not $data.load.complete) { throw 'mouse wheel fixture did not complete loading' }
+          if (-not $data.input.hex_sent) { throw 'raw mouse wheel bytes were not dispatched' }
+          if ($data.input.pointer_decoded_events -lt 1) { throw 'mouse parser decoded no wheel event' }
+          if ($data.input.pointer_cef_events -lt 1) { throw 'wheel event did not reach CEF' }
+          if ($data.input.pointer_rejected_events -ne 0) { throw 'valid wheel event was rejected by geometry' }
+          if ($data.input.unsupported_events -ne 0) { throw 'wheel script produced unsupported events' }
           if (-not $data.input.pointer_scroll_observed) { throw 'CEF wheel did not produce observable scrolling' }
-          if (-not $data.input.paint_observed) { throw 'CEF mouse input caused no observable paint generation' }
-          if ($data.geometry.generation -lt 1) { throw 'mouse path had no viewport transform' }
-          if (-not $data.runtime.terminal_restored) { throw 'mouse live teardown did not complete' }
-          if (-not $data.runtime.closed_cleanly) { throw 'CEF did not close cleanly after mouse run' }
+          if (-not $data.input.paint_observed) { throw 'CEF wheel caused no observable paint generation' }
+          if ($data.input.wheel_delta_per_notch -ne 120) { throw 'wrong wheel scale in live evidence' }
+          if ($data.geometry.generation -lt 1) { throw 'wheel path had no viewport transform' }
+          if (-not $data.runtime.terminal_restored) { throw 'mouse wheel live teardown did not complete' }
+          if (-not $data.runtime.closed_cleanly) { throw 'CEF did not close cleanly after wheel run' }
 
       - name: Run Release keyboard-to-CEF acceptance
         shell: pwsh
@@ -334,6 +364,7 @@ jobs:
             build/live-motion-release.json
             build/live-motion-release.svg
             build/live-motion-release.vt
-            build/live-mouse-release.json
+            build/live-mouse-click-release.json
+            build/live-mouse-wheel-release.json
             build/live-input-release.json
           if-no-files-found: error
