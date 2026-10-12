@@ -171,6 +171,7 @@ target_include_directories(asciiomium_browser PUBLIC
   "${CMAKE_CURRENT_SOURCE_DIR}/src"
   "${CEF_ROOT}")
 target_link_libraries(asciiomium_browser PUBLIC
+  asciiomium_geometry
   asciiomium_input
   asciiomium_source_frame
   libcef_dll_wrapper
