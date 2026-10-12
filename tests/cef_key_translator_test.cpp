@@ -28,10 +28,15 @@ int main() {
   {
     const auto events = TranslateKeyboardEvent(
         KeyboardEvent{KeyboardEventKind::Text, KeyCode::None, U'a', 0});
-    Require(events.size() == 1, "plain text emits one CHAR");
-    if (events.size() == 1) {
-      Require(events[0].type == KEYEVENT_CHAR, "plain text CHAR type");
-      Require(events[0].character == u'a', "plain text character");
+    Require(events.size() == 3, "mappable plain text emits down/char/up");
+    if (events.size() == 3) {
+      Require(events[0].type == KEYEVENT_RAWKEYDOWN,
+              "plain text RAWKEYDOWN type");
+      Require(events[0].windows_key_code == 'A',
+              "plain text virtual key");
+      Require(events[1].type == KEYEVENT_CHAR, "plain text CHAR type");
+      Require(events[1].character == u'a', "plain text character");
+      Require(events[2].type == KEYEVENT_KEYUP, "plain text KEYUP type");
     }
   }
 
