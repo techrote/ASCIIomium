@@ -92,6 +92,7 @@ struct LiveEvidence {
   std::uint64_t input_unsupported_events = 0;
   std::uint64_t input_cef_events = 0;
   bool input_script_sent = false;
+  bool input_focus_observed = false;
   bool input_dom_observed = false;
   bool input_paint_observed = false;
   std::uint64_t input_generation_before = 0;
@@ -517,6 +518,8 @@ void WriteReport(const std::filesystem::path& path,
       << ",\"cef_events\":" << evidence.input_cef_events
       << ",\"script_sent\":"
       << (evidence.input_script_sent ? "true" : "false")
+      << ",\"focus_observed\":"
+      << (evidence.input_focus_observed ? "true" : "false")
       << ",\"dom_observed\":"
       << (evidence.input_dom_observed ? "true" : "false")
       << ",\"paint_observed\":"
@@ -676,6 +679,7 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
   bool have_terminal_frame = false;
   asciiomium::input::VtInputParser input_parser;
   bool quit_requested = false;
+  bool input_script_focus_requested = false;
   bool input_script_injected = false;
   auto last_input_byte_at = Clock::now();
 
@@ -820,13 +824,23 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
 
       const auto state = frame_store->SnapshotState();
 
-      if (!input_script_injected && !options.input_script.empty() &&
+      if (!input_script_focus_requested && !options.input_script.empty() &&
           client->browser_created() && client->load_complete() &&
           state.view_generation > 0) {
+        client->SetFocus(true);
+        input_script_focus_requested =
+            client->ExecuteMainFrameJavaScript(
+                "document.querySelector('[autofocus]')?.focus()");
+      }
+      if (input_script_focus_requested && !evidence.input_focus_observed) {
+        evidence.input_focus_observed =
+            client->MainFrameUrl().find("#keyboard-focus-ready") !=
+            std::string::npos;
+      }
+      if (evidence.input_focus_observed && !input_script_injected) {
         input_script_injected = true;
         evidence.input_script_sent = true;
         evidence.input_generation_before = state.presentation_generation;
-        client->SetFocus(true);
         ForwardInput(input_parser.Feed(options.input_script), client, options,
                      &evidence, &quit_requested);
         ForwardInput(input_parser.FlushPending(), client, options,
