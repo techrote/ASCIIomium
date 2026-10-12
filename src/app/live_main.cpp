@@ -787,6 +787,12 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
   bool quit_requested = false;
   bool input_script_focus_requested = false;
   bool input_script_injected = false;
+  std::string raw_injected_input;
+  if (!options.input_hex.empty()) {
+    if (!ParseHexBytes(options.input_hex, &raw_injected_input)) {
+      throw std::invalid_argument("invalid --input-hex payload");
+    }
+  }
   auto last_input_byte_at = Clock::now();
 
   CefWindowInfo window_info;
@@ -823,6 +829,8 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
       terminal_options.hide_cursor = true;
       terminal_options.enable_vt_input = true;
       terminal_options.raw_keyboard_input = true;
+      terminal_options.mouse_tracking =
+          asciiomium::terminal::MouseTrackingMode::AnyEvent;
       terminal_session =
           std::make_unique<asciiomium::terminal::TerminalSession>(terminal_options);
       target_columns = terminal_session->geometry().columns;
@@ -843,6 +851,49 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
     const auto started = Clock::now();
     auto last_geometry_poll = started;
 
+    auto refresh_terminal_geometry = [&]() {
+      if (!terminal_session || !terminal_session->RefreshGeometry()) {
+        return;
+      }
+      target_columns = terminal_session->geometry().columns;
+      target_rows = terminal_session->geometry().rows;
+      const auto next_transform =
+          asciiomium::geometry::ViewportTransform::TryCreate(
+              asciiomium::geometry::ViewportConfig{
+                  target_columns, target_rows, 0,
+                  options.width, options.height,
+                  options.cell_aspect, options.fit_mode});
+      if (!next_transform.has_value()) {
+        if (options.geometry_debug) {
+          std::cerr << "geometry rejected terminal=" << target_columns
+                    << 'x' << target_rows
+                    << " (invalid or unsafe dimensions)\n";
+        }
+        return;
+      }
+
+      const auto change = viewport_state.Publish(*next_transform);
+      if (!change.changed) {
+        return;
+      }
+
+      bool cef_resize_requested = false;
+      if (change.browser_changed) {
+        cef_resize_requested =
+            client->Resize(change.snapshot.transform->browser_width(),
+                           change.snapshot.transform->browser_height());
+        if (cef_resize_requested) {
+          ++evidence.cef_resize_requests;
+        }
+      }
+      viewport_snapshot = change.snapshot;
+      RecordGeometry(viewport_snapshot, &evidence);
+      scheduler.RequestRefresh();
+      if (options.geometry_debug) {
+        LogGeometry(viewport_snapshot, cef_resize_requested);
+      }
+    };
+
     while (true) {
       ++evidence.loop_iterations;
       CefDoMessageLoopWork();
@@ -856,14 +907,21 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
       if (terminal_session && client->browser_created()) {
         const std::string input_bytes = terminal_session->ReadInputAvailable();
         if (!input_bytes.empty()) {
+          // Mouse bytes can arrive immediately after a terminal resize. Publish
+          // the latest #10 transform before decoding/mapping this input batch.
+          refresh_terminal_geometry();
+          viewport_snapshot = viewport_state.Snapshot();
           last_input_byte_at = now;
-          ForwardInput(input_parser.Feed(input_bytes), client, options,
-                       &evidence, &quit_requested);
+          ForwardInput(input_parser.Feed(input_bytes), client,
+                       viewport_snapshot, options, &evidence,
+                       &quit_requested);
         } else if (input_parser.has_pending() &&
                    now - last_input_byte_at >=
                        std::chrono::milliseconds(35)) {
-          ForwardInput(input_parser.FlushPending(), client, options,
-                       &evidence, &quit_requested);
+          viewport_snapshot = viewport_state.Snapshot();
+          ForwardInput(input_parser.FlushPending(), client,
+                       viewport_snapshot, options, &evidence,
+                       &quit_requested);
         }
       }
       if (quit_requested) {
@@ -890,42 +948,7 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
       if (terminal_session &&
           now - last_geometry_poll >= std::chrono::milliseconds(40)) {
         last_geometry_poll = now;
-        if (terminal_session->RefreshGeometry()) {
-          target_columns = terminal_session->geometry().columns;
-          target_rows = terminal_session->geometry().rows;
-          const auto next_transform =
-              asciiomium::geometry::ViewportTransform::TryCreate(
-                  asciiomium::geometry::ViewportConfig{
-                      target_columns, target_rows, 0,
-                      options.width, options.height,
-                      options.cell_aspect, options.fit_mode});
-          if (!next_transform.has_value()) {
-            if (options.geometry_debug) {
-              std::cerr << "geometry rejected terminal=" << target_columns
-                        << 'x' << target_rows
-                        << " (invalid or unsafe dimensions)\n";
-            }
-          } else {
-            const auto change = viewport_state.Publish(*next_transform);
-            if (change.changed) {
-              bool cef_resize_requested = false;
-              if (change.browser_changed) {
-                cef_resize_requested =
-                    client->Resize(change.snapshot.transform->browser_width(),
-                                   change.snapshot.transform->browser_height());
-                if (cef_resize_requested) {
-                  ++evidence.cef_resize_requests;
-                }
-              }
-              viewport_snapshot = change.snapshot;
-              RecordGeometry(viewport_snapshot, &evidence);
-              scheduler.RequestRefresh();
-              if (options.geometry_debug) {
-                LogGeometry(viewport_snapshot, cef_resize_requested);
-              }
-            }
-          }
-        }
+        refresh_terminal_geometry();
       }
 
       const auto state = frame_store->SnapshotState();
@@ -943,20 +966,42 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
             client->MainFrameUrl().find("#keyboard-focus-ready") !=
             std::string::npos;
       }
-      if (evidence.input_focus_observed && !input_script_injected) {
+
+      const bool keyboard_ready =
+          !options.input_script.empty() && evidence.input_focus_observed;
+      const bool pointer_ready =
+          !options.input_hex.empty() && client->browser_created() &&
+          client->load_complete() && state.view_generation > 0;
+      if (!input_script_injected && (keyboard_ready || pointer_ready)) {
         input_script_injected = true;
-        evidence.input_script_sent = true;
+        evidence.input_script_sent = keyboard_ready;
+        evidence.input_hex_sent = pointer_ready;
         evidence.input_generation_before = state.presentation_generation;
-        ForwardInput(input_parser.Feed(options.input_script), client, options,
-                     &evidence, &quit_requested);
-        ForwardInput(input_parser.FlushPending(), client, options,
-                     &evidence, &quit_requested);
+        viewport_snapshot = viewport_state.Snapshot();
+        const std::string_view bytes =
+            keyboard_ready ? std::string_view(options.input_script)
+                           : std::string_view(raw_injected_input);
+        ForwardInput(input_parser.Feed(bytes), client, viewport_snapshot,
+                     options, &evidence, &quit_requested);
+        ForwardInput(input_parser.FlushPending(), client, viewport_snapshot,
+                     options, &evidence, &quit_requested);
       }
-      if (input_script_injected && !evidence.input_dom_observed) {
-        evidence.input_dom_observed =
-            client->MainFrameUrl().find("#keyboard-input-" +
-                                        options.input_script) !=
-            std::string::npos;
+
+      if (input_script_injected) {
+        const std::string frame_url = client->MainFrameUrl();
+        if (evidence.input_script_sent && !evidence.input_dom_observed) {
+          evidence.input_dom_observed =
+              frame_url.find("#keyboard-input-" + options.input_script) !=
+              std::string::npos;
+        }
+        if (evidence.input_hex_sent) {
+          evidence.pointer_dom_observed =
+              evidence.pointer_dom_observed ||
+              frame_url.find("pointer-click-center") != std::string::npos;
+          evidence.pointer_scroll_observed =
+              evidence.pointer_scroll_observed ||
+              frame_url.find("pointer-scroll") != std::string::npos;
+        }
       }
       if (quit_requested) {
         evidence.exit_reason = "quit-chord";
@@ -1073,7 +1118,7 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
   evidence.input_generation_after =
       evidence.source_state.presentation_generation;
   evidence.input_paint_observed =
-      evidence.input_script_sent &&
+      (evidence.input_script_sent || evidence.input_hex_sent) &&
       evidence.input_generation_after > evidence.input_generation_before;
   evidence.scheduler = scheduler.stats();
 
