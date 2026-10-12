@@ -147,6 +147,14 @@ std::size_t OsrClient::SendKeyEvents(
   return events.size();
 }
 
+std::string OsrClient::MainFrameUrl() const {
+  if (!browser_) {
+    return {};
+  }
+  const auto frame = browser_->GetMainFrame();
+  return frame ? frame->GetURL().ToString() : std::string{};
+}
+
 void OsrClient::CloseBrowser() {
   if (browser_) {
     browser_->GetHost()->CloseBrowser(true);
