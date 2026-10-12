@@ -109,8 +109,10 @@ CI also runs the real live CEF path headlessly with:
 ```
 
 The resulting `asciiomium-live-v1` report must show that the script was
-decoded without unsupported events, CEF key events were sent, and a later
-presentation generation was observed after injection.
+decoded without unsupported events, CEF key events were sent, the fixture's
+real DOM `input` listener acknowledged the event through a fixed URL-fragment
+marker, and a later presentation generation was observed after injection. The
+marker contains no typed value.
 
 Actual Windows Terminal keyboard transport still requires a local observation
 because a hosted runner cannot prove which VT bytes the GUI terminal emits.
