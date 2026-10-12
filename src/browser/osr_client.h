@@ -65,6 +65,7 @@ class OsrClient final : public CefClient,
   void SetFocus(bool focused);
   [[nodiscard]] std::size_t SendKeyEvents(
       const std::vector<CefKeyEvent>& events);
+  [[nodiscard]] std::string MainFrameUrl() const;
   void CloseBrowser();
 
   [[nodiscard]] bool browser_created() const noexcept {
