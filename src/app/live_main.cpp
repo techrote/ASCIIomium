@@ -963,8 +963,7 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
       }
       if (input_script_focus_requested && !evidence.input_focus_observed) {
         evidence.input_focus_observed =
-            client->MainFrameUrl().find("#keyboard-focus-ready") !=
-            std::string::npos;
+            client->MainTitle() == "keyboard-focus-ready";
       }
 
       const bool keyboard_ready =
@@ -988,19 +987,18 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
       }
 
       if (input_script_injected) {
-        const std::string frame_url = client->MainFrameUrl();
+        const std::string main_title = client->MainTitle();
         if (evidence.input_script_sent && !evidence.input_dom_observed) {
           evidence.input_dom_observed =
-              frame_url.find("#keyboard-input-" + options.input_script) !=
-              std::string::npos;
+              main_title == "keyboard-input-" + options.input_script;
         }
         if (evidence.input_hex_sent) {
           evidence.pointer_dom_observed =
               evidence.pointer_dom_observed ||
-              frame_url.find("pointer-click-center") != std::string::npos;
+              main_title.find("pointer-click-center") != std::string::npos;
           evidence.pointer_scroll_observed =
               evidence.pointer_scroll_observed ||
-              frame_url.find("pointer-scroll") != std::string::npos;
+              main_title.find("pointer-scroll") != std::string::npos;
         }
       }
       if (quit_requested) {
