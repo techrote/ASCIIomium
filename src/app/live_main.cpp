@@ -834,8 +834,7 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
       }
       if (input_script_focus_requested && !evidence.input_focus_observed) {
         evidence.input_focus_observed =
-            client->MainFrameUrl().find("#keyboard-focus-ready") !=
-            std::string::npos;
+            client->MainTitle() == "keyboard-focus-ready";
       }
       if (evidence.input_focus_observed && !input_script_injected) {
         input_script_injected = true;
@@ -848,9 +847,7 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
       }
       if (input_script_injected && !evidence.input_dom_observed) {
         evidence.input_dom_observed =
-            client->MainFrameUrl().find("#keyboard-input-" +
-                                        options.input_script) !=
-            std::string::npos;
+            client->MainTitle() == "keyboard-input-" + options.input_script;
       }
       if (quit_requested) {
         evidence.exit_reason = "quit-chord";
