@@ -10,6 +10,7 @@
 
 #include "browser/source_frame.h"
 #include "include/cef_client.h"
+#include "include/cef_display_handler.h"
 #include "include/cef_render_handler.h"
 
 namespace asciiomium::browser {
