@@ -182,11 +182,12 @@ std::vector<CefKeyEvent> TranslateKeyboardEvent(const KeyboardEvent& event) {
   }
 
   if (event.kind == KeyboardEventKind::Text) {
-    // The terminal transport already performed keyboard-layout/IME-to-text
-    // conversion. Do not fabricate a physical key transition for ordinary
-    // Unicode text. Alt-prefixed printable input is treated as a shortcut
-    // instead, because emitting CHAR as well would type a duplicate/unwanted
-    // character for common browser Alt chords.
+    // The terminal already resolved the user's keyboard layout to Unicode.
+    // For a BMP character that still has a Win32 virtual-key mapping, reproduce
+    // the normal Windows CEF message shape: RAWKEYDOWN -> CHAR -> KEYUP.
+    // Chromium uses the CHAR event for insertion, so this is one text action,
+    // not duplicate character injection. Characters with no meaningful VK
+    // (including non-BMP text) remain CHAR-only.
     if (HasModifier(event.modifiers, kModifierAlt) ||
         HasModifier(event.modifiers, kModifierControl)) {
       const int vk = VirtualKeyForCharacter(event.codepoint);
@@ -198,7 +199,15 @@ std::vector<CefKeyEvent> TranslateKeyboardEvent(const KeyboardEvent& event) {
       return output;
     }
 
+    const int vk = VirtualKeyForCharacter(event.codepoint);
+    if (vk != 0 && event.codepoint <= 0xFFFF) {
+      output.push_back(
+          KeyEvent(KEYEVENT_RAWKEYDOWN, vk, event.modifiers));
+    }
     AppendUtf16Char(&output, event.codepoint, event.modifiers);
+    if (vk != 0 && event.codepoint <= 0xFFFF) {
+      output.push_back(KeyEvent(KEYEVENT_KEYUP, vk, event.modifiers));
+    }
     return output;
   }
 
