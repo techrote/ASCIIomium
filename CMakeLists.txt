@@ -104,7 +104,9 @@ set_target_properties(asciiomium_terminal PROPERTIES FOLDER "ASCIIomium")
 # Transport-neutral terminal keyboard decoding. Keep this free of CEF so raw
 # byte-stream behaviour and fragmentation can be tested deterministically.
 add_library(asciiomium_input STATIC
+  src/input/input_event.h
   src/input/keyboard_event.h
+  src/input/pointer_event.h
   src/input/vt_input_parser.cpp
   src/input/vt_input_parser.h)
 target_include_directories(asciiomium_input PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
@@ -161,6 +163,8 @@ set_target_properties(asciiomium_source_frame PROPERTIES
 add_library(asciiomium_browser STATIC
   src/browser/cef_key_translator.cpp
   src/browser/cef_key_translator.h
+  src/browser/cef_pointer_translator.cpp
+  src/browser/cef_pointer_translator.h
   src/browser/osr_client.cpp
   src/browser/osr_client.h)
 target_include_directories(asciiomium_browser PUBLIC
@@ -365,6 +369,17 @@ set_target_properties(cef_key_translator_tests PROPERTIES
   FOLDER "Tests"
   MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 add_test(NAME cef_key_translator COMMAND "$<TARGET_FILE:cef_key_translator_tests>")
+
+add_executable(cef_pointer_translator_tests tests/cef_pointer_translator_test.cpp)
+target_link_libraries(cef_pointer_translator_tests PRIVATE
+  asciiomium_browser
+  asciiomium_geometry)
+target_compile_features(cef_pointer_translator_tests PRIVATE cxx_std_20)
+set_target_properties(cef_pointer_translator_tests PROPERTIES
+  FOLDER "Tests"
+  MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+add_test(NAME cef_pointer_translator
+         COMMAND "$<TARGET_FILE:cef_pointer_translator_tests>")
 
 add_executable(source_frame_tests tests/source_frame_test.cpp)
 target_link_libraries(source_frame_tests PRIVATE asciiomium_source_frame)
