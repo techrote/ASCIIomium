@@ -128,12 +128,36 @@ available; ordinary Escape; Ctrl+A/C/V where CEF/clipboard policy permits; and
 Ctrl+Alt+Q teardown. Confirm that the parent prompt and input mode are normal
 after exit.
 
-Pointer-specific V4 acceptance remains issue #12:
+Issue #12 automates the pointer portion of V4. The shared parser tests cover
+SGR 1006 press/release/move/wheel reports, modifier bits, 1-based-to-zero-based
+coordinate conversion, arbitrary fragmentation, keyboard/UTF-8 interleaving,
+malformed reports and bounded pending state. `cef_pointer_translator_tests`
+verify #10 transform use, contain-mode letterbox rejection, modifier/button
+flags, resize-sensitive mapping and configurable wheel scaling.
 
-- pointer movement diagnostics decode correctly;
-- click targets work at centre and near each viewport corner;
-- wheel scroll works;
-- resize does not desynchronise coordinates.
+CI also feeds exact SGR bytes through the real live parser/dispatch path with:
+
+```text
+--fixture input-focus --freeze --input-hex <SGR-bytes> --no-terminal
+```
+
+The report must show decoded/forwarded pointer events, zero geometry rejections
+for the valid script, the centre target click acknowledged by the fixture, an
+observable wheel scroll, a resulting paint generation, and clean teardown. This
+is deliberately an exact-byte transport test rather than a direct CEF mouse
+API shortcut.
+
+Actual Windows Terminal pointer behaviour remains a manual V4 gate. Run:
+
+```powershell
+.\build\bin\RELEASE\asciiomium_live.exe --fixture input-focus --input-debug --geometry-debug
+```
+
+Verify hover, centre and four near-corner clicks, separate left press/release,
+page and nested-region wheel scrolling, resize-then-click mapping, Ctrl+Alt+Q
+teardown, and normal mouse/selection behaviour after exit. Verify Windows
+Terminal's Shift selection bypass in the actual GUI rather than claiming it
+from CI.
 
 ## V5 — Differential emitter
 
