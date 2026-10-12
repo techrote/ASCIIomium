@@ -18,7 +18,9 @@ enum class StepStatus {
 struct ParseStep {
   StepStatus status = StepStatus::NeedMore;
   std::size_t consumed = 0;
-  KeyboardEvent event;
+  DecodedInputKind kind = DecodedInputKind::Keyboard;
+  KeyboardEvent keyboard;
+  PointerEvent pointer;
   std::string diagnostic;
 };
 
@@ -26,22 +28,36 @@ ParseStep NeedMore() {
   return {};
 }
 
-ParseStep Event(std::size_t consumed,
-                KeyboardEvent event,
-                std::string diagnostic = {}) {
+ParseStep KeyboardStep(std::size_t consumed,
+                       KeyboardEvent event,
+                       std::string diagnostic = {}) {
   ParseStep step;
   step.status = StepStatus::Event;
   step.consumed = consumed;
-  step.event = event;
+  step.kind = DecodedInputKind::Keyboard;
+  step.keyboard = event;
+  step.diagnostic = std::move(diagnostic);
+  return step;
+}
+
+ParseStep PointerStep(std::size_t consumed,
+                      PointerEvent event,
+                      std::string diagnostic = {}) {
+  ParseStep step;
+  step.status = StepStatus::Event;
+  step.consumed = consumed;
+  step.kind = DecodedInputKind::Pointer;
+  step.pointer = event;
   step.diagnostic = std::move(diagnostic);
   return step;
 }
 
 ParseStep Unsupported(std::size_t consumed, std::string diagnostic) {
-  return Event(consumed,
-               KeyboardEvent{KeyboardEventKind::Unsupported, KeyCode::None, 0,
-                             kModifierNone},
-               std::move(diagnostic));
+  return KeyboardStep(
+      consumed,
+      KeyboardEvent{KeyboardEventKind::Unsupported, KeyCode::None, 0,
+                    kModifierNone},
+      std::move(diagnostic));
 }
 
 KeyboardEvent Key(KeyCode key,
@@ -165,6 +181,142 @@ std::optional<std::vector<int>> ParseParameters(std::string_view text) {
   return values;
 }
 
+std::optional<std::array<int, 3>> ParseMouseParameters(
+    std::string_view text) {
+  std::array<int, 3> values{};
+  std::size_t field = 0;
+  int value = 0;
+  bool have_digit = false;
+
+  for (std::size_t i = 0; i <= text.size(); ++i) {
+    if (i == text.size() || text[i] == ';') {
+      if (!have_digit || field >= values.size()) {
+        return std::nullopt;
+      }
+      values[field++] = value;
+      value = 0;
+      have_digit = false;
+      continue;
+    }
+
+    const char ch = text[i];
+    if (ch < '0' || ch > '9') {
+      return std::nullopt;
+    }
+    have_digit = true;
+    value = value * 10 + (ch - '0');
+    if (value > 1'000'000) {
+      return std::nullopt;
+    }
+  }
+
+  if (field != values.size()) {
+    return std::nullopt;
+  }
+  return values;
+}
+
+PointerButton DecodePointerButton(int code) {
+  switch (code) {
+    case 0: return PointerButton::Left;
+    case 1: return PointerButton::Middle;
+    case 2: return PointerButton::Right;
+    default: return PointerButton::None;
+  }
+}
+
+KeyModifiers DecodeMouseModifiers(int cb) {
+  KeyModifiers modifiers = kModifierNone;
+  if ((cb & 4) != 0) modifiers |= kModifierShift;
+  if ((cb & 8) != 0) modifiers |= kModifierAlt;
+  if ((cb & 16) != 0) modifiers |= kModifierControl;
+  return modifiers;
+}
+
+ParseStep ParseSgrMouse(std::string_view bytes, bool flush) {
+  std::size_t final_index = std::string_view::npos;
+  for (std::size_t i = 3; i < bytes.size(); ++i) {
+    if (bytes[i] == 'M' || bytes[i] == 'm') {
+      final_index = i;
+      break;
+    }
+    const auto ch = static_cast<unsigned char>(bytes[i]);
+    if ((ch >= 0x40u && ch <= 0x7Eu) && ch != ';') {
+      return Unsupported(i + 1, "unsupported-sgr-mouse-final");
+    }
+  }
+
+  if (final_index == std::string_view::npos) {
+    if (!flush) {
+      return NeedMore();
+    }
+    return Unsupported(bytes.size(), "incomplete-sgr-mouse");
+  }
+
+  const std::size_t consumed = final_index + 1;
+  const auto params =
+      ParseMouseParameters(bytes.substr(3, final_index - 3));
+  if (!params.has_value()) {
+    return Unsupported(consumed, "invalid-sgr-mouse-parameters");
+  }
+
+  const int cb = (*params)[0];
+  const int protocol_x = (*params)[1];
+  const int protocol_y = (*params)[2];
+  if (cb < 0 || cb > 127 || protocol_x <= 0 || protocol_y <= 0) {
+    return Unsupported(consumed, "invalid-sgr-mouse-range");
+  }
+
+  PointerEvent event;
+  event.column = protocol_x - 1;
+  event.row = protocol_y - 1;
+  event.modifiers = DecodeMouseModifiers(cb);
+
+  const bool motion = (cb & 32) != 0;
+  const bool wheel = (cb & 64) != 0;
+  const int button_code = cb & 3;
+  const char final = bytes[final_index];
+
+  if (wheel) {
+    if (motion || final != 'M') {
+      return Unsupported(consumed, "invalid-sgr-mouse-wheel");
+    }
+    event.kind = PointerEventKind::Wheel;
+    event.button = PointerButton::None;
+    switch (button_code) {
+      case 0: event.wheel_y = 1; break;
+      case 1: event.wheel_y = -1; break;
+      case 2: event.wheel_x = -1; break;
+      case 3: event.wheel_x = 1; break;
+    }
+    return PointerStep(consumed, event);
+  }
+
+  if (motion) {
+    if (final != 'M') {
+      return Unsupported(consumed, "invalid-sgr-mouse-motion");
+    }
+    event.kind = PointerEventKind::Move;
+    event.button = DecodePointerButton(button_code);
+    event.buttons = PointerButtonFlag(event.button);
+    return PointerStep(consumed, event);
+  }
+
+  event.button = DecodePointerButton(button_code);
+  if (event.button == PointerButton::None) {
+    return Unsupported(consumed, "unsupported-sgr-mouse-button");
+  }
+
+  if (final == 'M') {
+    event.kind = PointerEventKind::ButtonPress;
+    event.buttons = PointerButtonFlag(event.button);
+  } else {
+    event.kind = PointerEventKind::ButtonRelease;
+    event.buttons = kPointerButtonNone;
+  }
+  return PointerStep(consumed, event);
+}
+
 KeyCode TildeKey(int code) {
   switch (code) {
     case 1:
@@ -201,37 +353,38 @@ ParseStep ParseAtom(std::string_view bytes,
   const auto byte = static_cast<unsigned char>(bytes[0]);
 
   if (byte == '\r' || byte == '\n') {
-    return Event(1, Key(KeyCode::Enter, extra_modifiers));
+    return KeyboardStep(1, Key(KeyCode::Enter, extra_modifiers));
   }
   if (byte == '\t') {
-    return Event(1, Key(KeyCode::Tab, extra_modifiers));
+    return KeyboardStep(1, Key(KeyCode::Tab, extra_modifiers));
   }
   if (byte == '\b' || byte == 0x7Fu) {
-    return Event(1, Key(KeyCode::Backspace, extra_modifiers));
+    return KeyboardStep(1, Key(KeyCode::Backspace, extra_modifiers));
   }
 
   if (byte == 0x00u) {
-    return Event(1, Key(KeyCode::Character,
-                        extra_modifiers | kModifierControl, U' '));
+    return KeyboardStep(1, Key(KeyCode::Character,
+                               extra_modifiers | kModifierControl, U' '));
   }
   if (byte >= 0x01u && byte <= 0x1Au) {
-    return Event(1, Key(KeyCode::Character,
-                        extra_modifiers | kModifierControl,
-                        static_cast<char32_t>(U'A' + byte - 1)));
+    return KeyboardStep(1, Key(KeyCode::Character,
+                               extra_modifiers | kModifierControl,
+                               static_cast<char32_t>(U'A' + byte - 1)));
   }
   if (byte >= 0x1Cu && byte <= 0x1Fu) {
     static constexpr std::array<char32_t, 4> kControlChars{
         U'\\', U']', U'^', U'_'};
-    return Event(1, Key(KeyCode::Character,
-                        extra_modifiers | kModifierControl,
-                        kControlChars[byte - 0x1Cu]));
+    return KeyboardStep(1, Key(KeyCode::Character,
+                               extra_modifiers | kModifierControl,
+                               kControlChars[byte - 0x1Cu]));
   }
   if (byte < 0x20u) {
     return Unsupported(1, "unsupported-control-byte");
   }
 
   if (byte < 0x80u) {
-    return Event(1, Text(static_cast<char32_t>(byte), extra_modifiers));
+    return KeyboardStep(
+        1, Text(static_cast<char32_t>(byte), extra_modifiers));
   }
 
   const auto decoded = DecodeUtf8(bytes);
@@ -245,10 +398,15 @@ ParseStep ParseAtom(std::string_view bytes,
     return Unsupported(decoded.length == 0 ? 1 : decoded.length,
                        "malformed-utf8");
   }
-  return Event(decoded.length, Text(decoded.codepoint, extra_modifiers));
+  return KeyboardStep(
+      decoded.length, Text(decoded.codepoint, extra_modifiers));
 }
 
 ParseStep ParseCsi(std::string_view bytes, bool flush) {
+  if (bytes.size() >= 3 && bytes[2] == '<') {
+    return ParseSgrMouse(bytes, flush);
+  }
+
   std::size_t final_index = std::string_view::npos;
   for (std::size_t i = 2; i < bytes.size(); ++i) {
     const auto ch = static_cast<unsigned char>(bytes[i]);
@@ -288,7 +446,7 @@ ParseStep ParseCsi(std::string_view bytes, bool flush) {
     if (!params->empty() && (*params)[0] != 1) {
       return Unsupported(consumed, "unsupported-csi-prefix");
     }
-    return Event(consumed, Key(key, modifiers));
+    return KeyboardStep(consumed, Key(key, modifiers));
   };
 
   switch (final) {
@@ -302,7 +460,8 @@ ParseStep ParseCsi(std::string_view bytes, bool flush) {
       if (!params->empty()) {
         return Unsupported(consumed, "unsupported-shift-tab-parameters");
       }
-      return Event(consumed, Key(KeyCode::Tab, kModifierShift));
+      return KeyboardStep(
+          consumed, Key(KeyCode::Tab, kModifierShift));
     case '~': {
       if (params->empty()) {
         return Unsupported(consumed, "missing-csi-tilde-code");
@@ -311,7 +470,7 @@ ParseStep ParseCsi(std::string_view bytes, bool flush) {
       if (key == KeyCode::None) {
         return Unsupported(consumed, "unsupported-csi-tilde-code");
       }
-      return Event(consumed, Key(key, modifiers));
+      return KeyboardStep(consumed, Key(key, modifiers));
     }
     default:
       return Unsupported(consumed, "unsupported-csi-final");
@@ -343,7 +502,7 @@ ParseStep ParseSs3(std::string_view bytes, bool flush) {
   if (key == KeyCode::None) {
     return Unsupported(3, "unsupported-ss3");
   }
-  return Event(3, Key(key));
+  return KeyboardStep(3, Key(key));
 }
 
 ParseStep ParseOne(std::string_view bytes, bool flush) {
@@ -359,13 +518,11 @@ ParseStep ParseOne(std::string_view bytes, bool flush) {
     if (!flush) {
       return NeedMore();
     }
-    return Event(1, Key(KeyCode::Escape));
+    return KeyboardStep(1, Key(KeyCode::Escape));
   }
 
   if (static_cast<unsigned char>(bytes[1]) == 0x1Bu) {
-    // Two Escape presses cannot begin one supported sequence. Resolve the
-    // first immediately and leave the second for the next parse step.
-    return Event(1, Key(KeyCode::Escape));
+    return KeyboardStep(1, Key(KeyCode::Escape));
   }
   if (bytes[1] == '[') {
     return ParseCsi(bytes, flush);
@@ -415,7 +572,6 @@ std::vector<DecodedInputEvent> VtInputParser::ParseAvailable(bool flush) {
     }
 
     if (step.consumed == 0 || step.consumed > pending_.size()) {
-      // Defensive invariant: never spin or erase beyond the bounded buffer.
       DecodedInputEvent invalid;
       invalid.event =
           KeyboardEvent{KeyboardEventKind::Unsupported, KeyCode::None, 0,
@@ -428,7 +584,9 @@ std::vector<DecodedInputEvent> VtInputParser::ParseAvailable(bool flush) {
     }
 
     DecodedInputEvent decoded;
-    decoded.event = step.event;
+    decoded.kind = step.kind;
+    decoded.event = step.keyboard;
+    decoded.pointer = step.pointer;
     decoded.raw_bytes = pending_.substr(0, step.consumed);
     decoded.diagnostic = std::move(step.diagnostic);
     events.push_back(std::move(decoded));
@@ -471,6 +629,30 @@ std::string DescribeKeyboardEvent(const KeyboardEvent& event) {
         << static_cast<std::uint32_t>(event.codepoint) << std::dec;
   }
   out << " mods=" << ModifierNames(event.modifiers);
+  return out.str();
+}
+
+std::string DescribePointerEvent(const PointerEvent& event) {
+  std::ostringstream out;
+  out << "pointer:" << PointerEventKindName(event.kind)
+      << " button=" << PointerButtonName(event.button)
+      << " cell=" << event.column << ',' << event.row
+      << " mods=" << ModifierNames(event.modifiers);
+  if (event.kind == PointerEventKind::Wheel) {
+    out << " wheel=" << event.wheel_x << ',' << event.wheel_y;
+  }
+  if (event.buttons != kPointerButtonNone) {
+    out << " buttons=";
+    bool first = true;
+    auto append = [&](std::string_view name) {
+      if (!first) out << '+';
+      out << name;
+      first = false;
+    };
+    if (HasPointerButton(event.buttons, kPointerButtonLeft)) append("left");
+    if (HasPointerButton(event.buttons, kPointerButtonMiddle)) append("middle");
+    if (HasPointerButton(event.buttons, kPointerButtonRight)) append("right");
+  }
   return out.str();
 }
 
