@@ -250,6 +250,7 @@ jobs:
           Write-Host ($data.input | ConvertTo-Json -Compress)
           if ($data.schema -ne 'asciiomium-live-v1') { throw 'wrong input live schema' }
           if (-not $data.load.complete) { throw 'input fixture did not complete loading' }
+          if (-not $data.input.focus_observed) { throw 'input fixture focus handshake was not observed' }
           if (-not $data.input.script_sent) { throw 'input script was not dispatched' }
           if ($data.input.decoded_events -lt 9) { throw 'input parser decoded too few events' }
           if ($data.input.unsupported_events -ne 0) { throw 'input script produced unsupported events' }
