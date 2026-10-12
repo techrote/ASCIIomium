@@ -826,6 +826,7 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
         input_script_injected = true;
         evidence.input_script_sent = true;
         evidence.input_generation_before = state.presentation_generation;
+        client->SetFocus(true);
         ForwardInput(input_parser.Feed(options.input_script), client, options,
                      &evidence, &quit_requested);
         ForwardInput(input_parser.FlushPending(), client, options,
@@ -833,7 +834,8 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
       }
       if (input_script_injected && !evidence.input_dom_observed) {
         evidence.input_dom_observed =
-            client->MainFrameUrl().find("#keyboard-input-observed") !=
+            client->MainFrameUrl().find("#keyboard-input-" +
+                                        options.input_script) !=
             std::string::npos;
       }
       if (quit_requested) {
