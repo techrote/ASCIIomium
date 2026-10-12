@@ -46,7 +46,12 @@ Reference example:
 
 - https://cef-builds.spotifycdn.com/docs/132.0/classCefBrowserHost.html
 
-Mouse coordinates are relative to the upper-left of the browser view.
+Mouse coordinates are relative to the upper-left of the browser view. Issue
+#12 maps zero-based terminal cells through the authoritative
+`ViewportTransform` before constructing `CefMouseEvent`. Move events use
+`SendMouseMoveEvent`; press/release use `SendMouseClickEvent` with click
+count 1; wheel reports use `SendMouseWheelEvent`. The initial wheel policy maps
+one terminal notch to ±120 CEF delta units by default and is configurable.
 
 For the pinned CEF keyboard path, ASCIIomium uses `CefKeyEvent` with `KEYEVENT_RAWKEYDOWN`, `KEYEVENT_KEYUP` and `KEYEVENT_CHAR`. `windows_key_code` carries Win32 `VK_*` values for logical/navigation keys; `native_key_code` is a best-effort synthetic Windows scan/lParam representation because VT input does not preserve a real native key record. CEF modifiers use `EVENTFLAG_SHIFT_DOWN`, `EVENTFLAG_CONTROL_DOWN` and `EVENTFLAG_ALT_DOWN`.
 
@@ -121,6 +126,17 @@ Historical Windows Terminal/ConPTY issues show that native Windows applications 
 Relevant historical discussion:
 
 - https://github.com/microsoft/terminal/issues/15296
+
+Issue #12's Windows Terminal baseline uses DECSET 1003 (all-motion) together
+with 1006 (SGR extended coordinates). The parser accepts the SGR
+`CSI < Cb ; Cx ; Cy M/m` form, converts its 1-based cell coordinates to the
+project's zero-based canonical convention, and decodes modifier/button/motion/
+wheel bits before any CEF-specific translation.
+
+All-motion mode is intentional because web hover is useful without a pressed
+button. Terminal selection coexistence is environment-specific: Windows
+Terminal's Shift bypass must be checked manually in the real GUI rather than
+inferred from hosted CI.
 
 ## Font/glyph assumptions
 
