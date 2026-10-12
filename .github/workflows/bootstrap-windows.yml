@@ -247,6 +247,7 @@ jobs:
         shell: pwsh
         run: |
           $data = Get-Content -Raw .\build\live-input-release.json | ConvertFrom-Json
+          Write-Host ($data.input | ConvertTo-Json -Compress)
           if ($data.schema -ne 'asciiomium-live-v1') { throw 'wrong input live schema' }
           if (-not $data.load.complete) { throw 'input fixture did not complete loading' }
           if (-not $data.input.script_sent) { throw 'input script was not dispatched' }
