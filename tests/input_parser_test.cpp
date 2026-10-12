@@ -301,6 +301,28 @@ int main() {
   {
     VtInputParser parser;
     const auto events = parser.Feed(
+        "\x1b[<1;3;4M\x1b[<1;3;4m"
+        "\x1b[<2;8;9M\x1b[<2;8;9m");
+    Require(events.size() == 4, "SGR middle/right press-release count");
+    if (events.size() == 4) {
+      RequirePointer(events[0], PointerEventKind::ButtonPress,
+                     PointerButton::Middle, 2, 3, 0, 0, kModifierNone,
+                     kPointerButtonMiddle, "SGR middle press");
+      RequirePointer(events[1], PointerEventKind::ButtonRelease,
+                     PointerButton::Middle, 2, 3, 0, 0, kModifierNone,
+                     kPointerButtonNone, "SGR middle release");
+      RequirePointer(events[2], PointerEventKind::ButtonPress,
+                     PointerButton::Right, 7, 8, 0, 0, kModifierNone,
+                     kPointerButtonRight, "SGR right press");
+      RequirePointer(events[3], PointerEventKind::ButtonRelease,
+                     PointerButton::Right, 7, 8, 0, 0, kModifierNone,
+                     kPointerButtonNone, "SGR right release");
+    }
+  }
+
+  {
+    VtInputParser parser;
+    const auto events = parser.Feed(
         "\x1b[<28;5;6M\x1b[<32;10;20M\x1b[<35;11;21M");
     Require(events.size() == 3, "SGR modifier/motion count");
     if (events.size() == 3) {
