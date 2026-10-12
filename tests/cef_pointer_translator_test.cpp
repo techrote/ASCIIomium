@@ -148,6 +148,48 @@ void TestLetterboxAndResizeMapping() {
           "pointer mapping follows the supplied post-resize transform");
 }
 
+void TestOddCornerAndCentreMapping() {
+  using namespace asciiomium::input;
+  asciiomium::geometry::ViewportConfig config;
+  config.terminal_columns = 5;
+  config.terminal_rows = 3;
+  config.browser_width = 501;
+  config.browser_height = 301;
+  config.fit_mode = asciiomium::geometry::FitMode::Stretch;
+  const auto transform =
+      asciiomium::geometry::ViewportTransform::Create(config);
+
+  struct Case {
+    int column;
+    int row;
+    int expected_x;
+    int expected_y;
+    const char* message;
+  };
+  const Case cases[] = {
+      {0, 0, 50, 50, "odd top-left"},
+      {4, 0, 450, 50, "odd top-right"},
+      {0, 2, 50, 250, "odd bottom-left"},
+      {4, 2, 450, 250, "odd bottom-right"},
+      {2, 1, 250, 150, "odd centre"},
+  };
+
+  for (const auto& test : cases) {
+    PointerEvent pointer;
+    pointer.kind = PointerEventKind::Move;
+    pointer.column = test.column;
+    pointer.row = test.row;
+    const auto dispatch = asciiomium::browser::TranslatePointerEvent(
+        pointer, transform, 120);
+    Require(dispatch.has_value(), test.message);
+    if (dispatch.has_value()) {
+      Require(dispatch->event.x == test.expected_x &&
+                  dispatch->event.y == test.expected_y,
+              test.message);
+    }
+  }
+}
+
 void TestInvalidTranslation() {
   using namespace asciiomium::input;
   PointerEvent click;
@@ -177,6 +219,7 @@ int main() {
   TestClickAndModifiers();
   TestMoveAndWheel();
   TestLetterboxAndResizeMapping();
+  TestOddCornerAndCentreMapping();
   TestInvalidTranslation();
 
   if (failures != 0) {
