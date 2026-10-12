@@ -112,6 +112,12 @@ void OsrClient::OnLoadError(CefRefPtr<CefBrowser>,
   }
 }
 
+void OsrClient::OnTitleChange(CefRefPtr<CefBrowser>,
+                              const CefString& title) {
+  std::lock_guard lock(display_mutex_);
+  main_title_ = title.ToString();
+}
+
 bool OsrClient::Resize(int width, int height) {
   const int next_width = std::max(1, width);
   const int next_height = std::max(1, height);
@@ -147,12 +153,9 @@ std::size_t OsrClient::SendKeyEvents(
   return events.size();
 }
 
-std::string OsrClient::MainFrameUrl() const {
-  if (!browser_) {
-    return {};
-  }
-  const auto frame = browser_->GetMainFrame();
-  return frame ? frame->GetURL().ToString() : std::string{};
+std::string OsrClient::MainTitle() const {
+  std::lock_guard lock(display_mutex_);
+  return main_title_;
 }
 
 bool OsrClient::ExecuteMainFrameJavaScript(std::string_view code) {
