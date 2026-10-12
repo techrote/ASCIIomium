@@ -116,7 +116,7 @@ Equivalent explicit settings are:
   --fps 20 --colors 1024 --filter box
 ```
 
-Press `Ctrl+C` to leave the live loop. `TerminalSession` restores SGR state, cursor visibility, alternate-screen state, code pages and console modes before CEF shutdown completes.
+Press **Ctrl+Alt+Q** to leave interactive browser mode; Ctrl+C is forwarded to CEF. `TerminalSession` restores SGR state, SGR/all-motion mouse tracking, cursor visibility, alternate-screen state, code pages and console modes before CEF shutdown completes.
 
 An explicit URL can be used instead of a bundled fixture:
 
@@ -126,7 +126,7 @@ An explicit URL can be used instead of a bundled fixture:
   --fps 15 --colors true
 ```
 
-Issue #9 does not yet implement browser keyboard/mouse forwarding; that is the next input milestone.
+The interactive live path now accepts keyboard/UTF-8 and SGR mouse input. Pointer reports are mapped through the same immutable viewport transform that renders the current frame, so terminal resize and browser coordinates share one geometry authority.
 
 ## Diagnostic/headless mode
 
@@ -163,7 +163,9 @@ The `asciiomium-live-v1` JSON report records:
 - popup-composited frame count;
 - final VT payload size;
 - terminal restoration and CEF close status;
-- decoded/unsupported keyboard events, CEF key-event count and scripted-input evidence when input instrumentation is used.
+- decoded/unsupported unified input events and total CEF input-event count;
+- pointer decoded/forwarded/rejected counts, wheel scale and exact-byte injection evidence;
+- keyboard focus/script evidence and pointer click/scroll fixture evidence when input instrumentation is used.
 
 Timing percentile storage is a fixed-size ring. Long sessions therefore do not accumulate an unbounded measurement vector.
 
@@ -206,6 +208,29 @@ text follows the CHAR path, while editing/navigation/shortcut events use
 logical RAWKEYDOWN/KEYUP sequences. A pending lone Escape is resolved after a
 short quiet interval so it can remain distinguishable from Alt-prefixed input.
 
-Mouse tracking is deliberately not enabled here; pointer and wheel transport
-remain issue #12. Keyboard traffic also does not create a separate visual frame
-queue: any resulting CEF paints enter the existing newest-presentation path.
+Keyboard traffic does not create a separate visual frame queue: any resulting
+CEF paints enter the existing newest-presentation path.
+
+## Pointer input integration
+
+Issue #12 extends the **same** bounded `VtInputParser` used for keyboard input.
+Interactive terminal ownership enables 1003 all-motion tracking plus 1006 SGR
+mouse encoding. Reports become canonical zero-based cell-granular pointer
+events; no second input reader and no sub-cell precision are introduced.
+
+The live loop snapshots the current #10 `ViewportTransform` before pointer
+dispatch. A terminal cell centre in contain-mode letterbox space is rejected.
+Otherwise the mapping result is translated into CEF move/click/wheel APIs.
+Pure terminal resize republishes geometry before subsequent pointer bytes are
+mapped.
+
+Wheel reports are logical notches and use `--wheel-delta` (default 120) for
+CEF scaling. `--input-debug` exposes raw SGR bytes, decoded event, geometry
+generation and outgoing CEF dispatch. A generic `--input-hex` test path feeds
+exact bytes through the same parser for headless acceptance; it does not bypass
+normal mapping or CEF forwarding.
+
+Mouse-mode restoration remains part of terminal correctness. The hosted test
+suite can prove VT sequence construction and the common teardown path, but
+actual Windows Terminal hover/selection-bypass behaviour remains a local manual
+observation.
