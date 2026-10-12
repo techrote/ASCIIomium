@@ -253,7 +253,8 @@ jobs:
           if ($data.input.decoded_events -lt 9) { throw 'input parser decoded too few events' }
           if ($data.input.unsupported_events -ne 0) { throw 'input script produced unsupported events' }
           if ($data.input.cef_events -lt 9) { throw 'input events did not reach CEF' }
-          if (-not $data.input.effect_observed) { throw 'CEF input caused no observable paint generation' }
+          if (-not $data.input.dom_observed) { throw 'CEF input did not trigger the fixture DOM input event' }
+          if (-not $data.input.paint_observed) { throw 'CEF input caused no observable paint generation' }
           if (-not $data.runtime.terminal_restored) { throw 'input live teardown did not complete' }
           if (-not $data.runtime.closed_cleanly) { throw 'CEF did not close cleanly after input run' }
 
