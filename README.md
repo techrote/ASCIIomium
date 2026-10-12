@@ -46,7 +46,7 @@ It pins CEF `151.3.17+gf059e67+chromium-151.0.7922.138`, captures newest-frame B
 
 The practical live default is **U+2580 half-blocks, box-average sampling, 1024 colours, a 20 FPS terminal cap, a 60 FPS CEF OSR cap, aspect-preserving contain fit, and a 0.5 cell width/height ratio**. Static pages stop producing terminal frames once the source stops changing; terminal resize republishes the shared viewport transform and forces a resample without inventing a browser frame or resizing the fixed CEF viewport.
 
-The next major integration step is browser input forwarding: keyboard, mouse, wheel and focus events from Windows Terminal back into CEF.
+The live input stack now decodes keyboard/UTF-8 plus SGR terminal pointer reports and forwards them into CEF. Pointer precision is intentionally terminal-cell granular and uses the same authoritative viewport transform as rendering.
 
 ## Run the live browser
 
@@ -66,7 +66,7 @@ The default target is the bundled animated `motion-scroll` fixture. An explicit 
   --fit contain --cell-aspect 0.5
 ```
 
-Press `Ctrl+C` to exit. The terminal session restores SGR state, cursor visibility, alternate-screen state, console modes and code pages during normal teardown.
+Press **Ctrl+Alt+Q** to exit interactive browser mode. Ctrl+C is forwarded to Chromium. The terminal session restores SGR state, mouse-tracking modes, cursor visibility, alternate-screen state, console modes and code pages during normal teardown.
 
 A real URL can be rendered through the same path:
 
@@ -76,7 +76,7 @@ A real URL can be rendered through the same path:
   --fps 15 --colors 1024
 ```
 
-Input forwarding is not implemented yet, so this milestone is a live visual browser rather than a fully interactive one.
+Keyboard and pointer forwarding are available in the live browser. Windows Terminal SGR mouse tracking uses all-motion mode for hover plus cell-granular click/wheel mapping; full IME and richer selection/clipboard coexistence remain later work.
 
 For deterministic CI/benchmark runs, `--no-terminal` executes the same CEF → popup composition → half-block → colour quantisation → VT serialization path while skipping only the final console `WriteFile`. It can emit JSON metrics, a logical-frame SVG, and the exact final VT payload:
 
@@ -182,7 +182,9 @@ To inspect the transport boundary:
 .\build\bin\RELEASE\asciiomium_live.exe --fixture input-focus --input-debug
 ```
 
-`--input-debug` prints escaped input bytes, the canonical decoded event and the outgoing CEF event sequence to stderr. Do not use it while entering sensitive text. Mouse/wheel capture remains issue #12 scope.
+`--input-debug` prints escaped input bytes, the canonical decoded keyboard/pointer event, the active geometry generation and the outgoing CEF event to stderr. Do not use it while entering sensitive text.
+
+Interactive live mode enables SGR mouse reporting (1006) with all-motion tracking (1003) so hover, button press/release and wheel reports arrive through the same bounded VT byte parser as keyboard input. Wheel notches default to CEF deltas of 120 and can be changed with `--wheel-delta`. Cells in contain-mode letterbox space are rejected rather than mapped to fake browser coordinates.
 
 ## Colour model
 

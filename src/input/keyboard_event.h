@@ -61,12 +61,6 @@ struct KeyboardEvent {
   KeyModifiers modifiers = kModifierNone;
 };
 
-struct DecodedInputEvent {
-  KeyboardEvent event;
-  std::string raw_bytes;
-  std::string diagnostic;
-};
-
 [[nodiscard]] inline std::string_view KeyCodeName(KeyCode key) noexcept {
   switch (key) {
     case KeyCode::None: return "none";

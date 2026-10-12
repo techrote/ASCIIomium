@@ -1,5 +1,7 @@
 #include "browser/osr_client.h"
 
+#include "browser/cef_pointer_translator.h"
+
 #include <algorithm>
 #include <utility>
 
@@ -151,6 +153,45 @@ std::size_t OsrClient::SendKeyEvents(
     browser_->GetHost()->SendKeyEvent(event);
   }
   return events.size();
+}
+
+bool OsrClient::SendPointerEvent(const CefPointerDispatch& dispatch) {
+  if (!browser_) {
+    return false;
+  }
+
+  auto host = browser_->GetHost();
+  switch (dispatch.kind) {
+    case CefPointerDispatchKind::Move:
+      host->SendMouseMoveEvent(dispatch.event, false);
+      return true;
+
+    case CefPointerDispatchKind::Click: {
+      CefBrowserHost::MouseButtonType button = MBT_LEFT;
+      switch (dispatch.button) {
+        case asciiomium::input::PointerButton::Left:
+          button = MBT_LEFT;
+          break;
+        case asciiomium::input::PointerButton::Middle:
+          button = MBT_MIDDLE;
+          break;
+        case asciiomium::input::PointerButton::Right:
+          button = MBT_RIGHT;
+          break;
+        case asciiomium::input::PointerButton::None:
+          return false;
+      }
+      host->SendMouseClickEvent(dispatch.event, button, dispatch.mouse_up,
+                                dispatch.click_count);
+      return true;
+    }
+
+    case CefPointerDispatchKind::Wheel:
+      host->SendMouseWheelEvent(dispatch.event, dispatch.delta_x,
+                                dispatch.delta_y);
+      return true;
+  }
+  return false;
 }
 
 std::string OsrClient::MainTitle() const {

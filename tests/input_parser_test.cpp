@@ -32,6 +32,35 @@ void RequireEvent(const asciiomium::input::DecodedInputEvent& decoded,
   }
 }
 
+void RequirePointer(const asciiomium::input::DecodedInputEvent& decoded,
+                    asciiomium::input::PointerEventKind kind,
+                    asciiomium::input::PointerButton button,
+                    int column,
+                    int row,
+                    int wheel_x,
+                    int wheel_y,
+                    asciiomium::input::KeyModifiers modifiers,
+                    asciiomium::input::PointerButtons buttons,
+                    const char* message) {
+  if (!decoded.is_pointer()) {
+    std::cerr << "FAIL: " << message << " decoded as keyboard raw="
+              << asciiomium::input::EscapeBytes(decoded.raw_bytes) << '\n';
+    ++failures;
+    return;
+  }
+  const auto& event = decoded.pointer;
+  if (event.kind != kind || event.button != button ||
+      event.column != column || event.row != row ||
+      event.wheel_x != wheel_x || event.wheel_y != wheel_y ||
+      event.modifiers != modifiers || event.buttons != buttons) {
+    std::cerr << "FAIL: " << message << " got "
+              << asciiomium::input::DescribePointerEvent(event)
+              << " raw=" << asciiomium::input::EscapeBytes(decoded.raw_bytes)
+              << '\n';
+    ++failures;
+  }
+}
+
 }  // namespace
 
 int main() {
@@ -253,6 +282,150 @@ int main() {
       RequireEvent(events[1], KeyboardEventKind::Text, KeyCode::None, U'z', 0,
                    "event after escape sequence");
     }
+  }
+
+  {
+    VtInputParser parser;
+    const auto events = parser.Feed("\x1b[<0;1;1M\x1b[<0;1;1m");
+    Require(events.size() == 2, "SGR left press/release count");
+    if (events.size() == 2) {
+      RequirePointer(events[0], PointerEventKind::ButtonPress,
+                     PointerButton::Left, 0, 0, 0, 0, kModifierNone,
+                     kPointerButtonLeft, "SGR left press");
+      RequirePointer(events[1], PointerEventKind::ButtonRelease,
+                     PointerButton::Left, 0, 0, 0, 0, kModifierNone,
+                     kPointerButtonNone, "SGR left release");
+    }
+  }
+
+  {
+    VtInputParser parser;
+    const auto events = parser.Feed(
+        "\x1b[<1;3;4M\x1b[<1;3;4m"
+        "\x1b[<2;8;9M\x1b[<2;8;9m");
+    Require(events.size() == 4, "SGR middle/right press-release count");
+    if (events.size() == 4) {
+      RequirePointer(events[0], PointerEventKind::ButtonPress,
+                     PointerButton::Middle, 2, 3, 0, 0, kModifierNone,
+                     kPointerButtonMiddle, "SGR middle press");
+      RequirePointer(events[1], PointerEventKind::ButtonRelease,
+                     PointerButton::Middle, 2, 3, 0, 0, kModifierNone,
+                     kPointerButtonNone, "SGR middle release");
+      RequirePointer(events[2], PointerEventKind::ButtonPress,
+                     PointerButton::Right, 7, 8, 0, 0, kModifierNone,
+                     kPointerButtonRight, "SGR right press");
+      RequirePointer(events[3], PointerEventKind::ButtonRelease,
+                     PointerButton::Right, 7, 8, 0, 0, kModifierNone,
+                     kPointerButtonNone, "SGR right release");
+    }
+  }
+
+  {
+    VtInputParser parser;
+    const auto events = parser.Feed(
+        "\x1b[<28;5;6M\x1b[<32;10;20M\x1b[<35;11;21M");
+    Require(events.size() == 3, "SGR modifier/motion count");
+    if (events.size() == 3) {
+      RequirePointer(events[0], PointerEventKind::ButtonPress,
+                     PointerButton::Left, 4, 5, 0, 0,
+                     kModifierShift | kModifierAlt | kModifierControl,
+                     kPointerButtonLeft, "SGR modifiers");
+      RequirePointer(events[1], PointerEventKind::Move,
+                     PointerButton::Left, 9, 19, 0, 0, kModifierNone,
+                     kPointerButtonLeft, "SGR drag motion");
+      RequirePointer(events[2], PointerEventKind::Move,
+                     PointerButton::None, 10, 20, 0, 0, kModifierNone,
+                     kPointerButtonNone, "SGR hover motion");
+    }
+  }
+
+  {
+    VtInputParser parser;
+    const auto events = parser.Feed(
+        "\x1b[<64;7;8M\x1b[<65;7;8M"
+        "\x1b[<66;7;8M\x1b[<67;7;8M");
+    Require(events.size() == 4, "SGR wheel count");
+    if (events.size() == 4) {
+      RequirePointer(events[0], PointerEventKind::Wheel, PointerButton::None,
+                     6, 7, 0, 1, 0, 0, "wheel up");
+      RequirePointer(events[1], PointerEventKind::Wheel, PointerButton::None,
+                     6, 7, 0, -1, 0, 0, "wheel down");
+      RequirePointer(events[2], PointerEventKind::Wheel, PointerButton::None,
+                     6, 7, -1, 0, 0, 0, "wheel left");
+      RequirePointer(events[3], PointerEventKind::Wheel, PointerButton::None,
+                     6, 7, 1, 0, 0, 0, "wheel right");
+    }
+  }
+
+  {
+    const std::string sequence = "\x1b[<0;41;12M";
+    for (std::size_t split = 1; split < sequence.size(); ++split) {
+      VtInputParser parser;
+      const auto first = parser.Feed(
+          std::string_view(sequence.data(), split));
+      Require(first.empty(), "fragmented SGR mouse waits for final byte");
+      const auto second = parser.Feed(
+          std::string_view(sequence.data() + split, sequence.size() - split));
+      Require(second.size() == 1, "fragmented SGR mouse completes once");
+      if (second.size() == 1) {
+        RequirePointer(second[0], PointerEventKind::ButtonPress,
+                       PointerButton::Left, 40, 11, 0, 0, 0,
+                       kPointerButtonLeft, "fragmented SGR mapping");
+      }
+    }
+  }
+
+  {
+    VtInputParser parser;
+    const std::string mixed =
+        std::string("a") + "\x1b[<35;2;3M" +
+        std::string("\xE2\x82\xAC", 3) + "\x1b[A";
+    const auto events = parser.Feed(mixed);
+    Require(events.size() == 4, "keyboard/mouse/UTF-8 interleave count");
+    if (events.size() == 4) {
+      RequireEvent(events[0], KeyboardEventKind::Text, KeyCode::None, U'a', 0,
+                   "interleave ASCII");
+      RequirePointer(events[1], PointerEventKind::Move, PointerButton::None,
+                     1, 2, 0, 0, 0, 0, "interleave pointer");
+      RequireEvent(events[2], KeyboardEventKind::Text, KeyCode::None,
+                   U'\u20AC', 0, "interleave UTF-8");
+      RequireEvent(events[3], KeyboardEventKind::Key, KeyCode::ArrowUp, 0, 0,
+                   "interleave keyboard CSI");
+    }
+  }
+
+  {
+    VtInputParser parser;
+    const auto zero = parser.Feed("\x1b[<0;0;1M");
+    Require(zero.size() == 1 &&
+                zero[0].event.kind == KeyboardEventKind::Unsupported &&
+                zero[0].diagnostic == "invalid-sgr-mouse-range",
+            "zero SGR coordinate rejected");
+
+    const auto empty = parser.Feed("\x1b[<0;;1M");
+    Require(empty.size() == 1 &&
+                empty[0].diagnostic == "invalid-sgr-mouse-parameters",
+            "empty SGR mouse parameter rejected");
+
+    const auto extended = parser.Feed("\x1b[<128;1;1M");
+    Require(extended.size() == 1 &&
+                extended[0].diagnostic == "invalid-sgr-mouse-range",
+            "unsupported extended mouse button rejected");
+
+    const auto huge = parser.Feed("\x1b[<0;999999999999999999999;1M");
+    Require(huge.size() == 1 &&
+                huge[0].diagnostic == "invalid-sgr-mouse-parameters",
+            "excessive SGR coordinate rejected without numeric overflow");
+  }
+
+  {
+    VtInputParser parser;
+    Require(parser.Feed("\x1b[<0;12;").empty(),
+            "incomplete SGR mouse waits");
+    const auto flushed = parser.FlushPending();
+    Require(flushed.size() == 1 &&
+                flushed[0].diagnostic == "incomplete-sgr-mouse",
+            "incomplete SGR mouse flush diagnostic");
   }
 
   if (failures != 0) {

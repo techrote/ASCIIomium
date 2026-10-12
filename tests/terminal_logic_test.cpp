@@ -32,6 +32,21 @@ int main() {
           "full restore sequence");
   Require(BuildRestoreSequence(false, false) == kResetSgr,
           "minimal restore sequence");
+  Require(BuildMouseTrackingEnableSequence(MouseTrackingMode::ButtonEvent) ==
+              std::string(kEnableButtonEventMouse) + kEnableSgrMouse,
+          "1002 button-event mouse enable sequence");
+  Require(BuildMouseTrackingDisableSequence(MouseTrackingMode::ButtonEvent) ==
+              std::string(kDisableSgrMouse) + kDisableButtonEventMouse,
+          "1002 button-event mouse disable sequence");
+  Require(BuildMouseTrackingEnableSequence(MouseTrackingMode::AnyEvent) ==
+              std::string(kEnableAnyEventMouse) + kEnableSgrMouse,
+          "1003 all-motion mouse enable sequence");
+  Require(BuildMouseTrackingDisableSequence(MouseTrackingMode::AnyEvent) ==
+              std::string(kDisableSgrMouse) + kDisableAnyEventMouse,
+          "1003 all-motion mouse disable sequence");
+  Require(BuildMouseTrackingEnableSequence(MouseTrackingMode::Disabled).empty() &&
+              BuildMouseTrackingDisableSequence(MouseTrackingMode::Disabled).empty(),
+          "disabled mouse tracking emits no VT control");
   Require(BuildCursorPosition(4, 9) == "\x1b[4;9H", "cursor positioning");
   Require(BuildCursorPosition(0, -5) == "\x1b[1;1H", "cursor clamp");
   Require(BuildRgbForeground(1, 2, 3) == "\x1b[38;2;1;2;3m",

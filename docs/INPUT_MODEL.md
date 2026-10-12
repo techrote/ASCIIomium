@@ -6,16 +6,28 @@ ASCIIomium should feel like an interactive browser despite the terminal being th
 
 ## Terminal mouse mode
 
-Windows Terminal supports mouse input for VT applications. The programme should use terminal mouse tracking rather than Win32 `MOUSE_EVENT_RECORD` assumptions for the primary Windows Terminal path.
+Issue #12 uses terminal mouse reporting rather than Win32 `MOUSE_EVENT_RECORD`
+semantics for the Windows Terminal path. While the interactive browser owns the
+terminal it enables:
 
-Baseline target:
+```text
+CSI ? 1003 h    all-motion tracking
+CSI ? 1006 h    SGR extended mouse encoding
+```
 
-- request SGR mouse reporting (`1006`);
-- use button-event tracking (`1002`) or all-motion tracking (`1003`) when pointer hover/move is needed;
-- parse press/release/move/wheel reports from stdin;
-- preserve `Shift` as the user's terminal-selection escape hatch where Windows Terminal provides that convention.
+All-motion mode is chosen because ordinary browser hover matters even when no
+button is held. SGR reports arrive through the **same bounded incremental byte
+parser** as #11 keyboard input; there is no second stdin reader.
 
-Because Windows Terminal/ConPTY input behaviour has had historical edge cases, keep input parsing isolated and add an explicit diagnostics mode that prints decoded events instead of forwarding them.
+The parser accepts `CSI < Cb ; Cx ; Cy M/m`, converts 1-based protocol
+coordinates to zero-based terminal cells, decodes Shift/Alt/Ctrl, button
+press/release, motion and wheel notches, and preserves raw bytes for
+diagnostics. Malformed/incomplete reports stay subject to the existing bounded
+pending-buffer contract.
+
+Terminal-session RAII disables 1006/1003 again before leaving the alternate
+screen. Shift-based Windows Terminal selection bypass is an environment-specific
+behaviour and remains a manual acceptance check rather than an automated claim.
 
 ## Coordinate transform
 
@@ -53,6 +65,15 @@ CEF provides host methods for windowless browser input including:
 - `SendKeyEvent`.
 
 Mouse coordinates are relative to the upper-left corner of the browser view. The input subsystem should create one canonical internal event representation, then translate it into these CEF calls.
+
+Issue #12 implements a transport-neutral `PointerEvent` with move,
+button-press, button-release and wheel kinds. `CefPointerDispatch` is a
+separate browser-side translation layer. It maps the canonical terminal cell
+through the current immutable #10 `ViewportTransform`, then forwards with
+`SendMouseMoveEvent`, `SendMouseClickEvent` or `SendMouseWheelEvent`.
+Pressed-button and keyboard modifier state are represented in the CEF event
+flags. Single clicks use deterministic click-count 1.
+
 
 ## Keyboard path
 
@@ -121,9 +142,13 @@ Focus bugs are especially visible in text fields, keyboard shortcuts, and caret 
 
 ## Scrolling
 
-Mouse wheel events should map to CEF wheel events. Provide a configurable scale because terminal wheel deltas and Chromium expectations may feel too coarse or too fine.
+SGR wheel reports are canonicalised as logical notches. The live default maps
+one notch to a CEF delta of **120**, configurable with `--wheel-delta N`.
+Vertical and horizontal logical wheel axes are represented separately and the
+event is delivered at the browser coordinate under the reported terminal cell.
 
-Keyboard PageUp/PageDown should normally be forwarded to Chromium rather than consumed by the terminal application while browser mode is active.
+Keyboard PageUp/PageDown are forwarded to Chromium rather than consumed by the
+terminal application while browser mode is active.
 
 ## Terminal resize
 
@@ -158,14 +183,22 @@ Later work should explicitly define:
 
 ## Diagnostics
 
-Issue #11 provides `--input-debug`, displaying at minimum:
+`--input-debug` covers the unified keyboard/pointer stream. Pointer diagnostics
+show:
 
 ```text
-raw bytes -> decoded event -> terminal coordinates -> browser coordinates -> CEF event type/modifiers
+raw SGR bytes
+  -> canonical pointer event + zero-based terminal cell/modifiers
+  -> viewport geometry generation
+  -> browser coordinate or letterbox rejection
+  -> CEF move/click/wheel dispatch
 ```
 
-This is essential because terminal input failures otherwise appear indistinguishable from browser/UI failures.
+The generic `--input-hex` test aid can inject exact byte sequences through the
+same parser in headless CI; it is not a mouse-specific bypass. `--input-script`
+continues to exercise the ordinary UTF-8 keyboard path. The two injection modes
+are mutually exclusive.
 
-The debug log contains the immediate bytes typed by the operator, escaped for
-visibility. It does not inspect browser DOM, cookies or page secrets, but typed
-input itself can be sensitive; do not enable it while entering credentials.
+The debug log contains immediate operator bytes escaped for visibility. It does
+not inspect cookies or page secrets, but typed input itself can be sensitive;
+do not enable it while entering credentials.
