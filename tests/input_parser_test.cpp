@@ -411,6 +411,11 @@ int main() {
     Require(extended.size() == 1 &&
                 extended[0].diagnostic == "invalid-sgr-mouse-range",
             "unsupported extended mouse button rejected");
+
+    const auto huge = parser.Feed("\x1b[<0;999999999999999999999;1M");
+    Require(huge.size() == 1 &&
+                huge[0].diagnostic == "invalid-sgr-mouse-parameters",
+            "excessive SGR coordinate rejected without numeric overflow");
   }
 
   {
