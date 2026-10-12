@@ -155,6 +155,18 @@ std::string OsrClient::MainFrameUrl() const {
   return frame ? frame->GetURL().ToString() : std::string{};
 }
 
+bool OsrClient::ExecuteMainFrameJavaScript(std::string_view code) {
+  if (!browser_) {
+    return false;
+  }
+  const auto frame = browser_->GetMainFrame();
+  if (!frame) {
+    return false;
+  }
+  frame->ExecuteJavaScript(std::string(code), frame->GetURL(), 0);
+  return true;
+}
+
 void OsrClient::CloseBrowser() {
   if (browser_) {
     browser_->GetHost()->CloseBrowser(true);
