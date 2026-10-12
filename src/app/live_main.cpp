@@ -588,9 +588,13 @@ void ForwardInput(
     const auto cef_events =
         asciiomium::browser::TranslateKeyboardEvent(decoded.event);
     if (options.input_debug) {
-      for (const auto& event : cef_events) {
-        std::cerr << "[input] cef="
-                  << asciiomium::browser::DescribeCefKeyEvent(event) << '\n';
+      if (cef_events.empty()) {
+        std::cerr << "[input] cef=<none> mapping-unavailable\n";
+      } else {
+        for (const auto& event : cef_events) {
+          std::cerr << "[input] cef="
+                    << asciiomium::browser::DescribeCefKeyEvent(event) << '\n';
+        }
       }
     }
     evidence->input_cef_events += client->SendKeyEvents(cef_events);
