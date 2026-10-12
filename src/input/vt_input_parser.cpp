@@ -204,10 +204,11 @@ std::optional<std::array<int, 3>> ParseMouseParameters(
       return std::nullopt;
     }
     have_digit = true;
-    value = value * 10 + (ch - '0');
-    if (value > 1'000'000) {
+    const int digit = ch - '0';
+    if (value > (1'000'000 - digit) / 10) {
       return std::nullopt;
     }
+    value = value * 10 + digit;
   }
 
   if (field != values.size()) {
