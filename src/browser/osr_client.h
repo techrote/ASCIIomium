@@ -5,6 +5,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "browser/source_frame.h"
@@ -66,6 +67,7 @@ class OsrClient final : public CefClient,
   [[nodiscard]] std::size_t SendKeyEvents(
       const std::vector<CefKeyEvent>& events);
   [[nodiscard]] std::string MainFrameUrl() const;
+  [[nodiscard]] bool ExecuteMainFrameJavaScript(std::string_view code);
   void CloseBrowser();
 
   [[nodiscard]] bool browser_created() const noexcept {
