@@ -22,6 +22,7 @@
 #include <vector>
 
 #include "browser/cef_key_translator.h"
+#include "browser/cef_pointer_translator.h"
 #include "browser/osr_client.h"
 #include "browser/popup_compositor.h"
 #include "browser/source_frame.h"
@@ -62,7 +63,9 @@ struct Options {
   bool quiet = false;
   bool geometry_debug = false;
   bool input_debug = false;
+  int wheel_delta = 120;
   std::string input_script;
+  std::string input_hex;
   asciiomium::render::ColorMode color_mode =
       asciiomium::render::ColorMode::Rgb1024;
   asciiomium::render::SamplingFilter filter =
@@ -91,9 +94,15 @@ struct LiveEvidence {
   std::uint64_t input_decoded_events = 0;
   std::uint64_t input_unsupported_events = 0;
   std::uint64_t input_cef_events = 0;
+  std::uint64_t pointer_decoded_events = 0;
+  std::uint64_t pointer_cef_events = 0;
+  std::uint64_t pointer_rejected_events = 0;
   bool input_script_sent = false;
+  bool input_hex_sent = false;
   bool input_focus_observed = false;
   bool input_dom_observed = false;
+  bool pointer_dom_observed = false;
+  bool pointer_scroll_observed = false;
   bool input_paint_observed = false;
   std::uint64_t input_generation_before = 0;
   std::uint64_t input_generation_after = 0;
@@ -120,6 +129,32 @@ bool ParseInt(std::string_view text, int minimum, int maximum, int* value) {
     return false;
   }
   *value = parsed;
+  return true;
+}
+
+bool ParseHexBytes(std::string_view text, std::string* bytes) {
+  if (bytes == nullptr || text.empty() || (text.size() % 2) != 0) {
+    return false;
+  }
+
+  auto nibble = [](char ch) -> int {
+    if (ch >= '0' && ch <= '9') return ch - '0';
+    if (ch >= 'a' && ch <= 'f') return ch - 'a' + 10;
+    if (ch >= 'A' && ch <= 'F') return ch - 'A' + 10;
+    return -1;
+  };
+
+  std::string parsed;
+  parsed.reserve(text.size() / 2);
+  for (std::size_t i = 0; i < text.size(); i += 2) {
+    const int high = nibble(text[i]);
+    const int low = nibble(text[i + 1]);
+    if (high < 0 || low < 0) {
+      return false;
+    }
+    parsed.push_back(static_cast<char>((high << 4) | low));
+  }
+  *bytes = std::move(parsed);
   return true;
 }
 
@@ -167,8 +202,10 @@ void PrintUsage() {
       << "  --report FILE.json      write live-run metrics\n"
       << "  --evidence-svg FILE     write the final logical half-block frame as SVG\n"
       << "  --vt-output FILE        write the final full-frame VT payload verbatim\n"
-      << "  --input-debug           log raw/decoded/CEF keyboard events to stderr\n"
+      << "  --input-debug           log raw/decoded/CEF keyboard and pointer events\n"
       << "  --input-script TEXT     inject UTF-8 bytes through the parser (CI/test aid)\n"
+      << "  --input-hex HEX         inject raw bytes as hexadecimal (CI/test aid)\n"
+      << "  --wheel-delta N         CEF wheel delta per terminal notch, 1..1200 (default 120)\n"
       << "  --quiet                 suppress final one-line summary\n"
       << "\nCtrl+Alt+Q exits interactive browser mode. Ctrl+C is forwarded to CEF.\n";
 }
@@ -254,6 +291,12 @@ bool ParseArgs(int argc, char** argv, Options* options) {
       if (!take_path(&options->vt_output)) return false;
     } else if (arg == "--input-script") {
       if (!take_string(&options->input_script)) return false;
+    } else if (arg == "--input-hex") {
+      if (!take_string(&options->input_hex)) return false;
+      std::string parsed;
+      if (!ParseHexBytes(options->input_hex, &parsed)) return false;
+    } else if (arg == "--wheel-delta") {
+      if (!take_int(1, 1200, &options->wheel_delta)) return false;
     } else if (arg == "--input-debug") {
       options->input_debug = true;
     } else if (arg == "--freeze") {
@@ -274,6 +317,9 @@ bool ParseArgs(int argc, char** argv, Options* options) {
   // decoded (or a separate console-control shutdown occurs).
   if (!options->terminal_output && options->duration_ms == 0 &&
       options->max_frames == 0) {
+    return false;
+  }
+  if (!options->input_script.empty() && !options->input_hex.empty()) {
     return false;
   }
   return true;
@@ -516,12 +562,22 @@ void WriteReport(const std::filesystem::path& path,
       << "  \"input\":{\"decoded_events\":" << evidence.input_decoded_events
       << ",\"unsupported_events\":" << evidence.input_unsupported_events
       << ",\"cef_events\":" << evidence.input_cef_events
+      << ",\"pointer_decoded_events\":" << evidence.pointer_decoded_events
+      << ",\"pointer_cef_events\":" << evidence.pointer_cef_events
+      << ",\"pointer_rejected_events\":" << evidence.pointer_rejected_events
       << ",\"script_sent\":"
       << (evidence.input_script_sent ? "true" : "false")
+      << ",\"hex_sent\":"
+      << (evidence.input_hex_sent ? "true" : "false")
       << ",\"focus_observed\":"
       << (evidence.input_focus_observed ? "true" : "false")
       << ",\"dom_observed\":"
       << (evidence.input_dom_observed ? "true" : "false")
+      << ",\"pointer_dom_observed\":"
+      << (evidence.pointer_dom_observed ? "true" : "false")
+      << ",\"pointer_scroll_observed\":"
+      << (evidence.pointer_scroll_observed ? "true" : "false")
+      << ",\"wheel_delta_per_notch\":" << options.wheel_delta
       << ",\"paint_observed\":"
       << (evidence.input_paint_observed ? "true" : "false")
       << ",\"generation_before\":" << evidence.input_generation_before
@@ -557,11 +613,61 @@ bool IsQuitChord(const asciiomium::input::KeyboardEvent& event) {
 void ForwardInput(
     const std::vector<asciiomium::input::DecodedInputEvent>& decoded_events,
     CefRefPtr<asciiomium::browser::OsrClient> client,
+    const asciiomium::geometry::ViewportSnapshot& viewport_snapshot,
     const Options& options,
     LiveEvidence* evidence,
     bool* quit_requested) {
   for (const auto& decoded : decoded_events) {
     ++evidence->input_decoded_events;
+
+    if (decoded.is_pointer()) {
+      ++evidence->pointer_decoded_events;
+      if (options.input_debug) {
+        std::cerr << "[input] raw="
+                  << asciiomium::input::EscapeBytes(decoded.raw_bytes)
+                  << " decoded="
+                  << asciiomium::input::DescribePointerEvent(decoded.pointer);
+        if (!decoded.diagnostic.empty()) {
+          std::cerr << " note=" << decoded.diagnostic;
+        }
+        std::cerr << '\n';
+      }
+
+      if (!viewport_snapshot.valid()) {
+        ++evidence->pointer_rejected_events;
+        if (options.input_debug) {
+          std::cerr << "[input] pointer rejected: no viewport transform\n";
+        }
+        continue;
+      }
+
+      const auto dispatch =
+          asciiomium::browser::TranslatePointerEvent(
+              decoded.pointer, *viewport_snapshot.transform,
+              options.wheel_delta);
+      if (!dispatch.has_value()) {
+        ++evidence->pointer_rejected_events;
+        if (options.input_debug) {
+          std::cerr << "[input] pointer rejected geometry="
+                    << viewport_snapshot.generation
+                    << " (outside browser content or invalid mapping)\n";
+        }
+        continue;
+      }
+
+      if (options.input_debug) {
+        std::cerr << "[input] geometry=" << viewport_snapshot.generation
+                  << " cef="
+                  << asciiomium::browser::DescribeCefPointerDispatch(
+                         *dispatch)
+                  << '\n';
+      }
+      if (client->SendPointerEvent(*dispatch)) {
+        ++evidence->pointer_cef_events;
+        ++evidence->input_cef_events;
+      }
+      continue;
+    }
 
     if (options.input_debug) {
       std::cerr << "[input] raw="
