@@ -844,9 +844,10 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
           client->load_complete() && state.view_generation > 0;
       if (input_fixture_available && !evidence.input_fixture_ready_observed &&
           now >= next_fixture_probe_at) {
-        client->ExecuteMainFrameJavaScript(
-            "window.ASCIIOMIUM_FIXTURE?.snapshot()");
-        next_fixture_probe_at = now + std::chrono::milliseconds(50);
+        if (client->ExecuteMainFrameJavaScript(
+                "window.ASCIIOMIUM_FIXTURE?.snapshot()")) {
+          next_fixture_probe_at = now + std::chrono::milliseconds(50);
+        }
       }
 
       const std::string fixture_message = client->LatestFixtureObservation();
