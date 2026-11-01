@@ -108,11 +108,15 @@ CI also runs the real live CEF path headlessly with:
 --fixture input-focus --freeze --input-script asciiomium --no-terminal
 ```
 
-The resulting `asciiomium-live-v1` report must show that the script was
-decoded without unsupported events, CEF key events were sent, the fixture's
-real DOM `input` listener acknowledged the event through a fixed URL-fragment
-marker, and a later presentation generation was observed after injection. The
-marker contains no typed value.
+The resulting `asciiomium-live-v1` report must show that the fixture's
+durable observation ledger reached its explicit ready acknowledgement, the
+script was decoded without unsupported events, CEF key events were sent, a
+real DOM `input` event was recorded after injection, the text field reached
+the expected UTF-8 value, the fixture acknowledged completion, and a later
+presentation generation was observed. The fixture ledger is cumulative and
+monotonic, so rapid focus/key/input updates cannot overwrite one another as
+they could when transient `document.title` markers were sampled. This
+instrumentation exists only in the bundled deterministic input fixture.
 
 Actual Windows Terminal keyboard transport still requires a local observation
 because a hosted runner cannot prove which VT bytes the GUI terminal emits.
