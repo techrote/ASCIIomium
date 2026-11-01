@@ -806,11 +806,12 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
   bool fixture_ready_ack_requested = false;
   bool input_script_focus_requested = false;
   bool input_script_injected = false;
-  // Synthetic raw-byte input is decoded immediately, then forwarded in event
-  // order with UI pump opportunities between mouse move/press/release edges.
-  std::vector<asciiomium::input::DecodedInputEvent> hex_event_queue;
-  std::size_t next_hex_event = 0;
-  auto next_hex_event_at = Clock::now();
+  // CI-only synthetic bytes are decoded eagerly and delivered one logical
+  // event per message-pump interval. This avoids sending an entire mouse
+  // gesture or keyboard text burst before Chromium processes focus updates.
+  std::vector<asciiomium::input::DecodedInputEvent> synthetic_event_queue;
+  std::size_t next_synthetic_event = 0;
+  auto next_synthetic_event_at = Clock::now();
   std::string raw_injected_input;
   if (!options.input_hex.empty()) {
     if (!ParseHexBytes(options.input_hex, &raw_injected_input)) {
@@ -1050,29 +1051,25 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
         viewport_snapshot = viewport_state.Snapshot();
         if (pointer_ready) {
           client->SetFocus(true);
-          hex_event_queue = input_parser.Feed(raw_injected_input);
-          const auto flushed = input_parser.FlushPending();
-          hex_event_queue.insert(hex_event_queue.end(), flushed.begin(),
-                                 flushed.end());
-          next_hex_event = 0;
-          // A real terminal does not deliver a physical mouse gesture's
-          // move, down and up edges within one CEF message-pump iteration.
-          next_hex_event_at = now + std::chrono::milliseconds(60);
-        } else {
-          ForwardInput(input_parser.Feed(options.input_script), client,
-                       viewport_snapshot, options, &evidence, &quit_requested);
-          ForwardInput(input_parser.FlushPending(), client, viewport_snapshot,
-                       options, &evidence, &quit_requested);
         }
+        const std::string_view bytes = pointer_ready
+            ? std::string_view(raw_injected_input)
+            : std::string_view(options.input_script);
+        synthetic_event_queue = input_parser.Feed(bytes);
+        const auto flushed = input_parser.FlushPending();
+        synthetic_event_queue.insert(synthetic_event_queue.end(),
+                                     flushed.begin(), flushed.end());
+        next_synthetic_event = 0;
+        next_synthetic_event_at = now + std::chrono::milliseconds(60);
       }
 
-      if (evidence.input_hex_sent &&
-          next_hex_event < hex_event_queue.size() &&
-          now >= next_hex_event_at) {
-        ForwardInput({hex_event_queue[next_hex_event]}, client,
+      if ((evidence.input_hex_sent || evidence.input_script_sent) &&
+          next_synthetic_event < synthetic_event_queue.size() &&
+          now >= next_synthetic_event_at) {
+        ForwardInput({synthetic_event_queue[next_synthetic_event]}, client,
                      viewport_snapshot, options, &evidence, &quit_requested);
-        ++next_hex_event;
-        next_hex_event_at = now + std::chrono::milliseconds(60);
+        ++next_synthetic_event;
+        next_synthetic_event_at = now + std::chrono::milliseconds(60);
       }
 
       if (input_script_injected) {
