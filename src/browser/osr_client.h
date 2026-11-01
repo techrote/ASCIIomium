@@ -75,6 +75,8 @@ class OsrClient final : public CefClient,
       const std::vector<CefKeyEvent>& events);
   [[nodiscard]] bool SendPointerEvent(const CefPointerDispatch& dispatch);
   [[nodiscard]] std::string MainTitle() const;
+  [[nodiscard]] bool PointerClickCenterObserved() const;
+  [[nodiscard]] bool PointerScrollObserved() const;
   [[nodiscard]] bool ExecuteMainFrameJavaScript(std::string_view code);
   void CloseBrowser();
 
@@ -113,6 +115,8 @@ class OsrClient final : public CefClient,
   std::string failed_url_;
   mutable std::mutex display_mutex_;
   std::string main_title_;
+  bool pointer_click_center_observed_ = false;
+  bool pointer_scroll_observed_ = false;
 
   IMPLEMENT_REFCOUNTING(OsrClient);
 };
