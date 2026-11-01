@@ -286,6 +286,7 @@ jobs:
           if ($data.input.pointer_rejected_events -ne 0) { throw 'valid wheel event was rejected by geometry' }
           if ($data.input.unsupported_events -ne 0) { throw 'wheel script produced unsupported events' }
           if (-not $data.input.pointer_scroll_observed) { throw 'CEF wheel did not produce observable scrolling' }
+          if ($data.input.fixture_events -notmatch '(^|,)\d+:wheel:center(,|$)') { throw 'CEF wheel was not observed at the centre fixture target' }
           if (-not $data.input.paint_observed) { throw 'CEF wheel caused no observable paint generation' }
           if ($data.input.wheel_delta_per_notch -ne 120) { throw 'wrong wheel scale in live evidence' }
           if ($data.geometry.generation -lt 1) { throw 'wheel path had no viewport transform' }

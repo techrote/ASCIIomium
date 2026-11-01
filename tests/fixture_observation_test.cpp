@@ -67,21 +67,33 @@ int main() {
 
   FixtureObservation before_scroll = observation;
   before_scroll.sequence = 8;
+  before_scroll.wheel_sequence = 0;
+  before_scroll.scroll_sequence = 0;
+  before_scroll.nested_scroll_sequence = 0;
   before_scroll.scroll_y = 0;
   before_scroll.nested_scroll_top = 0;
-  FixtureObservation compositor_scroll = observation;
-  compositor_scroll.wheel_sequence = 0;
-  Require(ScrollChangedAfter(before_scroll, compositor_scroll),
-          "post-injection scroll progress was missed without DOM wheel event");
-  FixtureObservation stale_scroll = compositor_scroll;
+  Require(ScrollChangedAfter(before_scroll, observation),
+          "DOM wheel followed by scroll displacement was not accepted");
+  FixtureObservation incidental_scroll = observation;
+  incidental_scroll.wheel_sequence = 0;
+  Require(!ScrollChangedAfter(before_scroll, incidental_scroll),
+          "unrelated scroll without a DOM wheel was incorrectly accepted");
+  FixtureObservation stale_scroll = observation;
   stale_scroll.scroll_y = before_scroll.scroll_y;
   Require(!ScrollChangedAfter(before_scroll, stale_scroll),
           "scroll event without position change was incorrectly accepted");
-  FixtureObservation prior_scroll = compositor_scroll;
-  prior_scroll.scroll_sequence = before_scroll.sequence;
+  FixtureObservation prior_scroll = observation;
+  prior_scroll.scroll_sequence = observation.wheel_sequence;
   Require(!ScrollChangedAfter(before_scroll, prior_scroll),
-          "pre-injection scroll was incorrectly accepted");
-  Require(!ScrollChangedAfter(FixtureObservation{}, compositor_scroll),
+          "scroll before wheel was incorrectly accepted");
+  FixtureObservation nested_scroll = observation;
+  nested_scroll.scroll_sequence = 0;
+  nested_scroll.nested_scroll_sequence = 11;
+  nested_scroll.scroll_y = 0;
+  nested_scroll.nested_scroll_top = 80;
+  Require(ScrollChangedAfter(before_scroll, nested_scroll),
+          "nested scroll following DOM wheel was not accepted");
+  Require(!ScrollChangedAfter(FixtureObservation{}, observation),
           "invalid baseline was incorrectly accepted");
 
   FixtureObservation malformed;

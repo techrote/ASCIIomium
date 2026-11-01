@@ -37,8 +37,8 @@ struct FixtureObservation {
     std::string_view message,
     FixtureObservation* observation);
 
-// Require a post-dispatch scroll event AND a genuine scroll-position change.
-// Some Chromium compositor scrolls do not emit a DOM wheel callback.
+// Require a DOM wheel observation followed by genuine scroll-position
+// displacement. Incidental focus/load scrolling must not pass.
 [[nodiscard]] bool ScrollChangedAfter(
     const FixtureObservation& before,
     const FixtureObservation& after) noexcept;

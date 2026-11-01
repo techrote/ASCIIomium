@@ -147,9 +147,11 @@ CI also feeds exact SGR bytes through the real live parser/dispatch path with:
 
 The report must show decoded/forwarded pointer events, zero geometry rejections
 for the valid script, the centre target click acknowledged by the fixture, an
-observable wheel scroll, a resulting paint generation, and clean teardown. This
-is deliberately an exact-byte transport test rather than a direct CEF mouse
-API shortcut.
+actual DOM wheel event followed by changed page or nested-scroll position,
+a resulting paint generation, and clean teardown. The wheel acceptance
+rejects post-load/focus scrolling or other incidental position changes without
+a preceding DOM wheel event. This is deliberately an exact-byte transport
+test rather than a direct CEF mouse API shortcut.
 
 Actual Windows Terminal pointer behaviour remains a manual V4 gate. Run:
 
