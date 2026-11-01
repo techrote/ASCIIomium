@@ -272,7 +272,7 @@ jobs:
           path: |
             build/color-modes-debug.svg
             build/color-modes-release.svg
-          if-no-files-found: warn
+          if-no-files-found: error
 
       - name: Upload fixture and benchmark evidence
         if: always()
@@ -283,7 +283,7 @@ jobs:
             build/fixture-screenshots/*.png
             build/benchmark-debug.json
             build/benchmark-release.json
-          if-no-files-found: warn
+          if-no-files-found: error
 
       - name: Upload CEF OSR evidence
         if: always()
@@ -297,7 +297,7 @@ jobs:
             build/cef-motion-release.json
             build/fixture-screenshots/colour-ramps.png
             build/fixture-screenshots/motion-scroll.png
-          if-no-files-found: warn
+          if-no-files-found: error
 
       - name: Upload live terminal pipeline evidence
         if: always()
@@ -312,4 +312,4 @@ jobs:
             build/live-motion-release.svg
             build/live-motion-release.vt
             build/live-input-release.json
-          if-no-files-found: warn
+          if-no-files-found: error
