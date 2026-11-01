@@ -119,6 +119,17 @@ On startup/focus acquisition, notify CEF that the browser is focused. On termina
 
 Focus bugs are especially visible in text fields, keyboard shortcuts, and caret rendering; include focus cases in manual verification.
 
+### Deterministic fixture observation
+
+The bundled `input-focus` test fixture uses a fixture-only monotonic event
+ledger for automated CEF acceptance. It records ordered focus, key, input,
+pointer, click, wheel and scroll observations separately from resulting DOM
+state, emits cumulative snapshots through a prefixed CEF console message, and
+supports explicit host-ready/host-complete acknowledgements. The native test
+path requests snapshots and evaluates the durable ledger; it does not depend
+on catching transient `document.title` changes. Generic browsing code does
+not inject this instrumentation into arbitrary pages.
+
 ## Scrolling
 
 Mouse wheel events should map to CEF wheel events. Provide a configurable scale because terminal wheel deltas and Chromium expectations may feel too coarse or too fine.
