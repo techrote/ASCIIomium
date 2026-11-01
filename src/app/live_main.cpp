@@ -993,12 +993,10 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
               main_title == "keyboard-input-" + options.input_script;
         }
         if (evidence.input_hex_sent) {
-          evidence.pointer_dom_observed =
-              evidence.pointer_dom_observed ||
-              main_title.find("pointer-click-center") != std::string::npos;
-          evidence.pointer_scroll_observed =
-              evidence.pointer_scroll_observed ||
-              main_title.find("pointer-scroll") != std::string::npos;
+          evidence.pointer_dom_observed |=
+              client->PointerClickCenterObserved();
+          evidence.pointer_scroll_observed |=
+              client->PointerScrollObserved();
         }
       }
       if (quit_requested) {
