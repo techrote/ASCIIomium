@@ -206,6 +206,12 @@ text follows the CHAR path, while editing/navigation/shortcut events use
 logical RAWKEYDOWN/KEYUP sequences. A pending lone Escape is resolved after a
 short quiet interval so it can remain distinguishable from Alt-prefixed input.
 
+Automated keyboard acceptance uses the bundled `input-focus` fixture's
+durable console-backed observation ledger. The ledger preserves ordered events
+and DOM state across rapid updates and provides explicit ready/completion
+acknowledgements; production pages are not modified or expected to expose this
+test protocol.
+
 Mouse tracking is deliberately not enabled here; pointer and wheel transport
 remain issue #12. Keyboard traffic also does not create a separate visual frame
 queue: any resulting CEF paints enter the existing newest-presentation path.
