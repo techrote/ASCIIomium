@@ -526,10 +526,20 @@ void WriteReport(const std::filesystem::path& path,
       << ",\"cef_events\":" << evidence.input_cef_events
       << ",\"script_sent\":"
       << (evidence.input_script_sent ? "true" : "false")
+      << ",\"fixture_ready_observed\":"
+      << (evidence.input_fixture_ready_observed ? "true" : "false")
+      << ",\"fixture_complete_observed\":"
+      << (evidence.input_fixture_complete_observed ? "true" : "false")
       << ",\"focus_observed\":"
       << (evidence.input_focus_observed ? "true" : "false")
+      << ",\"event_observed\":"
+      << (evidence.input_event_observed ? "true" : "false")
+      << ",\"value_observed\":"
+      << (evidence.input_value_observed ? "true" : "false")
       << ",\"dom_observed\":"
       << (evidence.input_dom_observed ? "true" : "false")
+      << ",\"fixture_sequence\":" << evidence.input_fixture_sequence
+      << ",\"fixture_events\":\"" << evidence.input_fixture_events << "\""
       << ",\"paint_observed\":"
       << (evidence.input_paint_observed ? "true" : "false")
       << ",\"generation_before\":" << evidence.input_generation_before
