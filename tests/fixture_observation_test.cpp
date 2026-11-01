@@ -20,6 +20,14 @@ int main() {
   using asciiomium::browser::ParseFixtureObservation;
   using asciiomium::browser::Utf8Hex;
 
+  // Model the old fixture channel directly: a later event replaced the only
+  // observable title value, so polling after rapid focus/input updates could
+  // no longer prove that focus had ever occurred.
+  std::string legacy_title = "keyboard-focus-ready";
+  legacy_title = "keyboard-input-asciiomium";
+  Require(legacy_title != "keyboard-focus-ready",
+          "legacy single-value channel did not demonstrate overwrite");
+
   FixtureObservation observation;
   const std::string durable_snapshot =
       "ASCIIOMIUM_FIXTURE_V1|seq=11|ready_seq=1|host_ready_seq=2|"
