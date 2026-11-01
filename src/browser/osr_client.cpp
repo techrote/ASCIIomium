@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <utility>
 
+#include "browser/fixture_observation.h"
 #include "include/cef_browser.h"
 #include "include/cef_frame.h"
 
@@ -156,6 +157,11 @@ std::size_t OsrClient::SendKeyEvents(
 std::string OsrClient::MainTitle() const {
   std::lock_guard lock(display_mutex_);
   return main_title_;
+}
+
+std::string OsrClient::LatestFixtureObservation() const {
+  std::lock_guard lock(display_mutex_);
+  return latest_fixture_observation_;
 }
 
 bool OsrClient::ExecuteMainFrameJavaScript(std::string_view code) {
