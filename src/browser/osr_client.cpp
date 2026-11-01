@@ -118,6 +118,11 @@ void OsrClient::OnTitleChange(CefRefPtr<CefBrowser>,
                               const CefString& title) {
   std::lock_guard lock(display_mutex_);
   main_title_ = title.ToString();
+  // Titles may subsequently change (focus/scroll), so retain both signals.
+  pointer_click_center_observed_ |=
+      main_title_.find("pointer-click-center") != std::string::npos;
+  pointer_scroll_observed_ |=
+      main_title_.find("pointer-scroll") != std::string::npos;
 }
 
 bool OsrClient::Resize(int width, int height) {
@@ -167,6 +172,10 @@ bool OsrClient::SendPointerEvent(const CefPointerDispatch& dispatch) {
       return true;
 
     case CefPointerDispatchKind::Click: {
+      // Windowless browsers need explicit focus when receiving mouse presses.
+      if (!dispatch.mouse_up) {
+        host->SetFocus(true);
+      }
       CefBrowserHost::MouseButtonType button = MBT_LEFT;
       switch (dispatch.button) {
         case asciiomium::input::PointerButton::Left:
@@ -197,6 +206,16 @@ bool OsrClient::SendPointerEvent(const CefPointerDispatch& dispatch) {
 std::string OsrClient::MainTitle() const {
   std::lock_guard lock(display_mutex_);
   return main_title_;
+}
+
+bool OsrClient::PointerClickCenterObserved() const {
+  std::lock_guard lock(display_mutex_);
+  return pointer_click_center_observed_;
+}
+
+bool OsrClient::PointerScrollObserved() const {
+  std::lock_guard lock(display_mutex_);
+  return pointer_scroll_observed_;
 }
 
 bool OsrClient::ExecuteMainFrameJavaScript(std::string_view code) {
