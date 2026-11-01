@@ -38,7 +38,7 @@ jobs:
 
       - name: Build Debug
         shell: pwsh
-        run: cmake --build build --config Debug --target asciiomium asciiomium_live asciiomium_tests terminal_logic_tests terminal_console_smoke full_frame_emitter_tests vt_console_smoke render_golden_tests color_quantizer_tests benchmark_result_tests input_parser_tests cef_key_translator_tests source_frame_tests live_runtime_tests viewport_transform_tests asciiomium_frame_dump asciiomium_color_ramp asciiomium_vt_preview asciiomium_benchmark asciiomium_cef_capture --parallel
+        run: cmake --build build --config Debug --target asciiomium asciiomium_live asciiomium_tests terminal_logic_tests terminal_console_smoke full_frame_emitter_tests vt_console_smoke render_golden_tests color_quantizer_tests benchmark_result_tests input_parser_tests cef_key_translator_tests fixture_observation_tests source_frame_tests live_runtime_tests viewport_transform_tests asciiomium_frame_dump asciiomium_color_ramp asciiomium_vt_preview asciiomium_benchmark asciiomium_cef_capture --parallel
 
       - name: Test Debug
         shell: pwsh
@@ -140,7 +140,7 @@ jobs:
 
       - name: Build Release
         shell: pwsh
-        run: cmake --build build --config Release --target asciiomium asciiomium_live asciiomium_tests terminal_logic_tests terminal_console_smoke full_frame_emitter_tests vt_console_smoke render_golden_tests color_quantizer_tests benchmark_result_tests input_parser_tests cef_key_translator_tests source_frame_tests live_runtime_tests viewport_transform_tests asciiomium_frame_dump asciiomium_color_ramp asciiomium_vt_preview asciiomium_benchmark asciiomium_cef_capture --parallel
+        run: cmake --build build --config Release --target asciiomium asciiomium_live asciiomium_tests terminal_logic_tests terminal_console_smoke full_frame_emitter_tests vt_console_smoke render_golden_tests color_quantizer_tests benchmark_result_tests input_parser_tests cef_key_translator_tests fixture_observation_tests source_frame_tests live_runtime_tests viewport_transform_tests asciiomium_frame_dump asciiomium_color_ramp asciiomium_vt_preview asciiomium_benchmark asciiomium_cef_capture --parallel
 
       - name: Test Release
         shell: pwsh
@@ -250,17 +250,22 @@ jobs:
           Write-Host ($data.input | ConvertTo-Json -Compress)
           if ($data.schema -ne 'asciiomium-live-v1') { throw 'wrong input live schema' }
           if (-not $data.load.complete) { throw 'input fixture did not complete loading' }
+          if (-not $data.input.fixture_ready_observed) { throw 'durable input fixture readiness was not observed' }
           if (-not $data.input.focus_observed) { throw 'input fixture focus handshake was not observed' }
           if (-not $data.input.script_sent) { throw 'input script was not dispatched' }
           if ($data.input.decoded_events -lt 9) { throw 'input parser decoded too few events' }
           if ($data.input.unsupported_events -ne 0) { throw 'input script produced unsupported events' }
           if ($data.input.cef_events -lt 9) { throw 'input events did not reach CEF' }
-          if (-not $data.input.dom_observed) { throw 'CEF input did not trigger the fixture DOM input event' }
+          if (-not $data.input.event_observed) { throw 'fixture did not acknowledge a DOM input event' }
+          if (-not $data.input.value_observed) { throw 'fixture input value did not match the injected UTF-8 bytes' }
+          if (-not $data.input.dom_observed) { throw 'CEF input did not reach the intended DOM target state' }
+          if (-not $data.input.fixture_complete_observed) { throw 'durable input fixture completion was not acknowledged' }
           if (-not $data.input.paint_observed) { throw 'CEF input caused no observable paint generation' }
           if (-not $data.runtime.terminal_restored) { throw 'input live teardown did not complete' }
           if (-not $data.runtime.closed_cleanly) { throw 'CEF did not close cleanly after input run' }
 
       - name: Upload colour-ramp evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: asciiomium-colour-mode-ramp
@@ -270,6 +275,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload fixture and benchmark evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: asciiomium-fixture-benchmark-evidence
@@ -280,6 +286,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload CEF OSR evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: asciiomium-cef-osr-evidence
@@ -293,6 +300,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload live terminal pipeline evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: asciiomium-live-pipeline-evidence
