@@ -37,6 +37,12 @@ struct FixtureObservation {
     std::string_view message,
     FixtureObservation* observation);
 
+// Require a post-dispatch scroll event AND a genuine scroll-position change.
+// Some Chromium compositor scrolls do not emit a DOM wheel callback.
+[[nodiscard]] bool ScrollChangedAfter(
+    const FixtureObservation& before,
+    const FixtureObservation& after) noexcept;
+
 [[nodiscard]] std::string Utf8Hex(std::string_view input);
 
 }  // namespace asciiomium::browser

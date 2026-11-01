@@ -19,6 +19,7 @@ int main() {
   using asciiomium::browser::FixtureObservation;
   using asciiomium::browser::ParseFixtureObservation;
   using asciiomium::browser::Utf8Hex;
+  using asciiomium::browser::ScrollChangedAfter;
 
   // Model the old fixture channel directly: a later event replaced the only
   // observable title value, so polling after rapid focus/input updates could
@@ -63,6 +64,25 @@ int main() {
               observation.ordered_events.find("10:wheel:center") !=
                   std::string::npos,
           "ordered ledger did not retain overlapping observations");
+
+  FixtureObservation before_scroll = observation;
+  before_scroll.sequence = 8;
+  before_scroll.scroll_y = 0;
+  before_scroll.nested_scroll_top = 0;
+  FixtureObservation compositor_scroll = observation;
+  compositor_scroll.wheel_sequence = 0;
+  Require(ScrollChangedAfter(before_scroll, compositor_scroll),
+          "post-injection scroll progress was missed without DOM wheel event");
+  FixtureObservation stale_scroll = compositor_scroll;
+  stale_scroll.scroll_y = before_scroll.scroll_y;
+  Require(!ScrollChangedAfter(before_scroll, stale_scroll),
+          "scroll event without position change was incorrectly accepted");
+  FixtureObservation prior_scroll = compositor_scroll;
+  prior_scroll.scroll_sequence = before_scroll.sequence;
+  Require(!ScrollChangedAfter(before_scroll, prior_scroll),
+          "pre-injection scroll was incorrectly accepted");
+  Require(!ScrollChangedAfter(FixtureObservation{}, compositor_scroll),
+          "invalid baseline was incorrectly accepted");
 
   FixtureObservation malformed;
   Require(!ParseFixtureObservation("keyboard-input-asciiomium", &malformed),

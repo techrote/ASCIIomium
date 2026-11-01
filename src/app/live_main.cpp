@@ -815,6 +815,7 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
   bool fixture_complete_requested = false;
   std::uint64_t input_fixture_sequence_before = 0;
   asciiomium::browser::FixtureObservation fixture_observation;
+  asciiomium::browser::FixtureObservation input_fixture_before;
   const std::string expected_input_hex =
       asciiomium::browser::Utf8Hex(options.input_script);
   auto next_fixture_probe_at = Clock::now();
@@ -978,7 +979,10 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
 
       const auto state = frame_store->SnapshotState();
 
+      const bool bundled_input_fixture =
+          options.url.empty() && options.fixture == "input-focus";
       const bool fixture_available =
+          bundled_input_fixture &&
           (!options.input_script.empty() || !options.input_hex.empty()) &&
           client->browser_created() && client->load_complete() &&
           state.view_generation > 0;
@@ -1024,14 +1028,19 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
 
       const bool keyboard_ready =
           !options.input_script.empty() && evidence.input_focus_observed;
+      // Generic --input-hex injection also supports non-fixture pages.
+      // Only the bundled fixture requires the durable handshake.
       const bool pointer_ready =
-          !options.input_hex.empty() &&
-          fixture_observation.host_ready_sequence > 0;
+          !options.input_hex.empty() && client->browser_created() &&
+          client->load_complete() && state.view_generation > 0 &&
+          (!bundled_input_fixture ||
+           fixture_observation.host_ready_sequence > 0);
       if (!input_script_injected && (keyboard_ready || pointer_ready)) {
         input_script_injected = true;
         evidence.input_script_sent = keyboard_ready;
         evidence.input_hex_sent = pointer_ready;
         input_fixture_sequence_before = fixture_observation.sequence;
+        input_fixture_before = fixture_observation;
         evidence.input_generation_before = state.presentation_generation;
         viewport_snapshot = viewport_state.Snapshot();
         if (pointer_ready) {
@@ -1070,9 +1079,8 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
               fixture_observation.click_sequence > input_fixture_sequence_before &&
               fixture_observation.click_target == "center";
           evidence.pointer_scroll_observed |=
-              fixture_observation.wheel_sequence > input_fixture_sequence_before &&
-              (fixture_observation.scroll_sequence > input_fixture_sequence_before ||
-               fixture_observation.nested_scroll_sequence > input_fixture_sequence_before);
+              asciiomium::browser::ScrollChangedAfter(
+                  input_fixture_before, fixture_observation);
         }
       }
       if (quit_requested) {

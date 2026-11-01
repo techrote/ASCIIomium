@@ -269,7 +269,7 @@ jobs:
             --width 640 --height 360 `
             --columns 100 --rows 30 `
             --fps 20 --cef-fps 60 --duration-ms 2000 `
-            --input-hex 1b5b3c36353b35313b31364d `
+            --input-hex 1b5b3c33353b35313b31364d1b5b3c36353b35313b31364d `
             --no-terminal --quiet `
             --report .\build\live-mouse-wheel-release.json
 
@@ -281,8 +281,8 @@ jobs:
           if ($data.schema -ne 'asciiomium-live-v1') { throw 'wrong mouse wheel live schema' }
           if (-not $data.load.complete) { throw 'mouse wheel fixture did not complete loading' }
           if (-not $data.input.hex_sent) { throw 'raw mouse wheel bytes were not dispatched' }
-          if ($data.input.pointer_decoded_events -lt 1) { throw 'mouse parser decoded no wheel event' }
-          if ($data.input.pointer_cef_events -lt 1) { throw 'wheel event did not reach CEF' }
+          if ($data.input.pointer_decoded_events -lt 2) { throw 'mouse parser missed move or wheel events' }
+          if ($data.input.pointer_cef_events -lt 2) { throw 'move and wheel did not reach CEF' }
           if ($data.input.pointer_rejected_events -ne 0) { throw 'valid wheel event was rejected by geometry' }
           if ($data.input.unsupported_events -ne 0) { throw 'wheel script produced unsupported events' }
           if (-not $data.input.pointer_scroll_observed) { throw 'CEF wheel did not produce observable scrolling' }

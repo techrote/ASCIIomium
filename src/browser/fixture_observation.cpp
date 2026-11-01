@@ -116,6 +116,20 @@ bool ParseFixtureObservation(std::string_view message,
   return true;
 }
 
+bool ScrollChangedAfter(const FixtureObservation& before,
+                        const FixtureObservation& after) noexcept {
+  if (!before.valid || !after.valid) {
+    return false;
+  }
+  const bool page_scrolled =
+      after.scroll_sequence > before.sequence &&
+      after.scroll_y != before.scroll_y;
+  const bool nested_scrolled =
+      after.nested_scroll_sequence > before.sequence &&
+      after.nested_scroll_top != before.nested_scroll_top;
+  return page_scrolled || nested_scrolled;
+}
+
 std::string Utf8Hex(std::string_view input) {
   static constexpr char kHex[] = "0123456789abcdef";
   std::string output;
