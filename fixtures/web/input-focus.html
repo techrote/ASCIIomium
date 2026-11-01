@@ -8,12 +8,92 @@
 <button class="mapping-target" id="target-br" data-target-id="corner-bottom-right" data-map-x="1" data-map-y="1">BR</button>
 <header><h1>Fixture E · Input / focus</h1><p>Stable targets for coordinate mapping, keyboard focus, hover, drag and nested scrolling.</p></header><main class="input-panel">
 <nav class="fixture-nav"><a href="index.html">Index</a><span class="badge">input-focus</span><span class="badge">five viewport mapping targets</span></nav>
-<section class="card"><h2>Form controls</h2><div class="stack"><label>Text <input id="input-text" data-target-id="text-entry" value="" placeholder="type here" autofocus></label><label>Password <input id="input-password" data-target-id="password-entry" type="password" value="1234"></label><label>Choice <select id="input-select" data-target-id="select"><option>Alpha</option><option>Beta</option><option>Gamma</option></select></label><label><input id="input-checkbox" data-target-id="checkbox" type="checkbox"> checkbox</label><label><input id="input-radio-a" data-target-id="radio-a" type="radio" name="radio" checked> radio A</label><label><input id="input-radio-b" data-target-id="radio-b" type="radio" name="radio"> radio B</label><textarea id="input-textarea" data-target-id="textarea" rows="4">Multiline keyboard target.</textarea><div class="row"><button id="input-button-a" data-target-id="button-a">Button A</button><button id="input-button-b" data-target-id="button-b">Button B</button></div></div></section>
+<section class="card"><h2>Form controls</h2><div class="stack"><label>Text <input id="input-text" data-target-id="text-entry" value="" placeholder="type here"></label><label>Password <input id="input-password" data-target-id="password-entry" type="password" value="1234"></label><label>Choice <select id="input-select" data-target-id="select"><option>Alpha</option><option>Beta</option><option>Gamma</option></select></label><label><input id="input-checkbox" data-target-id="checkbox" type="checkbox"> checkbox</label><label><input id="input-radio-a" data-target-id="radio-a" type="radio" name="radio" checked> radio A</label><label><input id="input-radio-b" data-target-id="radio-b" type="radio" name="radio"> radio B</label><textarea id="input-textarea" data-target-id="textarea" rows="4">Multiline keyboard target.</textarea><div class="row"><button id="input-button-a" data-target-id="button-a">Button A</button><button id="input-button-b" data-target-id="button-b">Button B</button></div></div></section>
 <section class="card" style="margin-top:14px"><h2>Hover target</h2><div id="hover-pad" data-target-id="hover-pad" class="hover-pad">hover this region</div></section>
 <section class="card" style="margin-top:14px"><h2>Drag target</h2><div id="drag-zone" style="height:150px;border:1px solid #4d5865;border-radius:8px;padding:20px"><div id="drag-pad" data-target-id="drag-pad" class="drag-pad" draggable="true">drag me</div></div></section>
 <section class="card" style="margin-top:14px"><h2>Nested scroll target</h2><div id="input-scrollbox" data-target-id="nested-scroll" data-scroll-region="nested" class="scroll-box"><div class="scroll-content"><p id="scroll-start">Scroll start</p><p>01 wheel target</p><p>02 wheel target</p><p>03 wheel target</p><p>04 wheel target</p><p>05 wheel target</p><p>06 wheel target</p><p>07 wheel target</p><p>08 wheel target</p><p>09 wheel target</p><p>10 wheel target</p><p>11 wheel target</p><p>12 wheel target</p><p>13 wheel target</p><p>14 wheel target</p><p>15 wheel target</p><p id="scroll-end">Scroll end</p></div></div></section>
 <section class="card" style="margin-top:14px"><h2>Event status</h2><pre id="event-status" data-target-id="event-status" class="meta">ready</pre></section>
 </main><footer>Fixture E · no remote dependencies</footer>
 <script>
-addEventListener('DOMContentLoaded',()=>{const status=document.getElementById('event-status');const text=document.getElementById('input-text');const show=(e)=>{const id=e.target.dataset.targetId||e.target.id||e.target.tagName;status.textContent=e.type+' '+id;if(e.type==='focusin'&&e.target.id==='input-text')document.title='keyboard-focus-ready';if(e.type==='input'&&e.target.id==='input-text')document.title='keyboard-input-'+e.target.value;};for(const type of ['click','focusin','input','change','keydown','keyup','pointerover','pointerdown','pointerup'])document.addEventListener(type,show,true);text.focus();const pad=document.getElementById('drag-pad');pad.addEventListener('dragstart',()=>pad.classList.add('dragging'));pad.addEventListener('dragend',()=>pad.classList.remove('dragging'));});
+addEventListener('DOMContentLoaded',()=>{
+  const status=document.getElementById('event-status');
+  const text=document.getElementById('input-text');
+  const scrollbox=document.getElementById('input-scrollbox');
+  const state={
+    seq:0,readySeq:0,hostReadySeq:0,focusSeq:0,keydownSeq:0,keyupSeq:0,
+    inputSeq:0,pointerSeq:0,clickSeq:0,wheelSeq:0,scrollSeq:0,
+    nestedScrollSeq:0,hostCompleteSeq:0,clickTarget:'',wheelTarget:'',
+    events:[]
+  };
+  const safe=(value)=>String(value??'').replace(/[^A-Za-z0-9_.-]/g,'_');
+  const eventTarget=(event)=>safe(
+    event.target?.dataset?.targetId||event.target?.id||event.target?.tagName||'unknown');
+  const hex=(value)=>Array.from(new TextEncoder().encode(String(value)),
+    byte=>byte.toString(16).padStart(2,'0')).join('');
+  const report=()=>console.info([
+    'ASCIIOMIUM_FIXTURE_V1',
+    'seq='+state.seq,
+    'ready_seq='+state.readySeq,
+    'host_ready_seq='+state.hostReadySeq,
+    'focus_seq='+state.focusSeq,
+    'keydown_seq='+state.keydownSeq,
+    'keyup_seq='+state.keyupSeq,
+    'input_seq='+state.inputSeq,
+    'pointer_seq='+state.pointerSeq,
+    'click_seq='+state.clickSeq,
+    'wheel_seq='+state.wheelSeq,
+    'scroll_seq='+state.scrollSeq,
+    'nested_scroll_seq='+state.nestedScrollSeq,
+    'host_complete_seq='+state.hostCompleteSeq,
+    'scroll_y='+Math.max(0,Math.trunc(scrollY)),
+    'nested_scroll_top='+Math.max(0,Math.trunc(scrollbox.scrollTop)),
+    'active='+safe(document.activeElement?.id||''),
+    'input_hex='+hex(text.value),
+    'click_target='+state.clickTarget,
+    'wheel_target='+state.wheelTarget,
+    'events='+state.events.join(',')
+  ].join('|'));
+  const record=(kind,target)=>{
+    const id=safe(target);
+    const seq=++state.seq;
+    if(kind==='ready')state.readySeq=seq;
+    if(kind==='host-ready')state.hostReadySeq=seq;
+    if(kind==='focusin'&&id==='input-text')state.focusSeq=seq;
+    if(kind==='keydown'&&id==='input-text')state.keydownSeq=seq;
+    if(kind==='keyup'&&id==='input-text')state.keyupSeq=seq;
+    if(kind==='input'&&id==='input-text')state.inputSeq=seq;
+    if(kind.startsWith('pointer'))state.pointerSeq=seq;
+    if(kind==='click'){state.clickSeq=seq;state.clickTarget=id;}
+    if(kind==='wheel'){state.wheelSeq=seq;state.wheelTarget=id;}
+    if(kind==='scroll')state.scrollSeq=seq;
+    if(kind==='nested-scroll')state.nestedScrollSeq=seq;
+    if(kind==='host-complete')state.hostCompleteSeq=seq;
+    state.events.push(seq+':'+kind+':'+id);
+    if(state.events.length>64)state.events.shift();
+    report();
+  };
+  window.ASCIIOMIUM_FIXTURE={
+    snapshot:report,
+    ack:(phase)=>{
+      if(phase==='ready')record('host-ready','host');
+      if(phase==='complete')record('host-complete','host');
+    }
+  };
+  const show=(event)=>{
+    const id=eventTarget(event);
+    status.textContent=event.type+' '+id;
+    record(event.type,id);
+  };
+  for(const type of ['click','focusin','input','change','keydown','keyup',
+                      'pointerover','pointerdown','pointerup','wheel']){
+    document.addEventListener(type,show,true);
+  }
+  addEventListener('scroll',()=>record('scroll','window'),{passive:true});
+  scrollbox.addEventListener('scroll',()=>record('nested-scroll','nested-scroll'),
+                             {passive:true});
+  const pad=document.getElementById('drag-pad');
+  pad.addEventListener('dragstart',()=>pad.classList.add('dragging'));
+  pad.addEventListener('dragend',()=>pad.classList.remove('dragging'));
+  record('ready','fixture');
+});
 </script></body></html>
