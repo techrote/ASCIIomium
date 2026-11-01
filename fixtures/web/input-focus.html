@@ -30,7 +30,7 @@ addEventListener('DOMContentLoaded',()=>{
     event.target?.dataset?.targetId||event.target?.id||event.target?.tagName||'unknown');
   const hex=(value)=>Array.from(new TextEncoder().encode(String(value)),
     byte=>byte.toString(16).padStart(2,'0')).join('');
-  const report=()=>console.info([
+  const report=()=>console.warn([
     'ASCIIOMIUM_FIXTURE_V1',
     'seq='+state.seq,
     'ready_seq='+state.readySeq,
