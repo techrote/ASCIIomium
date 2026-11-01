@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <utility>
 
+#include "browser/fixture_observation.h"
 #include "include/cef_browser.h"
 #include "include/cef_frame.h"
 
@@ -125,6 +126,20 @@ void OsrClient::OnTitleChange(CefRefPtr<CefBrowser>,
       main_title_.find("pointer-scroll") != std::string::npos;
 }
 
+bool OsrClient::OnConsoleMessage(CefRefPtr<CefBrowser>,
+                                 cef_log_severity_t,
+                                 const CefString& message,
+                                 const CefString&,
+                                 int) {
+  const std::string text = message.ToString();
+  if (!text.starts_with(kFixtureObservationPrefix)) {
+    return false;
+  }
+  std::lock_guard lock(display_mutex_);
+  latest_fixture_observation_ = text;
+  return true;
+}
+
 bool OsrClient::Resize(int width, int height) {
   const int next_width = std::max(1, width);
   const int next_height = std::max(1, height);
@@ -216,6 +231,11 @@ bool OsrClient::PointerClickCenterObserved() const {
 bool OsrClient::PointerScrollObserved() const {
   std::lock_guard lock(display_mutex_);
   return pointer_scroll_observed_;
+}
+
+std::string OsrClient::LatestFixtureObservation() const {
+  std::lock_guard lock(display_mutex_);
+  return latest_fixture_observation_;
 }
 
 bool OsrClient::ExecuteMainFrameJavaScript(std::string_view code) {

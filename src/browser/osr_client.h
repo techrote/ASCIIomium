@@ -67,6 +67,11 @@ class OsrClient final : public CefClient,
                    const CefString& failed_url) override;
   void OnTitleChange(CefRefPtr<CefBrowser> browser,
                      const CefString& title) override;
+  bool OnConsoleMessage(CefRefPtr<CefBrowser> browser,
+                        cef_log_severity_t level,
+                        const CefString& message,
+                        const CefString& source,
+                        int line) override;
 
   // Returns true only when the requested CEF viewport actually changes.
   bool Resize(int width, int height);
@@ -77,6 +82,7 @@ class OsrClient final : public CefClient,
   [[nodiscard]] std::string MainTitle() const;
   [[nodiscard]] bool PointerClickCenterObserved() const;
   [[nodiscard]] bool PointerScrollObserved() const;
+  [[nodiscard]] std::string LatestFixtureObservation() const;
   [[nodiscard]] bool ExecuteMainFrameJavaScript(std::string_view code);
   void CloseBrowser();
 
@@ -117,6 +123,7 @@ class OsrClient final : public CefClient,
   std::string main_title_;
   bool pointer_click_center_observed_ = false;
   bool pointer_scroll_observed_ = false;
+  std::string latest_fixture_observation_;
 
   IMPLEMENT_REFCOUNTING(OsrClient);
 };

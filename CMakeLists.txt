@@ -165,6 +165,8 @@ add_library(asciiomium_browser STATIC
   src/browser/cef_key_translator.h
   src/browser/cef_pointer_translator.cpp
   src/browser/cef_pointer_translator.h
+  src/browser/fixture_observation.cpp
+  src/browser/fixture_observation.h
   src/browser/osr_client.cpp
   src/browser/osr_client.h)
 target_include_directories(asciiomium_browser PUBLIC
@@ -381,6 +383,14 @@ set_target_properties(cef_pointer_translator_tests PROPERTIES
   MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 add_test(NAME cef_pointer_translator
          COMMAND "$<TARGET_FILE:cef_pointer_translator_tests>")
+
+add_executable(fixture_observation_tests tests/fixture_observation_test.cpp)
+target_link_libraries(fixture_observation_tests PRIVATE asciiomium_browser)
+target_compile_features(fixture_observation_tests PRIVATE cxx_std_20)
+set_target_properties(fixture_observation_tests PROPERTIES
+  FOLDER "Tests"
+  MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+add_test(NAME fixture_observation COMMAND "$<TARGET_FILE:fixture_observation_tests>")
 
 add_executable(source_frame_tests tests/source_frame_test.cpp)
 target_link_libraries(source_frame_tests PRIVATE asciiomium_source_frame)

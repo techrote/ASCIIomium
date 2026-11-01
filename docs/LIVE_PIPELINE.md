@@ -234,3 +234,10 @@ Mouse-mode restoration remains part of terminal correctness. The hosted test
 suite can prove VT sequence construction and the common teardown path, but
 actual Windows Terminal hover/selection-bypass behaviour remains a local manual
 observation.
+
+
+Automated keyboard acceptance uses the bundled `input-focus` fixture's
+durable console-backed observation ledger. The ledger preserves ordered events
+and DOM state across rapid updates and provides explicit ready/completion
+acknowledgements; production pages are not modified or expected to expose this
+test protocol.
