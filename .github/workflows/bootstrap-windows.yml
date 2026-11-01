@@ -84,7 +84,7 @@ jobs:
             --fixture colour-ramps --freeze `
             --width 640 --height 360 `
             --resize-width 800 --resize-height 450 `
-            --min-paints 2 --timeout-ms 20000 `
+            --min-paints 2 --min-rgb-span 64 --timeout-ms 20000 `
             --output .\build\cef-colour-debug.bmp `
             --report .\build\cef-colour-debug.json
 

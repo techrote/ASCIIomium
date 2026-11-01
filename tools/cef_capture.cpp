@@ -36,6 +36,7 @@ struct Options {
   int resize_width = 0;
   int resize_height = 0;
   int min_paints = 1;
+  int min_rgb_span = 0;
   int timeout_ms = 12000;
   int frame_rate = 30;
   bool freeze = false;
@@ -64,6 +65,7 @@ void PrintUsage() {
       << "  --resize-width N --resize-height N\n"
       << "                         request one resize after page load completes\n"
       << "  --min-paints N          require at least N PET_VIEW paints (default 1)\n"
+      << "  --min-rgb-span N        require colour span 1..255 (default disabled)\n"
       << "  --frame-rate N          CEF windowless frame-rate cap (default 30)\n"
       << "  --timeout-ms N          capture timeout (default 12000)\n"
       << "  --freeze                append ?freeze=1 to bundled fixture URL\n"
@@ -114,6 +116,9 @@ bool ParseArgs(int argc, char** argv, Options* options) {
       if (!take_int(&options->resize_height)) return false;
     } else if (arg == "--min-paints") {
       if (!take_int(&options->min_paints)) return false;
+    } else if (arg == "--min-rgb-span") {
+      if (!take_int(&options->min_rgb_span) || options->min_rgb_span > 255)
+        return false;
     } else if (arg == "--frame-rate") {
       if (!take_int(&options->frame_rate)) return false;
     } else if (arg == "--timeout-ms") {
@@ -451,7 +456,8 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
                                   frame.width == target_width &&
                                   frame.height == target_height;
         return fresh_after_load && correct_size &&
-               frame.paint_count >= static_cast<std::uint64_t>(options.min_paints);
+               frame.paint_count >= static_cast<std::uint64_t>(options.min_paints) &&
+               frame.rgb_byte_span() >= options.min_rgb_span;
       });
 
   evidence.view = frame_store->SnapshotView();
@@ -474,6 +480,8 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
               << " post_load_baseline="
               << evidence.post_load_baseline_generation
               << " size=" << evidence.view.width << 'x' << evidence.view.height
+              << " rgb_span=" << evidence.view.rgb_byte_span()
+              << " min_rgb_span=" << options.min_rgb_span
               << '\n';
     result = 5;
   } else {
