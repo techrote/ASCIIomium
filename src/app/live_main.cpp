@@ -22,6 +22,7 @@
 #include <vector>
 
 #include "browser/cef_key_translator.h"
+#include "browser/fixture_observation.h"
 #include "browser/osr_client.h"
 #include "browser/popup_compositor.h"
 #include "browser/source_frame.h"
@@ -92,9 +93,15 @@ struct LiveEvidence {
   std::uint64_t input_unsupported_events = 0;
   std::uint64_t input_cef_events = 0;
   bool input_script_sent = false;
+  bool input_fixture_ready_observed = false;
+  bool input_fixture_complete_observed = false;
   bool input_focus_observed = false;
+  bool input_event_observed = false;
+  bool input_value_observed = false;
   bool input_dom_observed = false;
   bool input_paint_observed = false;
+  std::uint64_t input_fixture_sequence = 0;
+  std::string input_fixture_events;
   std::uint64_t input_generation_before = 0;
   std::uint64_t input_generation_after = 0;
   std::size_t last_vt_bytes = 0;
@@ -679,8 +686,15 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
   bool have_terminal_frame = false;
   asciiomium::input::VtInputParser input_parser;
   bool quit_requested = false;
+  bool fixture_ready_ack_requested = false;
   bool input_script_focus_requested = false;
   bool input_script_injected = false;
+  bool fixture_complete_requested = false;
+  std::uint64_t input_fixture_sequence_before = 0;
+  asciiomium::browser::FixtureObservation fixture_observation;
+  const std::string expected_input_hex =
+      asciiomium::browser::Utf8Hex(options.input_script);
+  auto next_fixture_probe_at = Clock::now();
   auto last_input_byte_at = Clock::now();
 
   CefWindowInfo window_info;
@@ -824,30 +838,78 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
 
       const auto state = frame_store->SnapshotState();
 
-      if (!input_script_focus_requested && !options.input_script.empty() &&
-          client->browser_created() && client->load_complete() &&
-          state.view_generation > 0) {
+      const bool input_fixture_available =
+          !options.input_script.empty() && client->browser_created() &&
+          client->load_complete() && state.view_generation > 0;
+      if (input_fixture_available && !evidence.input_fixture_ready_observed &&
+          now >= next_fixture_probe_at) {
+        client->ExecuteMainFrameJavaScript(
+            "window.ASCIIOMIUM_FIXTURE?.snapshot()");
+        next_fixture_probe_at = now + std::chrono::milliseconds(50);
+      }
+
+      const std::string fixture_message = client->LatestFixtureObservation();
+      asciiomium::browser::FixtureObservation parsed_fixture;
+      if (!fixture_message.empty() &&
+          asciiomium::browser::ParseFixtureObservation(
+              fixture_message, &parsed_fixture)) {
+        fixture_observation = std::move(parsed_fixture);
+        evidence.input_fixture_sequence = fixture_observation.sequence;
+        evidence.input_fixture_events = fixture_observation.ordered_events;
+        evidence.input_fixture_ready_observed =
+            fixture_observation.ready_sequence > 0;
+      }
+
+      if (evidence.input_fixture_ready_observed &&
+          !fixture_ready_ack_requested) {
+        fixture_ready_ack_requested =
+            client->ExecuteMainFrameJavaScript(
+                "window.ASCIIOMIUM_FIXTURE?.ack('ready')");
+      }
+      if (fixture_observation.host_ready_sequence > 0 &&
+          !input_script_focus_requested) {
         client->SetFocus(true);
         input_script_focus_requested =
             client->ExecuteMainFrameJavaScript(
-                "document.querySelector('[autofocus]')?.focus()");
+                "document.getElementById('input-text')?.focus({preventScroll:true})");
       }
       if (input_script_focus_requested && !evidence.input_focus_observed) {
         evidence.input_focus_observed =
-            client->MainTitle() == "keyboard-focus-ready";
+            fixture_observation.focus_sequence >
+                fixture_observation.host_ready_sequence &&
+            fixture_observation.active_target == "input-text";
       }
       if (evidence.input_focus_observed && !input_script_injected) {
         input_script_injected = true;
         evidence.input_script_sent = true;
+        input_fixture_sequence_before = fixture_observation.sequence;
         evidence.input_generation_before = state.presentation_generation;
         ForwardInput(input_parser.Feed(options.input_script), client, options,
                      &evidence, &quit_requested);
         ForwardInput(input_parser.FlushPending(), client, options,
                      &evidence, &quit_requested);
       }
-      if (input_script_injected && !evidence.input_dom_observed) {
+      if (input_script_injected) {
+        evidence.input_event_observed =
+            evidence.input_event_observed ||
+            fixture_observation.input_sequence > input_fixture_sequence_before;
+        evidence.input_value_observed =
+            evidence.input_value_observed ||
+            fixture_observation.input_utf8_hex == expected_input_hex;
         evidence.input_dom_observed =
-            client->MainTitle() == "keyboard-input-" + options.input_script;
+            evidence.input_event_observed && evidence.input_value_observed;
+
+        if (evidence.input_dom_observed && !fixture_complete_requested) {
+          fixture_complete_requested =
+              client->ExecuteMainFrameJavaScript(
+                  "window.ASCIIOMIUM_FIXTURE?.ack('complete')");
+        }
+        if (fixture_complete_requested) {
+          evidence.input_fixture_complete_observed =
+              evidence.input_fixture_complete_observed ||
+              fixture_observation.host_complete_sequence >
+                  input_fixture_sequence_before;
+        }
       }
       if (quit_requested) {
         evidence.exit_reason = "quit-chord";
