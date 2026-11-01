@@ -58,10 +58,10 @@ addEventListener('DOMContentLoaded',()=>{
     const seq=++state.seq;
     if(kind==='ready')state.readySeq=seq;
     if(kind==='host-ready')state.hostReadySeq=seq;
-    if(kind==='focusin'&&id==='input-text')state.focusSeq=seq;
-    if(kind==='keydown'&&id==='input-text')state.keydownSeq=seq;
-    if(kind==='keyup'&&id==='input-text')state.keyupSeq=seq;
-    if(kind==='input'&&id==='input-text')state.inputSeq=seq;
+    if(kind==='focusin'&&id==='text-entry')state.focusSeq=seq;
+    if(kind==='keydown'&&id==='text-entry')state.keydownSeq=seq;
+    if(kind==='keyup'&&id==='text-entry')state.keyupSeq=seq;
+    if(kind==='input'&&id==='text-entry')state.inputSeq=seq;
     if(kind.startsWith('pointer'))state.pointerSeq=seq;
     if(kind==='click'){state.clickSeq=seq;state.clickTarget=id;}
     if(kind==='wheel'){state.wheelSeq=seq;state.wheelTarget=id;}
