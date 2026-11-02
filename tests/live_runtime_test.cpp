@@ -68,6 +68,26 @@ void TestStaticAndForcedRefresh() {
           "forced refresh does not invent dropped source generations");
 }
 
+void TestRenderedWithoutPayload() {
+  using namespace std::chrono_literals;
+  asciiomium::runtime::FrameScheduler scheduler(20);
+  auto now = asciiomium::runtime::FrameScheduler::TimePoint{};
+  scheduler.ObserveSource(1);
+  scheduler.MarkRendered(now, 1);
+  scheduler.MarkEmitted();
+  now += 50ms;
+  scheduler.ObserveSource(2);  // A new CEF paint quantizes to the same cells.
+  Require(scheduler.Ready(now), "new source still gets converted");
+  scheduler.MarkRendered(now, 2);
+  Require(scheduler.stats().rendered_frames == 2 &&
+              scheduler.stats().emitted_frames == 1,
+          "empty differential payload need not count as an emitted frame");
+  now += 50ms;
+  Require(!scheduler.Ready(now), "empty payload does not leave a render backlog");
+  scheduler.RequestRefresh();
+  Require(scheduler.Ready(now), "forced repaint is eligible without a new paint");
+}
+
 void TestGenerationCoalescing() {
   using namespace std::chrono_literals;
   asciiomium::runtime::FrameScheduler scheduler(10);
@@ -173,6 +193,7 @@ int main() {
   TestPacing(30);
   TestStaticAndForcedRefresh();
   TestGenerationCoalescing();
+  TestRenderedWithoutPayload();
   TestPopupComposition();
   TestTimingSeries();
 

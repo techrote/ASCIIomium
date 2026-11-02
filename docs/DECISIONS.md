@@ -146,3 +146,23 @@ Pointer precision remains terminal-cell granular. Cells outside contained
 browser content are rejected rather than assigned synthetic sub-cell or
 letterbox coordinates. Mouse tracking is RAII-owned and must be disabled during
 terminal restoration.
+
+## D-019 — Opt-in differential output with explicit invalidation
+
+**Status:** implemented; full-frame output remains the live default pending
+Windows Terminal physical qualification.
+
+Issue #14 plans changes from the last successfully written logical frame.
+Within-row gap decisions include cursor, colour and UTF-8 byte costs, including
+the next changed cell's SGR transition. The planner uses bounded frame-sized
+storage and preserves newest-frame scheduling. Serialization resets SGR and
+cursor state at each nonempty payload boundary. Initial/geometry/forced
+reconstruction resets, clears and writes the complete frame; empty trusted
+deltas write nothing. Write failure never advances the trusted reference.
+
+The full-frame serializer remains the correctness oracle and the output of
+`--vt-output`. Live mode selection is explicit; a diagnostic interval can force
+reconstruction even without source paints. Paired comparison on the same frames
+is opt-in because it adds work. One-cell printable glyph semantics are retained;
+no arbitrary Unicode-width or style engine is introduced. Details and evidence:
+`docs/DIFFERENTIAL_OUTPUT.md`.
