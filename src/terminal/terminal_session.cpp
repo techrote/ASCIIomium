@@ -82,6 +82,12 @@ void TerminalSession::Acquire() {
         "raw keyboard input requires ENABLE_VIRTUAL_TERMINAL_INPUT");
   }
 
+  if (options_.mouse_tracking != MouseTrackingMode::Disabled &&
+      !options_.enable_vt_input) {
+    throw std::invalid_argument(
+        "mouse tracking requires ENABLE_VIRTUAL_TERMINAL_INPUT");
+  }
+
   if (options_.enable_vt_input) {
     DWORD input_mode = original_input_mode_ | ENABLE_VIRTUAL_TERMINAL_INPUT;
     if (options_.raw_keyboard_input) {
@@ -126,6 +132,13 @@ void TerminalSession::Acquire() {
   visual_state_acquired_ = true;
   Write(BuildAcquireSequence(options_.use_alternate_screen,
                              options_.hide_cursor));
+  if (options_.mouse_tracking != MouseTrackingMode::Disabled) {
+    // Mark ownership before the write so constructor-failure cleanup still
+    // emits the disable sequence if the enable sequence was only partially
+    // written before an I/O error.
+    mouse_tracking_acquired_ = true;
+    Write(BuildMouseTrackingEnableSequence(options_.mouse_tracking));
+  }
 }
 
 bool TerminalSession::RefreshGeometry() noexcept {
@@ -210,6 +223,11 @@ void TerminalSession::Restore() noexcept {
   // active. Each operation is best-effort so one failed cleanup step cannot
   // prevent restoring the remaining Win32 console state.
   if (visual_state_acquired_) {
+    if (mouse_tracking_acquired_) {
+      WriteBestEffort(BuildMouseTrackingDisableSequence(
+          options_.mouse_tracking));
+      mouse_tracking_acquired_ = false;
+    }
     WriteBestEffort(kResetSgr);
     if (options_.hide_cursor) {
       WriteBestEffort(kShowCursor);

@@ -37,6 +37,12 @@ struct FixtureObservation {
     std::string_view message,
     FixtureObservation* observation);
 
+// Require a DOM wheel observation followed by genuine scroll-position
+// displacement. Incidental focus/load scrolling must not pass.
+[[nodiscard]] bool ScrollChangedAfter(
+    const FixtureObservation& before,
+    const FixtureObservation& after) noexcept;
+
 [[nodiscard]] std::string Utf8Hex(std::string_view input);
 
 }  // namespace asciiomium::browser

@@ -81,6 +81,9 @@ int main() {
     options.hide_cursor = false;
     options.enable_vt_input = true;
     options.raw_keyboard_input = cycle == 9;
+    options.mouse_tracking =
+        cycle == 8 ? asciiomium::terminal::MouseTrackingMode::AnyEvent
+                   : asciiomium::terminal::MouseTrackingMode::Disabled;
 
     {
       asciiomium::terminal::TerminalSession session(options, input, output);

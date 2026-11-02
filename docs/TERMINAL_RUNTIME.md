@@ -20,18 +20,19 @@ It then enables:
 - optional alternate screen (`CSI ? 1049 h`);
 - optional hidden cursor (`CSI ? 25 l`).
 
-Mouse tracking remains intentionally disabled until issue #12. Issue #11 adds an opt-in raw keyboard mode for the live browser without enabling mouse tracking.
+Issue #12 adds opt-in VT mouse ownership for the live browser. Interactive mode enables SGR encoding (1006) plus all-motion tracking (1003), while ordinary diagnostics keep mouse tracking disabled. Issue #11's raw keyboard mode and #12 pointer mode share the same immediate VT byte stream.
 
 ## Teardown order
 
 Restoration is idempotent. Normal teardown occurs in this order:
 
-1. reset SGR while VT processing is still active;
-2. show the cursor when ASCIIomium hid it;
-3. leave the alternate screen when ASCIIomium entered it;
-4. restore original input/output code pages;
-5. restore original input/output console modes;
-6. remove the console control handler.
+1. disable SGR/all-motion mouse tracking when ASCIIomium enabled it;
+2. reset SGR while VT processing is still active;
+3. show the cursor when ASCIIomium hid it;
+4. leave the alternate screen when ASCIIomium entered it;
+5. restore original input/output code pages;
+6. restore original input/output console modes;
+7. remove the console control handler.
 
 The destructor calls the same restoration path, so exceptions after successful acquisition do not require call-site cleanup.
 
@@ -114,7 +115,7 @@ The one-shot path leaves the cursor visible and returns immediately after writin
 - original input/output modes are restored exactly;
 - original input/output code pages are restored exactly.
 
-The first cycle additionally calls `Restore()` twice to prove idempotence; subsequent cycles rely on destructor-driven cleanup. The final cycle enables raw keyboard mode and verifies that line, echo and processed-input flags are disabled while owned and then restored exactly.
+The first cycle additionally calls `Restore()` twice to prove idempotence; subsequent cycles rely on destructor-driven cleanup. The final cycle enables raw keyboard mode and verifies that line, echo and processed-input flags are disabled while owned and then restored exactly. Another cycle enables 1003+1006 mouse tracking so the RAII path exercises mouse-mode acquire/disable together with exact Win32 mode/code-page restoration.
 
 ## Manual Windows Terminal acceptance
 
@@ -140,3 +141,21 @@ The method is intentionally unavailable outside raw keyboard mode. Parser state
 and CEF translation live outside `TerminalSession`; the terminal layer owns
 only console state and byte transport. The original console modes and UTF-8
 code-page changes are restored through the existing idempotent RAII path.
+
+
+## VT mouse ownership
+
+`TerminalSessionOptions::mouse_tracking` is independent of parser/browser
+logic. It can be disabled, button-event (1002), or all-motion (1003); any
+enabled mode is paired with SGR extended coordinates (1006). The live browser
+uses all-motion mode to support hover.
+
+Acquisition writes the mouse-mode VT sequence only after terminal ownership is
+established. `Restore()` emits the matching disable sequence before cursor/
+alternate-screen restoration, and the same idempotent path is used by normal
+teardown and destructor cleanup. Headless `--no-terminal` runs never acquire
+or change terminal mouse modes.
+
+The terminal layer does not decode pointer semantics. Mouse reports remain
+ordinary bytes returned by `ReadInputAvailable()` and are decoded by the
+shared bounded `VtInputParser`.

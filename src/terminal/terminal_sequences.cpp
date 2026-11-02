@@ -31,6 +31,30 @@ std::string BuildRestoreSequence(bool used_alternate_screen,
   return sequence;
 }
 
+std::string BuildMouseTrackingEnableSequence(MouseTrackingMode mode) {
+  switch (mode) {
+    case MouseTrackingMode::Disabled:
+      return {};
+    case MouseTrackingMode::ButtonEvent:
+      return std::string(kEnableButtonEventMouse) + kEnableSgrMouse;
+    case MouseTrackingMode::AnyEvent:
+      return std::string(kEnableAnyEventMouse) + kEnableSgrMouse;
+  }
+  return {};
+}
+
+std::string BuildMouseTrackingDisableSequence(MouseTrackingMode mode) {
+  switch (mode) {
+    case MouseTrackingMode::Disabled:
+      return {};
+    case MouseTrackingMode::ButtonEvent:
+      return std::string(kDisableSgrMouse) + kDisableButtonEventMouse;
+    case MouseTrackingMode::AnyEvent:
+      return std::string(kDisableSgrMouse) + kDisableAnyEventMouse;
+  }
+  return {};
+}
+
 std::string BuildCursorPosition(int row, int column) {
   row = std::max(row, 1);
   column = std::max(column, 1);

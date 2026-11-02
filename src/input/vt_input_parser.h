@@ -5,7 +5,7 @@
 #include <string_view>
 #include <vector>
 
-#include "input/keyboard_event.h"
+#include "input/input_event.h"
 
 namespace asciiomium::input {
 
@@ -32,5 +32,6 @@ class VtInputParser {
 
 [[nodiscard]] std::string EscapeBytes(std::string_view bytes);
 [[nodiscard]] std::string DescribeKeyboardEvent(const KeyboardEvent& event);
+[[nodiscard]] std::string DescribePointerEvent(const PointerEvent& event);
 
 }  // namespace asciiomium::input

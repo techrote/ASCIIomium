@@ -1,5 +1,7 @@
 #include "browser/osr_client.h"
 
+#include "browser/cef_pointer_translator.h"
+
 #include <algorithm>
 #include <utility>
 
@@ -117,6 +119,11 @@ void OsrClient::OnTitleChange(CefRefPtr<CefBrowser>,
                               const CefString& title) {
   std::lock_guard lock(display_mutex_);
   main_title_ = title.ToString();
+  // Titles may subsequently change (focus/scroll), so retain both signals.
+  pointer_click_center_observed_ |=
+      main_title_.find("pointer-click-center") != std::string::npos;
+  pointer_scroll_observed_ |=
+      main_title_.find("pointer-scroll") != std::string::npos;
 }
 
 bool OsrClient::OnConsoleMessage(CefRefPtr<CefBrowser>,
@@ -168,9 +175,62 @@ std::size_t OsrClient::SendKeyEvents(
   return events.size();
 }
 
+bool OsrClient::SendPointerEvent(const CefPointerDispatch& dispatch) {
+  if (!browser_) {
+    return false;
+  }
+
+  auto host = browser_->GetHost();
+  switch (dispatch.kind) {
+    case CefPointerDispatchKind::Move:
+      host->SendMouseMoveEvent(dispatch.event, false);
+      return true;
+
+    case CefPointerDispatchKind::Click: {
+      // Windowless browsers need explicit focus when receiving mouse presses.
+      if (!dispatch.mouse_up) {
+        host->SetFocus(true);
+      }
+      CefBrowserHost::MouseButtonType button = MBT_LEFT;
+      switch (dispatch.button) {
+        case asciiomium::input::PointerButton::Left:
+          button = MBT_LEFT;
+          break;
+        case asciiomium::input::PointerButton::Middle:
+          button = MBT_MIDDLE;
+          break;
+        case asciiomium::input::PointerButton::Right:
+          button = MBT_RIGHT;
+          break;
+        case asciiomium::input::PointerButton::None:
+          return false;
+      }
+      host->SendMouseClickEvent(dispatch.event, button, dispatch.mouse_up,
+                                dispatch.click_count);
+      return true;
+    }
+
+    case CefPointerDispatchKind::Wheel:
+      host->SendMouseWheelEvent(dispatch.event, dispatch.delta_x,
+                                dispatch.delta_y);
+      return true;
+  }
+  return false;
+}
+
 std::string OsrClient::MainTitle() const {
   std::lock_guard lock(display_mutex_);
   return main_title_;
+}
+
+bool OsrClient::PointerClickCenterObserved() const {
+  std::lock_guard lock(display_mutex_);
+  return pointer_click_center_observed_;
+}
+
+bool OsrClient::PointerScrollObserved() const {
+  std::lock_guard lock(display_mutex_);
+  return pointer_scroll_observed_;
 }
 
 std::string OsrClient::LatestFixtureObservation() const {

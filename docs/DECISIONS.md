@@ -125,3 +125,24 @@ claimed by the host application.
 
 ASCIIomium reserves Ctrl+Alt+Q as its live-browser quit chord. The simpler
 terminal diagnostics retain Ctrl+C because they do not host browser input.
+
+
+## D-017 — Use 1003 + 1006 and one shared VT input parser for pointer input
+
+**Status:** accepted.
+
+Interactive Windows Terminal browser mode enables DECSET 1003 all-motion mouse
+tracking plus 1006 SGR extended coordinates. All-motion is preferred to 1002
+for the baseline because ordinary browser hover must be observable even when no
+button is held.
+
+Mouse reports and keyboard/UTF-8 bytes are decoded by one bounded incremental
+`VtInputParser`. Pointer handling must not create another stdin consumer or a
+second CSI-framing implementation. Canonical pointer events remain independent
+of CEF, and browser coordinates are obtained only through the accepted #10
+`ViewportTransform`.
+
+Pointer precision remains terminal-cell granular. Cells outside contained
+browser content are rejected rather than assigned synthetic sub-cell or
+letterbox coordinates. Mouse tracking is RAII-owned and must be disabled during
+terminal restoration.

@@ -101,6 +101,12 @@ Responsibilities:
 
 The mapping must account for the logical browser viewport and terminal cell geometry, not assume one terminal cell equals one browser pixel.
 
+Keyboard and pointer transport share one bounded incremental VT byte parser and
+one terminal read loop. The parser emits transport-neutral keyboard or pointer
+events; CEF translation is a separate browser-side boundary. SGR mouse reports
+therefore cannot race a second stdin consumer, and pointer coordinates are
+resolved only through the currently published immutable `ViewportTransform`.
+
 ## Viewport model
 
 The browser viewport and terminal grid are deliberately decoupled and are now

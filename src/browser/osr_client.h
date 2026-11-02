@@ -15,6 +15,8 @@
 
 namespace asciiomium::browser {
 
+struct CefPointerDispatch;
+
 // Minimal single-browser CEF client used by the CPU OSR correctness path.
 // All CEF callbacks are invoked on CEF's UI thread. The diagnostic executable
 // uses CefDoMessageLoopWork on its main thread, so Resize/Close are also called
@@ -76,7 +78,10 @@ class OsrClient final : public CefClient,
   void SetFocus(bool focused);
   [[nodiscard]] std::size_t SendKeyEvents(
       const std::vector<CefKeyEvent>& events);
+  [[nodiscard]] bool SendPointerEvent(const CefPointerDispatch& dispatch);
   [[nodiscard]] std::string MainTitle() const;
+  [[nodiscard]] bool PointerClickCenterObserved() const;
+  [[nodiscard]] bool PointerScrollObserved() const;
   [[nodiscard]] std::string LatestFixtureObservation() const;
   [[nodiscard]] bool ExecuteMainFrameJavaScript(std::string_view code);
   void CloseBrowser();
@@ -116,6 +121,8 @@ class OsrClient final : public CefClient,
   std::string failed_url_;
   mutable std::mutex display_mutex_;
   std::string main_title_;
+  bool pointer_click_center_observed_ = false;
+  bool pointer_scroll_observed_ = false;
   std::string latest_fixture_observation_;
 
   IMPLEMENT_REFCOUNTING(OsrClient);

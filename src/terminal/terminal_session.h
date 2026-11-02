@@ -11,6 +11,7 @@
 #include <string_view>
 
 #include "terminal/terminal_geometry.h"
+#include "terminal/terminal_sequences.h"
 
 namespace asciiomium::terminal {
 
@@ -22,6 +23,7 @@ struct TerminalSessionOptions {
   // console's line editor. This is opt-in so existing diagnostics retain their
   // Ctrl+C console-control behaviour.
   bool raw_keyboard_input = false;
+  MouseTrackingMode mouse_tracking = MouseTrackingMode::Disabled;
 };
 
 class TerminalSession {
@@ -82,6 +84,7 @@ class TerminalSession {
   bool output_code_page_changed_ = false;
   bool handler_installed_ = false;
   bool visual_state_acquired_ = false;
+  bool mouse_tracking_acquired_ = false;
   GeometryTracker geometry_tracker_;
   std::atomic_bool stop_requested_{false};
   std::atomic_bool restore_started_{false};
