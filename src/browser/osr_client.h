@@ -1,13 +1,16 @@
 #pragma once
 
 #include <atomic>
+#include <cstddef>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "browser/source_frame.h"
 #include "include/cef_client.h"
+#include "include/cef_display_handler.h"
 #include "include/cef_render_handler.h"
 
 namespace asciiomium::browser {
@@ -19,7 +22,8 @@ namespace asciiomium::browser {
 class OsrClient final : public CefClient,
                         public CefRenderHandler,
                         public CefLifeSpanHandler,
-                        public CefLoadHandler {
+                        public CefLoadHandler,
+                        public CefDisplayHandler {
  public:
   OsrClient(std::shared_ptr<SourceFrameStore> frame_store,
             int initial_width,
@@ -28,6 +32,7 @@ class OsrClient final : public CefClient,
   CefRefPtr<CefRenderHandler> GetRenderHandler() override { return this; }
   CefRefPtr<CefLifeSpanHandler> GetLifeSpanHandler() override { return this; }
   CefRefPtr<CefLoadHandler> GetLoadHandler() override { return this; }
+  CefRefPtr<CefDisplayHandler> GetDisplayHandler() override { return this; }
 
   void GetViewRect(CefRefPtr<CefBrowser> browser, CefRect& rect) override;
   bool GetRootScreenRect(CefRefPtr<CefBrowser> browser, CefRect& rect) override;
@@ -58,9 +63,22 @@ class OsrClient final : public CefClient,
                    ErrorCode error_code,
                    const CefString& error_text,
                    const CefString& failed_url) override;
+  void OnTitleChange(CefRefPtr<CefBrowser> browser,
+                     const CefString& title) override;
+  bool OnConsoleMessage(CefRefPtr<CefBrowser> browser,
+                        cef_log_severity_t level,
+                        const CefString& message,
+                        const CefString& source,
+                        int line) override;
 
   // Returns true only when the requested CEF viewport actually changes.
   bool Resize(int width, int height);
+  void SetFocus(bool focused);
+  [[nodiscard]] std::size_t SendKeyEvents(
+      const std::vector<CefKeyEvent>& events);
+  [[nodiscard]] std::string MainTitle() const;
+  [[nodiscard]] std::string LatestFixtureObservation() const;
+  [[nodiscard]] bool ExecuteMainFrameJavaScript(std::string_view code);
   void CloseBrowser();
 
   [[nodiscard]] bool browser_created() const noexcept {
@@ -96,6 +114,9 @@ class OsrClient final : public CefClient,
   mutable std::mutex load_error_mutex_;
   std::string load_error_text_;
   std::string failed_url_;
+  mutable std::mutex display_mutex_;
+  std::string main_title_;
+  std::string latest_fixture_observation_;
 
   IMPLEMENT_REFCOUNTING(OsrClient);
 };

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <utility>
 
+#include "browser/fixture_observation.h"
 #include "include/cef_browser.h"
 #include "include/cef_frame.h"
 
@@ -75,6 +76,7 @@ void OsrClient::OnPaint(CefRefPtr<CefBrowser>,
 
 void OsrClient::OnAfterCreated(CefRefPtr<CefBrowser> browser) {
   browser_ = browser;
+  browser_->GetHost()->SetFocus(true);
   browser_created_.store(true, std::memory_order_release);
 }
 
@@ -111,6 +113,26 @@ void OsrClient::OnLoadError(CefRefPtr<CefBrowser>,
   }
 }
 
+void OsrClient::OnTitleChange(CefRefPtr<CefBrowser>,
+                              const CefString& title) {
+  std::lock_guard lock(display_mutex_);
+  main_title_ = title.ToString();
+}
+
+bool OsrClient::OnConsoleMessage(CefRefPtr<CefBrowser>,
+                                 cef_log_severity_t,
+                                 const CefString& message,
+                                 const CefString&,
+                                 int) {
+  const std::string text = message.ToString();
+  if (!text.starts_with(kFixtureObservationPrefix)) {
+    return false;
+  }
+  std::lock_guard lock(display_mutex_);
+  latest_fixture_observation_ = text;
+  return true;
+}
+
 bool OsrClient::Resize(int width, int height) {
   const int next_width = std::max(1, width);
   const int next_height = std::max(1, height);
@@ -126,6 +148,45 @@ bool OsrClient::Resize(int width, int height) {
     browser_->GetHost()->NotifyScreenInfoChanged();
     browser_->GetHost()->WasResized();
   }
+  return true;
+}
+
+void OsrClient::SetFocus(bool focused) {
+  if (browser_) {
+    browser_->GetHost()->SetFocus(focused);
+  }
+}
+
+std::size_t OsrClient::SendKeyEvents(
+    const std::vector<CefKeyEvent>& events) {
+  if (!browser_) {
+    return 0;
+  }
+  for (const auto& event : events) {
+    browser_->GetHost()->SendKeyEvent(event);
+  }
+  return events.size();
+}
+
+std::string OsrClient::MainTitle() const {
+  std::lock_guard lock(display_mutex_);
+  return main_title_;
+}
+
+std::string OsrClient::LatestFixtureObservation() const {
+  std::lock_guard lock(display_mutex_);
+  return latest_fixture_observation_;
+}
+
+bool OsrClient::ExecuteMainFrameJavaScript(std::string_view code) {
+  if (!browser_) {
+    return false;
+  }
+  const auto frame = browser_->GetMainFrame();
+  if (!frame) {
+    return false;
+  }
+  frame->ExecuteJavaScript(std::string(code), frame->GetURL(), 0);
   return true;
 }
 

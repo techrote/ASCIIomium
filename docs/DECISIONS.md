@@ -112,3 +112,16 @@ terminal-cell/browser-pixel mappings. Rendering and input must consume this
 shared object rather than duplicate coordinate formulas. Terminal-only resize
 publishes a new transform generation and forces a repaint without resizing CEF.
 CEF resize notification is reserved for actual browser pixel-dimension changes.
+
+
+## D-016 — Preserve Ctrl+C for the browser; use Ctrl+Alt+Q to quit live mode
+
+**Status:** accepted.
+
+Interactive browser mode disables processed console input and treats Windows
+Terminal as an immediate VT/UTF-8 byte stream. This allows Ctrl+C to reach CEF
+for ordinary browser copy/shortcut semantics instead of being unconditionally
+claimed by the host application.
+
+ASCIIomium reserves Ctrl+Alt+Q as its live-browser quit chord. The simpler
+terminal diagnostics retain Ctrl+C because they do not host browser input.

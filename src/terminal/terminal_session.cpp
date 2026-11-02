@@ -1,6 +1,7 @@
 #include "terminal/terminal_session.h"
 
 #include <algorithm>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <system_error>
@@ -76,8 +77,23 @@ void TerminalSession::Acquire() {
   }
   output_mode_changed_ = output_mode != original_output_mode_;
 
+  if (options_.raw_keyboard_input && !options_.enable_vt_input) {
+    throw std::invalid_argument(
+        "raw keyboard input requires ENABLE_VIRTUAL_TERMINAL_INPUT");
+  }
+
   if (options_.enable_vt_input) {
-    const DWORD input_mode = original_input_mode_ | ENABLE_VIRTUAL_TERMINAL_INPUT;
+    DWORD input_mode = original_input_mode_ | ENABLE_VIRTUAL_TERMINAL_INPUT;
+    if (options_.raw_keyboard_input) {
+      // ReadFile should expose key bytes immediately. Processed input is
+      // disabled deliberately so Ctrl+C reaches the browser as 0x03 instead
+      // of being stolen by the console control handler. Ctrl+Alt+Q is the live
+      // browser's documented application quit chord.
+      input_mode &= ~(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT |
+                      ENABLE_PROCESSED_INPUT | ENABLE_MOUSE_INPUT |
+                      ENABLE_WINDOW_INPUT | ENABLE_QUICK_EDIT_MODE);
+      input_mode |= ENABLE_EXTENDED_FLAGS;
+    }
     if (!SetConsoleMode(input_handle_, input_mode)) {
       ThrowLastError("SetConsoleMode(input VT)");
     }
@@ -138,6 +154,38 @@ void TerminalSession::Write(std::string_view bytes) {
     }
     bytes.remove_prefix(written);
   }
+}
+
+std::string TerminalSession::ReadInputAvailable(std::size_t max_bytes) {
+  if (!options_.raw_keyboard_input) {
+    throw std::logic_error(
+        "ReadInputAvailable requires raw_keyboard_input terminal mode");
+  }
+  if (max_bytes == 0) {
+    return {};
+  }
+  max_bytes = std::min<std::size_t>(
+      max_bytes, static_cast<std::size_t>(64 * 1024));
+
+  const DWORD wait = WaitForSingleObject(input_handle_, 0);
+  if (wait == WAIT_TIMEOUT) {
+    return {};
+  }
+  if (wait != WAIT_OBJECT_0) {
+    if (wait == WAIT_FAILED) {
+      ThrowLastError("WaitForSingleObject(terminal input)");
+    }
+    throw std::runtime_error("unexpected terminal input wait result");
+  }
+
+  std::string bytes(max_bytes, '\0');
+  DWORD read = 0;
+  if (!ReadFile(input_handle_, bytes.data(),
+                static_cast<DWORD>(bytes.size()), &read, nullptr)) {
+    ThrowLastError("ReadFile(terminal input)");
+  }
+  bytes.resize(read);
+  return bytes;
 }
 
 void TerminalSession::WriteBestEffort(std::string_view bytes) noexcept {

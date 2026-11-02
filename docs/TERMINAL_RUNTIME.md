@@ -20,7 +20,7 @@ It then enables:
 - optional alternate screen (`CSI ? 1049 h`);
 - optional hidden cursor (`CSI ? 25 l`).
 
-Mouse tracking is intentionally **not** enabled by issue #3. That state belongs to the later input implementation.
+Mouse tracking remains intentionally disabled until issue #12. Issue #11 adds an opt-in raw keyboard mode for the live browser without enabling mouse tracking.
 
 ## Teardown order
 
@@ -37,7 +37,9 @@ The destructor calls the same restoration path, so exceptions after successful a
 
 ## Console-control handling
 
-`Ctrl+C` and `Ctrl+Break` set a stop flag and suppress default immediate termination. The diagnostics loop notices that flag and returns normally, allowing RAII teardown on the main thread.
+In the terminal diagnostic/default cooked-input mode, `Ctrl+C` and `Ctrl+Break` set a stop flag and suppress default immediate termination. The diagnostics loop notices that flag and returns normally, allowing RAII teardown on the main thread.
+
+Live browser keyboard mode is different: it disables `ENABLE_PROCESSED_INPUT` so Ctrl+C is delivered to the VT parser and forwarded to CEF. That mode uses **Ctrl+Alt+Q** as the application quit chord.
 
 `CTRL_CLOSE_EVENT`, logoff and shutdown are different: Windows may terminate the process shortly after invoking the handler. ASCIIomium therefore performs synchronous best-effort restoration from the handler before returning. This is a fallback, not a guarantee against forced process termination.
 
@@ -112,7 +114,7 @@ The one-shot path leaves the cursor visible and returns immediately after writin
 - original input/output modes are restored exactly;
 - original input/output code pages are restored exactly.
 
-The first cycle additionally calls `Restore()` twice to prove idempotence; subsequent cycles rely on destructor-driven cleanup.
+The first cycle additionally calls `Restore()` twice to prove idempotence; subsequent cycles rely on destructor-driven cleanup. The final cycle enables raw keyboard mode and verifies that line, echo and processed-input flags are disabled while owned and then restored exactly.
 
 ## Manual Windows Terminal acceptance
 
@@ -124,3 +126,17 @@ CI can validate Win32 console state and VT construction, but it does not render 
 4. no uncontrolled scrolling/wrapping occurs at ordinary sizes;
 5. `Ctrl+C` returns to the previous screen/prompt with a visible cursor;
 6. repeat launch/exit ten times and confirm the shell remains usable.
+
+
+## Raw keyboard reads
+
+`TerminalSessionOptions::raw_keyboard_input` is an issue-#11 opt-in. It
+requires VT input, disables cooked line/echo/processed input plus unused
+mouse/window console records, and exposes `ReadInputAvailable()`. That method
+checks the input handle with a zero-timeout wait before calling `ReadFile`, so
+the CEF/live loop is not blocked waiting for a complete line.
+
+The method is intentionally unavailable outside raw keyboard mode. Parser state
+and CEF translation live outside `TerminalSession`; the terminal layer owns
+only console state and byte transport. The original console modes and UTF-8
+code-page changes are restored through the existing idempotent RAII path.

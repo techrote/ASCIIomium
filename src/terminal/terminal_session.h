@@ -6,6 +6,8 @@
 #include <windows.h>
 
 #include <atomic>
+#include <cstddef>
+#include <string>
 #include <string_view>
 
 #include "terminal/terminal_geometry.h"
@@ -16,6 +18,10 @@ struct TerminalSessionOptions {
   bool use_alternate_screen = true;
   bool hide_cursor = true;
   bool enable_vt_input = true;
+  // Browser keyboard mode needs immediate byte-stream delivery instead of the
+  // console's line editor. This is opt-in so existing diagnostics retain their
+  // Ctrl+C console-control behaviour.
+  bool raw_keyboard_input = false;
 };
 
 class TerminalSession {
@@ -37,6 +43,8 @@ class TerminalSession {
   }
 
   void Write(std::string_view bytes);
+  [[nodiscard]] std::string ReadInputAvailable(
+      std::size_t max_bytes = 4096);
   void Restore() noexcept;
 
   [[nodiscard]] bool stop_requested() const noexcept {
