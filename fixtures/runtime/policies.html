@@ -1,0 +1,18 @@
+<!doctype html><meta charset="utf-8"><title>READY:policies</title>
+<style>body{margin:0}button{position:absolute;left:10px;top:10px;width:200px;height:50px}</style>
+<button id="probe">Test denied capabilities</button>
+<script>
+document.getElementById('probe').onclick = async () => {
+  try {
+    const popup = window.open('/popup', '_blank');
+    const notification = Notification.requestPermission().then(x => x === 'denied');
+    const geolocation = new Promise(resolve => navigator.geolocation.getCurrentPosition(
+      () => resolve(false), error => resolve(error.code === 1), {timeout:5000}));
+    const media = navigator.mediaDevices.getUserMedia({audio:true,video:true}).then(stream => {
+      stream.getTracks().forEach(track => track.stop()); return false;
+    }, () => true);
+    const results = await Promise.all([notification, geolocation, media]);
+    document.title = (popup === null && results.every(Boolean) ? 'PASS:' : 'FAIL:') + 'policies';
+  } catch { document.title = 'FAIL:policies-exception'; }
+};
+</script>

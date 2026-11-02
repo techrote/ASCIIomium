@@ -68,6 +68,16 @@ The default target is the bundled animated `motion-scroll` fixture. An explicit 
 
 Press **Ctrl+Alt+Q** to exit interactive browser mode. Ctrl+C is forwarded to Chromium. The terminal session restores SGR state, mouse-tracking modes, cursor visibility, alternate-screen state, console modes and code pages during normal teardown.
 
+**Ctrl+Alt+O** opens the temporary command row. Commands include `open URL`,
+`back`, `forward`, `reload`, `hard-reload`, `stop`, `status`, `repaint`, and
+`quit`. Enter submits; Escape cancels. Persistent profiles default to
+`%LOCALAPPDATA%\ASCIIomium\Profiles\Default`; choose `--profile DIR` for an
+isolated profile or `--private` for disposable browsing state. Downloads are
+disabled unless you explicitly select `--downloads DIR`.
+
+See [Browser runtime](docs/BROWSER_RUNTIME.md) for the exact navigation,
+profile, popup, download, permission and TLS policies and qualification gates.
+
 A real URL can be rendered through the same path:
 
 ```powershell

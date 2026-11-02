@@ -161,6 +161,12 @@ set_target_properties(asciiomium_source_frame PROPERTIES
   MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
 add_library(asciiomium_browser STATIC
+  src/browser/browser_commands.cpp
+  src/browser/browser_commands.h
+  src/browser/profile_session.cpp
+  src/browser/profile_session.h
+  src/browser/cef_profile.h
+  src/browser/cef_runtime_session.h
   src/browser/cef_key_translator.cpp
   src/browser/cef_key_translator.h
   src/browser/cef_pointer_translator.cpp
@@ -257,6 +263,11 @@ set_target_properties(asciiomium_cef_capture PROPERTIES
   FOLDER "Tools"
   MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
+add_executable(asciiomium_runtime_probe tools/browser_runtime_probe.cpp)
+target_link_libraries(asciiomium_runtime_probe PRIVATE asciiomium_browser)
+target_compile_definitions(asciiomium_runtime_probe PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN
+  ASCIIOMIUM_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+
 # Even a version-only executable can cause the Windows loader to resolve CEF's
 # sibling DLL dependencies before main(), so stage the complete DLL manifest
 # declared by the pinned CEF release.
@@ -305,6 +316,7 @@ endfunction()
 asciiomium_stage_cef_runtime(asciiomium)
 asciiomium_stage_cef_browser_runtime(asciiomium_live)
 asciiomium_stage_cef_browser_runtime(asciiomium_cef_capture)
+asciiomium_stage_cef_browser_runtime(asciiomium_runtime_probe)
 
 enable_testing()
 
@@ -364,6 +376,14 @@ target_link_libraries(input_parser_tests PRIVATE asciiomium_input)
 target_compile_features(input_parser_tests PRIVATE cxx_std_20)
 set_target_properties(input_parser_tests PROPERTIES FOLDER "Tests")
 add_test(NAME input_parser COMMAND "$<TARGET_FILE:input_parser_tests>")
+
+add_executable(browser_commands_tests tests/browser_commands_test.cpp)
+target_link_libraries(browser_commands_tests PRIVATE asciiomium_browser)
+add_test(NAME browser_commands COMMAND "$<TARGET_FILE:browser_commands_tests>")
+
+add_executable(profile_session_tests tests/profile_session_test.cpp)
+target_link_libraries(profile_session_tests PRIVATE asciiomium_browser)
+add_test(NAME profile_session COMMAND "$<TARGET_FILE:profile_session_tests>")
 
 add_executable(cef_key_translator_tests tests/cef_key_translator_test.cpp)
 target_link_libraries(cef_key_translator_tests PRIVATE asciiomium_browser)

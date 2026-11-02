@@ -165,6 +165,15 @@ teardown, and normal mouse/selection behaviour after exit. Verify Windows
 Terminal's Shift selection bypass in the actual GUI rather than claiming it
 from CI.
 
+## V4b — Browser runtime gate (#13)
+
+`python tests/verify_browser_runtime.py --exe build/bin/RELEASE/asciiomium_runtime_probe.exe --output build/browser-runtime-evidence.json`
+tests actual CEF over loopback HTTP/HTTPS, including storage across processes,
+isolation, private reset, profile ownership, navigation, popup/permission denial,
+download bytes and invalid-certificate rejection. `docs/BROWSER_RUNTIME.md`
+lists the separate physical command-row/input/restoration gate. Do not infer
+that physical result from the probe or from historical #11/#12 acceptance.
+
 ## V5 — Differential emitter
 
 Compare logical output to full-repaint mode.

@@ -24,6 +24,9 @@
 
 #include "browser/cef_key_translator.h"
 #include "browser/cef_pointer_translator.h"
+#include "browser/browser_commands.h"
+#include "browser/cef_profile.h"
+#include "browser/cef_runtime_session.h"
 #include "browser/fixture_observation.h"
 #include "browser/osr_client.h"
 #include "browser/popup_compositor.h"
@@ -65,6 +68,9 @@ struct Options {
   bool quiet = false;
   bool geometry_debug = false;
   bool input_debug = false;
+  bool private_mode = false;
+  std::filesystem::path profile;
+  std::filesystem::path downloads;
   int wheel_delta = 120;
   std::string input_script;
   std::string input_hex;
@@ -87,6 +93,9 @@ struct LiveEvidence {
   int load_error = 0;
   std::string load_error_text;
   std::string failed_url;
+  bool private_mode = false;
+  bool profile_cleanup = false;
+  asciiomium::browser::BrowserStatus browser_status;
   double duration_seconds = 0.0;
   int terminal_columns = 0;
   int terminal_rows = 0;
@@ -194,6 +203,9 @@ void PrintUsage() {
       << "Usage: asciiomium_live [options]\n"
       << "  --fixture NAME          index|flat-ui|colour-ramps|raster-imagery|motion-scroll|input-focus\n"
       << "  --url URL               explicit URL instead of a bundled fixture\n"
+      << "  --profile DIR           persistent profile (default LOCALAPPDATA/ASCIIomium/Profiles/Default)\n"
+      << "  --private               isolated disposable profile; cannot combine with --profile\n"
+      << "  --downloads DIR         opt in to downloads into unique DIR/download-*/download.bin\n"
       << "  --width N --height N    CEF viewport (default 960x540)\n"
       << "  --fps N                 terminal max FPS, 1..60 (default 20; useful 10/15/20/30)\n"
       << "  --cef-fps N             CEF windowless frame-rate cap, 1..60 (default 60)\n"
@@ -215,7 +227,9 @@ void PrintUsage() {
       << "  --input-hex HEX         inject raw bytes as hexadecimal (CI/test aid)\n"
       << "  --wheel-delta N         CEF wheel delta per terminal notch, 1..1200 (default 120)\n"
       << "  --quiet                 suppress final one-line summary\n"
-      << "\nCtrl+Alt+Q exits interactive browser mode. Ctrl+C is forwarded to CEF.\n";
+      << "\nCtrl+Alt+O opens commands; Enter submits, Escape cancels.\n"
+      << "Commands: open URL | back | forward | reload | hard-reload | stop | status | repaint | quit\n"
+      << "Ctrl+Alt+Q exits interactive browser mode. Ctrl+C is forwarded to CEF.\n";
 }
 
 bool ParseArgs(int argc, char** argv, Options* options) {
@@ -249,6 +263,12 @@ bool ParseArgs(int argc, char** argv, Options* options) {
       if (!take_string(&options->fixture)) return false;
     } else if (arg == "--url") {
       if (!take_string(&options->url)) return false;
+    } else if (arg == "--profile") {
+      if (!take_path(&options->profile) || options->profile.empty()) return false;
+    } else if (arg == "--downloads") {
+      if (!take_path(&options->downloads) || options->downloads.empty()) return false;
+    } else if (arg == "--private") {
+      options->private_mode = true;
     } else if (arg == "--width") {
       if (!take_int(1, 8192, &options->width)) return false;
     } else if (arg == "--height") {
@@ -330,6 +350,10 @@ bool ParseArgs(int argc, char** argv, Options* options) {
   if (!options->input_script.empty() && !options->input_hex.empty()) {
     return false;
   }
+  if (options->private_mode && !options->profile.empty()) return false;
+  // Raw input can contain passwords. Only deterministic bundled fixtures may
+  // opt into this existing diagnostic transport; never arbitrary websites.
+  if (options->input_debug && !options->url.empty()) return false;
   return true;
 }
 
@@ -368,6 +392,8 @@ std::string FileUrl(const std::filesystem::path& path) {
 
 std::string ResolveUrl(const Options& options) {
   if (!options.url.empty()) {
+    if (!asciiomium::browser::IsAllowedNavigation(options.url))
+      throw std::invalid_argument("unsupported URL; use http://, https://, file:/// or about:blank");
     return options.url;
   }
   const std::string file = FixtureFileName(options.fixture);
@@ -502,15 +528,28 @@ void WriteReport(const std::filesystem::path& path,
       << "  \"cef_compile\":\"" << JsonEscape(CEF_VERSION) << "\",\n"
       << "  \"cef_runtime\":\"" << CefRuntimeVersion() << "\",\n"
       << "  \"chromium_runtime\":\"" << ChromiumRuntimeVersion() << "\",\n"
-      << "  \"url\":\"" << JsonEscape(evidence.url) << "\",\n"
+      << "  \"url\":\"" << JsonEscape(asciiomium::browser::DiagnosticOrigin(evidence.url)) << "\",\n"
+      << "  \"browser\":{\"profile_mode\":\"" << (evidence.private_mode ? "private" : "persistent")
+      << "\",\"profile_cleanup\":" << (evidence.profile_cleanup ? "true" : "false")
+      << ",\"current_origin\":\"" << JsonEscape(asciiomium::browser::DiagnosticOrigin(evidence.browser_status.url))
+      << "\",\"loading\":" << (evidence.browser_status.loading ? "true" : "false")
+      << ",\"can_go_back\":" << (evidence.browser_status.can_go_back ? "true" : "false")
+      << ",\"can_go_forward\":" << (evidence.browser_status.can_go_forward ? "true" : "false")
+      << ",\"denied_popups\":" << evidence.browser_status.denied_popups
+      << ",\"denied_permissions\":" << evidence.browser_status.denied_permissions
+      << ",\"denied_downloads\":" << evidence.browser_status.denied_downloads
+      << ",\"completed_downloads\":" << evidence.browser_status.completed_downloads
+      << ",\"denied_protocols\":" << evidence.browser_status.denied_protocols
+      << ",\"denied_certificates\":" << evidence.browser_status.denied_certificates
+      << ",\"denied_dialogs\":" << evidence.browser_status.denied_dialogs << "},\n"
       << "  \"exit_reason\":\"" << JsonEscape(evidence.exit_reason) << "\",\n"
       << "  \"sandbox\":\"disabled-temporary-direct-executable-bootstrap\",\n"
       << "  \"load\":{\"complete\":"
       << (evidence.load_complete ? "true" : "false")
       << ",\"http_status\":" << evidence.http_status
       << ",\"error_code\":" << evidence.load_error
-      << ",\"error_text\":\"" << JsonEscape(evidence.load_error_text)
-      << "\",\"failed_url\":\"" << JsonEscape(evidence.failed_url)
+      << ",\"error_text\":\"" << (evidence.load_error ? "navigation-error" : "")
+      << "\",\"failed_url\":\"" << JsonEscape(asciiomium::browser::DiagnosticOrigin(evidence.failed_url))
       << "\"},\n"
       << "  \"source\":{\"viewport_width\":" << options.width
       << ",\"viewport_height\":" << options.height
@@ -619,28 +658,27 @@ double Milliseconds(Clock::time_point start, Clock::time_point end) {
   return std::chrono::duration<double, std::milli>(end - start).count();
 }
 
-bool IsQuitChord(const asciiomium::input::KeyboardEvent& event) {
-  using namespace asciiomium::input;
-  return event.kind == KeyboardEventKind::Key &&
-         event.key == KeyCode::Character &&
-         (event.codepoint == U'Q' || event.codepoint == U'q') &&
-         HasModifier(event.modifiers, kModifierControl) &&
-         HasModifier(event.modifiers, kModifierAlt);
-}
-
 void ForwardInput(
     const std::vector<asciiomium::input::DecodedInputEvent>& decoded_events,
     CefRefPtr<asciiomium::browser::OsrClient> client,
     const asciiomium::geometry::ViewportSnapshot& viewport_snapshot,
     const Options& options,
     LiveEvidence* evidence,
+    asciiomium::browser::BrowserCommands* commands,
+    bool* command_changed,
+    bool overlay_visible,
     bool* quit_requested) {
+  const bool input_debug = options.input_debug && options.url.empty() &&
+                           client->Status().url == ResolveUrl(options);
   for (const auto& decoded : decoded_events) {
     ++evidence->input_decoded_events;
 
     if (decoded.is_pointer()) {
+      const bool release = decoded.pointer.kind == asciiomium::input::PointerEventKind::ButtonRelease;
+      if (!release && (commands->active() || (overlay_visible && viewport_snapshot.valid() &&
+          decoded.pointer.row == viewport_snapshot.transform->terminal_rows() - 1))) continue;
       ++evidence->pointer_decoded_events;
-      if (options.input_debug) {
+      if (input_debug) {
         std::cerr << "[input] raw="
                   << asciiomium::input::EscapeBytes(decoded.raw_bytes)
                   << " decoded="
@@ -653,7 +691,7 @@ void ForwardInput(
 
       if (!viewport_snapshot.valid()) {
         ++evidence->pointer_rejected_events;
-        if (options.input_debug) {
+        if (input_debug) {
           std::cerr << "[input] pointer rejected: no viewport transform\n";
         }
         continue;
@@ -665,7 +703,7 @@ void ForwardInput(
               options.wheel_delta);
       if (!dispatch.has_value()) {
         ++evidence->pointer_rejected_events;
-        if (options.input_debug) {
+        if (input_debug) {
           std::cerr << "[input] pointer rejected geometry="
                     << viewport_snapshot.generation
                     << " (outside browser content or invalid mapping)\n";
@@ -673,7 +711,7 @@ void ForwardInput(
         continue;
       }
 
-      if (options.input_debug) {
+      if (input_debug) {
         std::cerr << "[input] geometry=" << viewport_snapshot.generation
                   << " cef="
                   << asciiomium::browser::DescribeCefPointerDispatch(
@@ -687,7 +725,22 @@ void ForwardInput(
       continue;
     }
 
-    if (options.input_debug) {
+    asciiomium::browser::BrowserCommand command;
+    if (commands->Handle(decoded.event, &command)) {
+      *command_changed = true;
+      if (command.action == asciiomium::browser::BrowserAction::Quit) {
+        *quit_requested = true;
+      } else if (!command.error.empty()) {
+        client->Notice(command.error);
+      } else if (command.action != asciiomium::browser::BrowserAction::None &&
+                 command.action != asciiomium::browser::BrowserAction::Status &&
+                 command.action != asciiomium::browser::BrowserAction::Repaint) {
+        if (!client->Navigate(command)) client->Notice("Navigation is unavailable while the browser is closing.");
+      }
+      continue;
+    }
+
+    if (input_debug) {
       std::cerr << "[input] raw="
                 << asciiomium::input::EscapeBytes(decoded.raw_bytes)
                 << " decoded="
@@ -704,17 +757,9 @@ void ForwardInput(
       continue;
     }
 
-    if (IsQuitChord(decoded.event)) {
-      *quit_requested = true;
-      if (options.input_debug) {
-        std::cerr << "[input] application quit chord consumed\n";
-      }
-      continue;
-    }
-
     const auto cef_events =
         asciiomium::browser::TranslateKeyboardEvent(decoded.event);
-    if (options.input_debug) {
+    if (input_debug) {
       if (cef_events.empty()) {
         std::cerr << "[input] cef=<none> mapping-unavailable\n";
       } else {
@@ -777,32 +822,51 @@ void LogGeometry(const asciiomium::geometry::ViewportSnapshot& snapshot,
 }
 
 int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
+  // Resolve/validate all filesystem and URL options before CEF owns resources.
+  const auto initial_url = ResolveUrl(options);
+  asciiomium::browser::ProfileSession profile(options.profile, options.private_mode,
+                                               ASCIIOMIUM_SOURCE_DIR);
+  asciiomium::browser::BrowserRuntimeOptions runtime;
+  if (!options.downloads.empty()) {
+    runtime.downloads = std::filesystem::weakly_canonical(std::filesystem::absolute(options.downloads));
+    std::filesystem::create_directories(runtime.downloads);
+  }
+  runtime.fixture_observations = options.url.empty() && options.fixture == "input-focus";
+  runtime.fixture_url = initial_url;
   CefSettings settings;
   settings.windowless_rendering_enabled = true;
   settings.multi_threaded_message_loop = false;
   settings.external_message_pump = false;
   settings.no_sandbox = true;
-  settings.log_severity = LOGSEVERITY_WARNING;
+  asciiomium::browser::ConfigureProfile(profile, settings);
 
-  if (!CefInitialize(main_args, settings, nullptr, nullptr)) {
+  asciiomium::browser::CefRuntimeSession cef_session(profile);
+  if (!cef_session.Initialize(main_args, settings)) {
     std::cerr << "CefInitialize failed with exit code " << CefGetExitCode() << '\n';
     return 3;
   }
 
   int result = 0;
   LiveEvidence evidence;
-  evidence.url = ResolveUrl(options);
+  evidence.url = initial_url;
+  evidence.private_mode = profile.private_mode();
 
   auto frame_store = std::make_shared<asciiomium::browser::SourceFrameStore>();
   CefRefPtr<asciiomium::browser::OsrClient> client(
       new asciiomium::browser::OsrClient(frame_store, options.width,
-                                         options.height));
+                                         options.height, runtime));
   std::unique_ptr<asciiomium::terminal::TerminalSession> terminal_session;
   asciiomium::render::TerminalFrame last_terminal_frame;
   std::string last_vt_payload;
   bool have_terminal_frame = false;
   asciiomium::input::VtInputParser input_parser;
   bool quit_requested = false;
+  asciiomium::browser::BrowserCommands commands;
+  bool command_changed = false;
+  bool show_status = false;
+  std::uint64_t status_revision = 0;
+  auto status_until = Clock::now();
+  std::string deferred_error;
   bool fixture_ready_ack_requested = false;
   bool input_script_focus_requested = false;
   bool input_script_injected = false;
@@ -838,9 +902,10 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
                                      browser_settings, nullptr, nullptr)) {
     std::cerr << "CefBrowserHost::CreateBrowser failed\n";
     client = nullptr;
-    CefShutdown();
+    cef_session.Shutdown();
     return 4;
   }
+  cef_session.BrowserCreationStarted(client);
 
   asciiomium::runtime::FrameScheduler scheduler(options.fps);
   asciiomium::render::ModeQuantizer quantizer(options.color_mode);
@@ -946,6 +1011,8 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
           last_input_byte_at = now;
           ForwardInput(input_parser.Feed(input_bytes), client,
                        viewport_snapshot, options, &evidence,
+                       &commands, &command_changed,
+                       show_status,
                        &quit_requested);
         } else if (input_parser.has_pending() &&
                    now - last_input_byte_at >=
@@ -953,6 +1020,8 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
           viewport_snapshot = viewport_state.Snapshot();
           ForwardInput(input_parser.FlushPending(), client,
                        viewport_snapshot, options, &evidence,
+                       &commands, &command_changed,
+                       show_status,
                        &quit_requested);
         }
       }
@@ -971,7 +1040,7 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
         evidence.exit_reason = "max-frames";
         break;
       }
-      if (client->load_error_code() != 0) {
+      if (!options.terminal_output && client->load_error_code() != 0) {
         evidence.exit_reason = "load-error";
         result = 5;
         break;
@@ -1067,7 +1136,8 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
           next_synthetic_event < synthetic_event_queue.size() &&
           now >= next_synthetic_event_at) {
         ForwardInput({synthetic_event_queue[next_synthetic_event]}, client,
-                     viewport_snapshot, options, &evidence, &quit_requested);
+                     viewport_snapshot, options, &evidence, &commands,
+                     &command_changed, show_status, &quit_requested);
         ++next_synthetic_event;
         next_synthetic_event_at = now + std::chrono::milliseconds(60);
       }
@@ -1103,6 +1173,20 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
       if (quit_requested) {
         evidence.exit_reason = "quit-chord";
         break;
+      }
+
+      const auto browser_status = client->Status();
+      if (options.terminal_output &&
+          (command_changed || browser_status.revision != status_revision)) {
+        status_revision = browser_status.revision;
+        show_status = true;
+        status_until = now + std::chrono::seconds(6);
+        scheduler.RequestRefresh();
+      }
+      command_changed = false;
+      if (show_status && !commands.active() && now >= status_until) {
+        show_status = false;
+        scheduler.RequestRefresh();
       }
 
       scheduler.ObserveSource(state.presentation_generation);
@@ -1144,6 +1228,27 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
           asciiomium::render::PixelFormat::BGRA8};
       auto terminal_frame = asciiomium::render::RenderHalfBlock(
           source_view, *viewport_snapshot.transform, render_config);
+      if (options.terminal_output && (show_status || commands.active())) {
+        // Transient, one-row overlay: no viewport reservation or altered mouse
+        // coordinate transform. Pointer events are consumed during command entry.
+        std::string line;
+        if (commands.active()) line = ": " + commands.text() + "_";
+        else {
+          line = browser_status.loading ? "Loading " : "Ready ";
+          if (!browser_status.notice.empty()) line = browser_status.notice + " | ";
+          line += browser_status.url + " | " + browser_status.title + " | Ctrl+Alt+O commands";
+        }
+        line = asciiomium::browser::TerminalSafeText(line, static_cast<std::size_t>(terminal_frame.columns()));
+        auto cells = terminal_frame.cells();
+        for (int column = 0; column < terminal_frame.columns(); ++column) {
+          auto& cell = cells[static_cast<std::size_t>(terminal_frame.rows() - 1) *
+                             terminal_frame.columns() + column];
+          cell.glyph = column < static_cast<int>(line.size()) ? static_cast<unsigned char>(line[column]) : U' ';
+          cell.foreground = asciiomium::render::TerminalColor::Rgb({255, 255, 255});
+          cell.background = asciiomium::render::TerminalColor::Rgb({24, 44, 64});
+        }
+        terminal_frame = asciiomium::render::TerminalFrame(terminal_frame.columns(), terminal_frame.rows(), std::move(cells));
+      }
       const auto conversion_finished = Clock::now();
 
       const auto serialization_started = conversion_finished;
@@ -1180,7 +1285,7 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
     evidence.duration_seconds =
         std::chrono::duration<double>(Clock::now() - started).count();
   } catch (const std::exception& error) {
-    std::cerr << "Live render loop failed: " << error.what() << '\n';
+    deferred_error = "Live render loop failed: " + std::string(error.what());
     evidence.exit_reason = "exception";
     result = 6;
   }
@@ -1190,6 +1295,7 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
   evidence.load_error = client->load_error_code();
   evidence.load_error_text = client->load_error_text();
   evidence.failed_url = client->failed_url();
+  evidence.browser_status = client->Status();
 
   client->CloseBrowser();
   const auto close_deadline = Clock::now() + std::chrono::seconds(5);
@@ -1199,7 +1305,7 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
   }
   evidence.closed_cleanly = client->closed();
   if (!evidence.closed_cleanly && result == 0) {
-    std::cerr << "CEF browser did not close before shutdown deadline\n";
+    deferred_error = "CEF browser did not close before shutdown deadline";
     result = 7;
   }
 
@@ -1220,7 +1326,16 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
   evidence.scheduler = scheduler.stats();
 
   client = nullptr;
-  CefShutdown();
+  if (!cef_session.Shutdown()) {
+    std::cerr << "CEF shutdown timed out; terminal restored, active private data retained.\n";
+    std::_Exit(7);
+  }
+  evidence.profile_cleanup = profile.Finish();
+  if (!evidence.profile_cleanup) {
+    std::cerr << "Private browser data cleanup failed; temporary data may remain.\n";
+    if (result == 0) result = 10;
+  }
+  if (!deferred_error.empty()) std::cerr << deferred_error << '\n';
 
   if (!have_terminal_frame && result == 0) {
     std::cerr << "No terminal frame was produced\n";
