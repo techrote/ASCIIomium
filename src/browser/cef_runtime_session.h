@@ -18,8 +18,9 @@ class CefRuntimeSession {
       std::_Exit(7);
     }
   }
-  bool Initialize(const CefMainArgs& args, const CefSettings& settings) {
-    initialized_ = CefInitialize(args, settings, nullptr, nullptr);
+  bool Initialize(const CefMainArgs& args, const CefSettings& settings,
+                  CefRefPtr<CefApp> app = nullptr) {
+    initialized_ = CefInitialize(args, settings, app, nullptr);
     profile_.SetCefActive(initialized_);
     return initialized_;
   }

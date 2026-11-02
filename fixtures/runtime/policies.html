@@ -10,7 +10,7 @@ document.getElementById('probe').onclick = async () => {
       () => resolve(false), error => resolve(error.code === 1), {timeout:5000}));
     const media = navigator.mediaDevices.getUserMedia({audio:true,video:true}).then(stream => {
       stream.getTracks().forEach(track => track.stop()); return false;
-    }, () => true);
+    }, error => error.name === 'NotAllowedError');
     const results = await Promise.all([notification, geolocation, media]);
     document.title = (popup === null && results.every(Boolean) ? 'PASS:' : 'FAIL:') + 'policies';
   } catch { document.title = 'FAIL:policies-exception'; }

@@ -42,6 +42,7 @@ struct BrowserStatus {
   std::uint64_t revision = 0;
   std::uint64_t denied_popups = 0;
   std::uint64_t denied_permissions = 0;
+  std::uint64_t denied_media = 0;
   std::uint64_t denied_downloads = 0;
   std::uint64_t completed_downloads = 0;
   std::uint64_t denied_protocols = 0;

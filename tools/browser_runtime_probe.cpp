@@ -3,6 +3,7 @@
 #endif
 #include <windows.h>
 #include <chrono>
+#include <charconv>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -15,10 +16,38 @@
 #include "browser/browser_commands.h"
 #include "browser/cef_pointer_translator.h"
 #include "browser/cef_runtime_session.h"
+#include "include/cef_request_context.h"
+#include "include/cef_values.h"
 
 namespace {
 using namespace asciiomium::browser;
 using Clock = std::chrono::steady_clock;
+
+// Synthetic devices make the denial test independent of runner hardware.
+// There is deliberately no fake-UI/permission-grant switch. Production live
+// browsing never uses this probe-only app.
+class ProbeApp final : public CefApp {
+ public:
+  void OnBeforeCommandLineProcessing(const CefString&,
+      CefRefPtr<CefCommandLine> command_line) override {
+    command_line->AppendSwitch("use-fake-device-for-media-stream");
+    command_line->AppendSwitch("enable-media-stream");
+  }
+ private:
+  IMPLEMENT_REFCOUNTING(ProbeApp);
+};
+
+bool LoopbackOrigin(std::string_view origin) {
+  constexpr std::string_view http = "http://127.0.0.1:";
+  constexpr std::string_view https = "https://127.0.0.1:";
+  if (origin.starts_with(http)) origin.remove_prefix(http.size());
+  else if (origin.starts_with(https)) origin.remove_prefix(https.size());
+  else return false;
+  unsigned port = 0;
+  const auto parsed = std::from_chars(origin.data(), origin.data() + origin.size(), port);
+  return !origin.empty() && parsed.ec == std::errc{} &&
+         parsed.ptr == origin.data() + origin.size() && port > 0 && port <= 65535;
+}
 
 void Require(bool condition, const std::string& message) {
   if (!condition) throw std::runtime_error(message);
@@ -51,8 +80,8 @@ void Click(CefRefPtr<OsrClient> client) {
   Require(client->SendPointerEvent(event), "pointer up failed");
 }
 
-int Probe(int argc, char** argv, const CefMainArgs& main_args) {
-  std::filesystem::path profile_path, downloads, report;
+int Probe(int argc, char** argv, const CefMainArgs& main_args, CefRefPtr<CefApp> app) {
+  std::filesystem::path profile_path, downloads, default_downloads, report;
   std::string origin, scenario;
   bool private_mode = false;
   for (int i = 1; i < argc; ++i) {
@@ -64,10 +93,11 @@ int Probe(int argc, char** argv, const CefMainArgs& main_args) {
     else if (arg == "--scenario") scenario = value;
     else if (arg == "--profile") profile_path = value;
     else if (arg == "--downloads") downloads = value;
+    else if (arg == "--default-download-directory") default_downloads = value;
     else if (arg == "--report") report = value;
     else throw std::runtime_error("unknown probe argument");
   }
-  Require(origin.starts_with("http://127.0.0.1:") || origin.starts_with("https://127.0.0.1:"),
+  Require(LoopbackOrigin(origin),
           "qualification probe is restricted to loopback fixtures");
   Require(!scenario.empty() && !report.empty(), "scenario and report required");
   ProfileSession profile(profile_path, private_mode, ASCIIOMIUM_SOURCE_DIR);
@@ -76,7 +106,16 @@ int Probe(int argc, char** argv, const CefMainArgs& main_args) {
   settings.no_sandbox = true;
   settings.windowless_rendering_enabled = true;
   ConfigureProfile(profile, settings);
-  Require(session.Initialize(main_args, settings), "CefInitialize failed");
+  Require(session.Initialize(main_args, settings, app), "CefInitialize failed");
+  if (!default_downloads.empty()) {
+    // Bound Chromium's fallback directory so a broken default-deny policy
+    // cannot pass by writing somewhere outside the evidence inventory.
+    const auto value = CefValue::Create();
+    value->SetString(std::filesystem::absolute(default_downloads).wstring());
+    CefString error;
+    Require(CefRequestContext::GetGlobalContext()->SetPreference(
+        "download.default_directory", value, error), "cannot bound default download directory");
+  }
   auto frames = std::make_shared<SourceFrameStore>();
   BrowserRuntimeOptions runtime;
   runtime.downloads = downloads;
@@ -146,6 +185,7 @@ int Probe(int argc, char** argv, const CefMainArgs& main_args) {
       Require(client->MainTitle() == "PASS:policies", "page observed a policy grant or popup");
       Require(client->Status().denied_popups > 0, "window.open denial did not pass through host policy");
       Require(client->Status().denied_permissions > 0, "permissions not exercised");
+      Require(client->Status().denied_media > 0, "media request did not reach explicit host denial");
     } else if (scenario.starts_with("download-")) {
       wait_page("READY:download");
       Require(PumpUntil([&] { return frames->SnapshotState().view_generation > 0; }), "download page has no paint");
@@ -154,6 +194,10 @@ int Probe(int argc, char** argv, const CefMainArgs& main_args) {
       Require(PumpUntil([&] { const auto state = client->Status();
         return allowed ? state.completed_downloads > 0 : state.denied_downloads > 0;
       }), "download policy result missing");
+      if (!allowed) {
+        PumpUntil([] { return false; }, 300);
+        Require(client->Status().completed_downloads == 0, "denied download completed");
+      }
       // Python additionally checks actual file contents and no writes on denial.
     } else if (scenario == "tls") {
       Require(PumpUntil([&] { return client->load_error_code() != 0; }), "invalid TLS certificate was not rejected");
@@ -174,15 +218,19 @@ int Probe(int argc, char** argv, const CefMainArgs& main_args) {
   Require(cleaned, "profile cleanup failed");
   if (report.has_parent_path()) std::filesystem::create_directories(report.parent_path());
   std::ofstream out(report);
+  Require(static_cast<bool>(out), "cannot open probe report");
   out << "{\"schema\":\"asciiomium-runtime-probe-v1\",\"scenario\":\"" << scenario
       << "\",\"passed\":" << (passed ? "true" : "false")
       << ",\"closed_cleanly\":true,\"profile_cleanup\":true,\"private\":" << (private_mode ? "true" : "false")
       << ",\"verified_page_transitions\":" << verified_transitions
       << ",\"denied_popups\":" << status.denied_popups
       << ",\"denied_permissions\":" << status.denied_permissions
+      << ",\"denied_media\":" << status.denied_media
       << ",\"denied_downloads\":" << status.denied_downloads
       << ",\"completed_downloads\":" << status.completed_downloads
       << ",\"denied_certificates\":" << status.denied_certificates << "}\n";
+  out.close();
+  Require(static_cast<bool>(out), "cannot finish probe report");
   if (!failure.empty()) std::cerr << "runtime probe: " << failure << '\n';
   return passed ? 0 : 1;
 }
@@ -190,8 +238,9 @@ int Probe(int argc, char** argv, const CefMainArgs& main_args) {
 
 int main(int argc, char** argv) {
   CefMainArgs args(GetModuleHandle(nullptr));
-  const int child = CefExecuteProcess(args, nullptr, nullptr);
+  CefRefPtr<CefApp> app(new ProbeApp);
+  const int child = CefExecuteProcess(args, app, nullptr);
   if (child >= 0) return child;
-  try { return Probe(argc, argv, args); }
+  try { return Probe(argc, argv, args, app); }
   catch (const std::exception& error) { std::cerr << "runtime probe: " << error.what() << '\n'; return 1; }
 }

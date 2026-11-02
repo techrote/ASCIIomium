@@ -537,6 +537,7 @@ void WriteReport(const std::filesystem::path& path,
       << ",\"can_go_forward\":" << (evidence.browser_status.can_go_forward ? "true" : "false")
       << ",\"denied_popups\":" << evidence.browser_status.denied_popups
       << ",\"denied_permissions\":" << evidence.browser_status.denied_permissions
+      << ",\"denied_media\":" << evidence.browser_status.denied_media
       << ",\"denied_downloads\":" << evidence.browser_status.denied_downloads
       << ",\"completed_downloads\":" << evidence.browser_status.completed_downloads
       << ",\"denied_protocols\":" << evidence.browser_status.denied_protocols

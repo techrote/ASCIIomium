@@ -98,7 +98,11 @@ launches separate CEF processes, verifies expiring/session cookies, local
 storage and IndexedDB after clean restarts, checks isolation/private reset,
 tests a genuine simultaneous profile owner, and drives browser navigation.
 Page markers prove navigation/history/reload; actual JavaScript results prove
-popup/permission denial. Download bytes are verified outside CEF. A deliberately
+popup/permission denial. The test executable supplies synthetic capture devices
+without granting permissions, requires a real media-denial callback and checks
+`NotAllowedError`, so missing runner hardware cannot produce a false pass.
+The denied-download test bounds Chromium's fallback destination and verifies
+that it remains empty; enabled download bytes are verified outside CEF. A deliberately
 untrusted test-only certificate proves TLS rejection. Its checked-in private
 key is public fixture material and must never be used by a service.
 

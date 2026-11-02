@@ -344,7 +344,7 @@ bool OsrClient::OnBeforeBrowse(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame> frame,
 
 bool OsrClient::OnOpenURLFromTab(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>,
     const CefString&, cef_window_open_disposition_t disposition, bool) {
-  if (disposition == WOD_CURRENT_TAB) return false;
+  if (disposition == CEF_WOD_CURRENT_TAB) return false;
   {
     std::lock_guard lock(display_mutex_);
     ++status_.denied_popups;
@@ -411,6 +411,7 @@ bool OsrClient::OnRequestMediaAccessPermission(CefRefPtr<CefBrowser>,
   {
     std::lock_guard lock(display_mutex_);
     ++status_.denied_permissions;
+    ++status_.denied_media;
   }
   Notice("Camera/microphone/screen capture permission denied.");
   return true;

@@ -100,6 +100,7 @@ def main() -> None:
             "results": results, "http_requests": http.counts}, indent=2) + "\n", encoding="utf-8")
     def run(name, scenario, extra, *, base=origin, expected=0):
         target = reports / (name + ".json")
+        target.unlink(missing_ok=True)
         command = [str(exe), "--origin", base, "--scenario", scenario, "--report", str(target), *map(str, extra)]
         process = subprocess.run(command, capture_output=True, text=True, timeout=45)
         (reports / (name + ".stderr.txt")).write_text(process.stderr, encoding="utf-8")
@@ -110,6 +111,7 @@ def main() -> None:
         save()
         assert process.returncode == expected, f"{name}: exit {process.returncode}\n{process.stderr}\n{process.stdout}"
         if expected == 0:
+            assert record["probe"]["schema"] == "asciiomium-runtime-probe-v1" and record["probe"]["scenario"] == scenario
             assert record["probe"]["passed"] and record["probe"]["closed_cleanly"] and record["probe"]["profile_cleanup"]
         print(f"PASS {name}", flush=True)
         return process
@@ -143,8 +145,10 @@ def main() -> None:
             run("after-ownership-release", "storage-read", ["--profile", a])
             run("navigation-history-reload-stop-recovery", "navigation", ["--private"])
             run("popup-permission-denial", "policies", ["--private"])
-            run("download-default-denial", "download-deny", ["--private"])
-            assert not download.exists(), "denied download created destination"
+            fallback = temp / "chromium-default-downloads"
+            fallback.mkdir()
+            run("download-default-denial", "download-deny", ["--private", "--default-download-directory", fallback])
+            assert not any(fallback.rglob("*")), "denied download wrote to Chromium's bounded default destination"
             run("download-controlled-destination", "download-allow", ["--private", "--downloads", download])
             files = sorted(p for p in download.rglob("*") if p.is_file())
             assert len(files) == 1 and files[0].name == "download.bin" and files[0].read_bytes() == PAYLOAD, "download bytes/path do not match controlled destination"
