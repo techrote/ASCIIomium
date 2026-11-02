@@ -86,6 +86,8 @@ target_compile_features(asciiomium_geometry PUBLIC cxx_std_20)
 set_target_properties(asciiomium_geometry PROPERTIES FOLDER "ASCIIomium")
 
 add_library(asciiomium_terminal STATIC
+  src/terminal/differential_frame_emitter.cpp
+  src/terminal/differential_frame_emitter.h
   src/terminal/full_frame_emitter.cpp
   src/terminal/full_frame_emitter.h
   src/terminal/terminal_diagnostics.cpp
@@ -419,3 +421,16 @@ message(STATUS "Pinned CEF: ${ASCIIOMIUM_CEF_VERSION}")
 message(STATUS "CEF root: ${CEF_ROOT}")
 message(STATUS "CEF sandbox for direct OSR prototype: ${USE_SANDBOX}")
 message(STATUS "Target architecture: x64")
+
+# Issue #14 keeps differential planning/serialization independently replayable.
+add_executable(differential_frame_emitter_tests tests/differential_frame_emitter_test.cpp)
+target_link_libraries(differential_frame_emitter_tests PRIVATE asciiomium_terminal asciiomium_render)
+target_compile_features(differential_frame_emitter_tests PRIVATE cxx_std_20)
+set_target_properties(differential_frame_emitter_tests PROPERTIES FOLDER "Tests")
+add_test(NAME differential_frame_emitter COMMAND "$<TARGET_FILE:differential_frame_emitter_tests>")
+
+add_executable(asciiomium_differential_benchmark tools/differential_benchmark.cpp)
+target_link_libraries(asciiomium_differential_benchmark PRIVATE
+  asciiomium_terminal asciiomium_render asciiomium_runtime)
+target_compile_features(asciiomium_differential_benchmark PRIVATE cxx_std_20)
+set_target_properties(asciiomium_differential_benchmark PROPERTIES FOLDER "Tools")

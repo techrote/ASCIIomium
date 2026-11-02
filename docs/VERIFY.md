@@ -176,6 +176,14 @@ Acceptance:
 - small animated regions emit substantially fewer bytes than full repaint;
 - no stale characters remain after content shrinks or colours/styles change.
 
+Implementation and commands: [`DIFFERENTIAL_OUTPUT.md`](DIFFERENTIAL_OUTPUT.md).
+Run `differential_frame_emitter_tests` in Debug and Release, then
+`tools/verify_differential_emission.ps1` for paired 160x50 CEF fixture byte
+comparisons and forced reconstruction. The script records headless automation,
+not physical Windows Terminal acceptance. Verify the opt-in mode physically
+before promoting it to the default. `--vt-output` is a standalone full snapshot;
+a zero last live delta is legitimate and is not an empty snapshot failure.
+
 ## V6 — Real websites
 
 After local fixtures pass, test representative external pages:

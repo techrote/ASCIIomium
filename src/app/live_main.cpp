@@ -39,7 +39,9 @@
 #include "render/render_types.h"
 #include "runtime/frame_scheduler.h"
 #include "runtime/timing_series.h"
+#include "terminal/differential_frame_emitter.h"
 #include "terminal/full_frame_emitter.h"
+#include "terminal/terminal_sequences.h"
 #include "terminal/terminal_session.h"
 
 namespace {
@@ -57,6 +59,9 @@ struct Options {
   int rows = 40;
   int duration_ms = 0;
   int max_frames = 0;
+  bool differential_output = false;
+  bool compare_emitter = false;
+  int full_repaint_ms = 0;
   double cell_aspect = 0.5;
   asciiomium::geometry::FitMode fit_mode =
       asciiomium::geometry::FitMode::Contain;
@@ -115,6 +120,15 @@ struct LiveEvidence {
   std::uint64_t input_generation_before = 0;
   std::uint64_t input_generation_after = 0;
   std::size_t last_vt_bytes = 0;
+  std::uint64_t total_vt_bytes = 0;
+  std::uint64_t empty_payload_frames = 0;
+  std::uint64_t full_reconstructions = 0;
+  std::uint64_t changed_cells = 0;
+  std::uint64_t changed_runs = 0;
+  std::uint64_t written_cells = 0;
+  std::uint64_t emitted_runs = 0;
+  std::uint64_t reference_full_bytes = 0;
+  std::uint64_t reference_differential_bytes = 0;
   std::uint64_t geometry_generation = 0;
   std::uint64_t cef_resize_requests = 0;
   int sample_columns = 0;
@@ -125,6 +139,9 @@ struct LiveEvidence {
   asciiomium::runtime::FrameSchedulerStats scheduler{};
   asciiomium::runtime::TimingSeries conversion_timing;
   asciiomium::runtime::TimingSeries serialization_timing;
+  asciiomium::runtime::TimingSeries differential_planning_timing;
+  asciiomium::runtime::TimingSeries differential_serialization_timing;
+  asciiomium::runtime::TimingSeries full_reference_timing;
   asciiomium::runtime::TimingSeries write_timing;
 };
 
@@ -204,7 +221,10 @@ void PrintUsage() {
       << "  --geometry-debug        log viewport generations and mappings to stderr\n"
       << "  --freeze                append ?freeze=1 to bundled fixture URL\n"
       << "  --duration-ms N         stop after N ms; 0 means until quit chord (default 0)\n"
-      << "  --max-frames N          stop after N emitted frames; 0 means unlimited\n"
+      << "  --max-frames N          stop after N nonempty emitted frames; 0 means unlimited\n"
+      << "  --emitter MODE          full|differential (default full)\n"
+      << "  --full-repaint-ms N     force screen reconstruction every N ms; 0 disables\n"
+      << "  --compare-emitter       measure both emitters on identical frames (adds work)\n"
       << "  --no-terminal           serialize frames without acquiring a console (CI/benchmark)\n"
       << "  --columns N --rows N    logical target for --no-terminal (default 120x40)\n"
       << "  --report FILE.json      write live-run metrics\n"
@@ -263,6 +283,17 @@ bool ParseArgs(int argc, char** argv, Options* options) {
       if (!take_int(1, 512, &options->rows)) return false;
     } else if (arg == "--duration-ms") {
       if (!take_int(0, 3'600'000, &options->duration_ms)) return false;
+    } else if (arg == "--emitter") {
+      if (i + 1 >= argc) return false;
+      const std::string_view mode(argv[++i]);
+      if (mode == "differential") options->differential_output = true;
+      else if (mode == "full") options->differential_output = false;
+      else return false;
+    } else if (arg == "--full-repaint-ms") {
+      if (!take_int(0, 3'600'000, &options->full_repaint_ms)) return false;
+      if (options->full_repaint_ms > 0 && options->full_repaint_ms < 100) return false;
+    } else if (arg == "--compare-emitter") {
+      options->compare_emitter = true;
     } else if (arg == "--max-frames") {
       if (!take_int(0, 1'000'000, &options->max_frames)) return false;
     } else if (arg == "--colors") {
@@ -327,6 +358,10 @@ bool ParseArgs(int argc, char** argv, Options* options) {
       options->max_frames == 0) {
     return false;
   }
+  // An unchanged differential frame may emit zero bytes forever. Require a
+  // wall-time bound for unattended delta runs even when --max-frames is set.
+  if (!options->terminal_output && options->differential_output &&
+      options->duration_ms == 0) return false;
   if (!options->input_script.empty() && !options->input_hex.empty()) {
     return false;
   }
@@ -480,6 +515,17 @@ void WriteTerminalFrameSvg(const std::filesystem::path& path,
   out << "</svg>\n";
 }
 
+std::string TimingJson(const asciiomium::runtime::TimingSeries& timing) {
+  std::ostringstream out;
+  out << std::fixed << std::setprecision(6)
+      << "{\"average_ms\":" << timing.average_ms()
+      << ",\"p50_ms\":" << timing.percentile_ms(0.50)
+      << ",\"p95_ms\":" << timing.percentile_ms(0.95)
+      << ",\"sample_count\":" << timing.count()
+      << ",\"percentile_retained_samples\":" << timing.retained_count() << '}';
+  return out.str();
+}
+
 void WriteReport(const std::filesystem::path& path,
                  const Options& options,
                  const LiveEvidence& evidence) {
@@ -495,6 +541,12 @@ void WriteReport(const std::filesystem::path& path,
       static_cast<double>(evidence.scheduler.emitted_frames) / duration;
   const double source_fps =
       static_cast<double>(evidence.source_state.view_paint_count) / duration;
+  const bool have_diff_metrics = options.differential_output || options.compare_emitter;
+  const double rendered = static_cast<double>(std::max<std::uint64_t>(1, evidence.scheduler.rendered_frames));
+  const double emitted = static_cast<double>(std::max<std::uint64_t>(1, evidence.scheduler.emitted_frames));
+  const auto diff_count = [&](std::uint64_t value) {
+    return have_diff_metrics ? std::to_string(value) : std::string("null");
+  };
 
   out << std::fixed << std::setprecision(6)
       << "{\n"
@@ -567,6 +619,33 @@ void WriteReport(const std::filesystem::path& path,
       << "},\"terminal_write\":{\"average\":"
       << evidence.write_timing.average_ms() << ",\"p95\":"
       << evidence.write_timing.percentile_ms(0.95) << "}},\n"
+      << "  \"emission\":{\"schema\":\"asciiomium-emission-v1\",\"mode\":\""
+      << (options.differential_output ? "differential" : "full")
+      << "\",\"bytes_serialized\":" << evidence.total_vt_bytes
+      << ",\"bytes_written_to_terminal\":"
+      << (options.terminal_output ? std::to_string(evidence.total_vt_bytes) : std::string("null"))
+      << ",\"bytes_per_rendered_frame\":" << evidence.total_vt_bytes / rendered
+      << ",\"bytes_per_nonempty_payload\":" << evidence.total_vt_bytes / emitted
+      << ",\"bytes_per_second\":" << evidence.total_vt_bytes / duration
+      << ",\"empty_payload_frames\":" << evidence.empty_payload_frames
+      << ",\"full_reconstructions\":" << evidence.full_reconstructions
+      << ",\"full_repaint_interval_ms\":" << options.full_repaint_ms
+      << ",\"changed_cells\":" << diff_count(evidence.changed_cells)
+      << ",\"changed_runs\":" << diff_count(evidence.changed_runs)
+      << ",\"written_cells\":" << evidence.written_cells
+      << ",\"emitted_runs\":" << evidence.emitted_runs
+      << ",\"differential_planning\":"
+      << (have_diff_metrics ? TimingJson(evidence.differential_planning_timing) : "null")
+      << ",\"differential_serialization\":"
+      << (have_diff_metrics ? TimingJson(evidence.differential_serialization_timing) : "null")
+      << ",\"comparison_enabled\":" << (options.compare_emitter ? "true" : "false")
+      << ",\"same_frame_full_bytes\":"
+      << (options.compare_emitter ? std::to_string(evidence.reference_full_bytes) : "null")
+      << ",\"same_frame_differential_bytes\":"
+      << (options.compare_emitter ? std::to_string(evidence.reference_differential_bytes) : "null")
+      << ",\"same_frame_full_reference_timing\":"
+      << (options.compare_emitter ? TimingJson(evidence.full_reference_timing) : "null")
+      << ",\"timing_scope\":\"cumulative average; p50/p95 last 2048 samples; compare-emitter adds reference work\"},\n"
       << "  \"input\":{\"decoded_events\":" << evidence.input_decoded_events
       << ",\"unsupported_events\":" << evidence.input_unsupported_events
       << ",\"cef_events\":" << evidence.input_cef_events
@@ -799,8 +878,9 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
                                          options.height));
   std::unique_ptr<asciiomium::terminal::TerminalSession> terminal_session;
   asciiomium::render::TerminalFrame last_terminal_frame;
-  std::string last_vt_payload;
   bool have_terminal_frame = false;
+  bool force_full_repaint = true;
+  bool terminal_geometry_usable = true;
   asciiomium::input::VtInputParser input_parser;
   bool quit_requested = false;
   bool fixture_ready_ack_requested = false;
@@ -882,11 +962,17 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
 
     const auto started = Clock::now();
     auto last_geometry_poll = started;
+    auto next_full_repaint = started + std::chrono::milliseconds(options.full_repaint_ms);
 
     auto refresh_terminal_geometry = [&]() {
       if (!terminal_session || !terminal_session->RefreshGeometry()) {
         return;
       }
+      // Physical reflow invalidates the display even if this geometry is
+      // rejected, or later returns to the last accepted transform unchanged.
+      force_full_repaint = true;
+      scheduler.RequestRefresh();
+      terminal_geometry_usable = false;
       target_columns = terminal_session->geometry().columns;
       target_rows = terminal_session->geometry().rows;
       const auto next_transform =
@@ -904,6 +990,7 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
         return;
       }
 
+      terminal_geometry_usable = true;
       const auto change = viewport_state.Publish(*next_transform);
       if (!change.changed) {
         return;
@@ -920,10 +1007,22 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
       }
       viewport_snapshot = change.snapshot;
       RecordGeometry(viewport_snapshot, &evidence);
-      scheduler.RequestRefresh();
       if (options.geometry_debug) {
         LogGeometry(viewport_snapshot, cef_resize_requested);
       }
+    };
+
+    auto dispatch_input = [&](const std::vector<asciiomium::input::DecodedInputEvent>& events) {
+      // One wrapper covers real Feed/Flush and synthetic delivery. Diagnostic
+      // writes can corrupt the retained screen even if the page does not paint.
+      if (options.input_debug && !events.empty()) {
+        force_full_repaint = true;
+        scheduler.RequestRefresh();
+      }
+      ForwardInput(events, client,
+                   terminal_geometry_usable ? viewport_snapshot
+                                            : asciiomium::geometry::ViewportSnapshot{},
+                   options, &evidence, &quit_requested);
     };
 
     while (true) {
@@ -944,16 +1043,12 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
           refresh_terminal_geometry();
           viewport_snapshot = viewport_state.Snapshot();
           last_input_byte_at = now;
-          ForwardInput(input_parser.Feed(input_bytes), client,
-                       viewport_snapshot, options, &evidence,
-                       &quit_requested);
+          dispatch_input(input_parser.Feed(input_bytes));
         } else if (input_parser.has_pending() &&
                    now - last_input_byte_at >=
                        std::chrono::milliseconds(35)) {
           viewport_snapshot = viewport_state.Snapshot();
-          ForwardInput(input_parser.FlushPending(), client,
-                       viewport_snapshot, options, &evidence,
-                       &quit_requested);
+          dispatch_input(input_parser.FlushPending());
         }
       }
       if (quit_requested) {
@@ -1066,8 +1161,7 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
       if ((evidence.input_hex_sent || evidence.input_script_sent) &&
           next_synthetic_event < synthetic_event_queue.size() &&
           now >= next_synthetic_event_at) {
-        ForwardInput({synthetic_event_queue[next_synthetic_event]}, client,
-                     viewport_snapshot, options, &evidence, &quit_requested);
+        dispatch_input({synthetic_event_queue[next_synthetic_event]});
         ++next_synthetic_event;
         next_synthetic_event_at = now + std::chrono::milliseconds(60);
       }
@@ -1105,8 +1199,13 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
         break;
       }
 
+      if (options.full_repaint_ms > 0 && now >= next_full_repaint) {
+        force_full_repaint = true;
+        scheduler.RequestRefresh();
+        next_full_repaint = now + std::chrono::milliseconds(options.full_repaint_ms);
+      }
       scheduler.ObserveSource(state.presentation_generation);
-      if (!scheduler.Ready(now)) {
+      if (!terminal_geometry_usable || !scheduler.Ready(now)) {
         ++evidence.idle_iterations;
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
         continue;
@@ -1146,21 +1245,68 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
           source_view, *viewport_snapshot.transform, render_config);
       const auto conversion_finished = Clock::now();
 
-      const auto serialization_started = conversion_finished;
-      auto emission =
-          asciiomium::terminal::SerializeFullFrame(terminal_frame);
-      const auto serialization_finished = Clock::now();
-
-      const auto write_started = serialization_finished;
-      if (terminal_session) {
-        terminal_session->Write(emission.bytes);
+      // Comparison is opt-in: both paths consume the same immutable logical
+      // frame, so CSS animation scheduling cannot confound the byte comparison.
+      asciiomium::terminal::DifferentialPlan plan;
+      asciiomium::terminal::DifferentialEmission delta;
+      const auto planning_started = Clock::now();
+      if (options.differential_output || options.compare_emitter) {
+        plan = asciiomium::terminal::PlanDifferentialFrame(
+            have_terminal_frame ? &last_terminal_frame : nullptr,
+            terminal_frame, force_full_repaint);
+      }
+      const auto planning_finished = Clock::now();
+      if (options.differential_output || options.compare_emitter) {
+        delta = asciiomium::terminal::SerializeDifferentialFrame(terminal_frame, plan);
+      }
+      const auto differential_finished = Clock::now();
+      std::string full_bytes;
+      if (!options.differential_output || options.compare_emitter) {
+        full_bytes = asciiomium::terminal::SerializeFullFrame(terminal_frame).bytes;
+        if (force_full_repaint) {
+          full_bytes.insert(0, std::string(asciiomium::terminal::kResetSgr) +
+                                  asciiomium::terminal::kClearScreen);
+        }
+      }
+      const auto full_finished = Clock::now();
+      if (options.compare_emitter) {
+        evidence.reference_full_bytes += full_bytes.size();
+        evidence.reference_differential_bytes += delta.bytes.size();
+        evidence.full_reference_timing.AddMilliseconds(
+            Milliseconds(differential_finished, full_finished));
+      }
+      const bool reconstructing = force_full_repaint;
+      std::string payload = options.differential_output ? std::move(delta.bytes)
+                                                       : std::move(full_bytes);
+      const auto write_started = Clock::now();
+      if (terminal_session && !payload.empty()) {
+        terminal_session->Write(payload);
       }
       const auto write_finished = Clock::now();
+      // The previous frame remains trusted only after Write succeeds. A partial
+      // write exception leaves it unchanged and follows the existing teardown.
+      force_full_repaint = false;
+      evidence.total_vt_bytes += payload.size();
+      evidence.last_vt_bytes = payload.size();
+      if (payload.empty()) ++evidence.empty_payload_frames;
+      if (reconstructing) ++evidence.full_reconstructions;
+      evidence.written_cells += options.differential_output ? plan.written_cells : terminal_frame.size();
+      evidence.emitted_runs += options.differential_output ? plan.runs.size()
+                                                         : static_cast<std::size_t>(terminal_frame.rows());
+      if (options.differential_output || options.compare_emitter) {
+        evidence.changed_cells += plan.changed_cells;
+        evidence.changed_runs += plan.changed_runs;
+        evidence.differential_planning_timing.AddMilliseconds(
+            Milliseconds(planning_started, planning_finished));
+        evidence.differential_serialization_timing.AddMilliseconds(
+            Milliseconds(planning_finished, differential_finished));
+      }
 
       evidence.conversion_timing.AddMilliseconds(
           Milliseconds(conversion_started, conversion_finished));
-      evidence.serialization_timing.AddMilliseconds(
-          Milliseconds(serialization_started, serialization_finished));
+      evidence.serialization_timing.AddMilliseconds(options.differential_output
+          ? Milliseconds(planning_finished, differential_finished)
+          : Milliseconds(differential_finished, full_finished));
       evidence.write_timing.AddMilliseconds(
           Milliseconds(write_started, write_finished));
       if (composed.popup_composited) {
@@ -1169,10 +1315,7 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
 
       scheduler.MarkRendered(write_finished,
                              presentation.presentation_generation);
-      scheduler.MarkEmitted();
-
-      last_vt_payload = std::move(emission.bytes);
-      evidence.last_vt_bytes = last_vt_payload.size();
+      if (!payload.empty()) scheduler.MarkEmitted();
       last_terminal_frame = std::move(terminal_frame);
       have_terminal_frame = true;
     }
@@ -1232,7 +1375,10 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
       WriteTerminalFrameSvg(options.evidence_svg, last_terminal_frame);
     }
     if (!options.vt_output.empty() && have_terminal_frame) {
-      WriteBinaryFile(options.vt_output, last_vt_payload);
+      // A final delta alone is not replayable. This evidence artifact always
+      // remains a standalone reference-frame snapshot, regardless of live mode.
+      WriteBinaryFile(options.vt_output,
+                      asciiomium::terminal::SerializeFullFrame(last_terminal_frame).bytes);
     }
     WriteReport(options.report, options, evidence);
   } catch (const std::exception& error) {
