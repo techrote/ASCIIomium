@@ -1,0 +1,149 @@
+[
+  {
+    "PR": "38",
+    "Revision": "5f8feccebeb0682890a2023a59b4c33e514c5497",
+    "Check": "typing",
+    "Status": "Pass",
+    "Notes": "Operator reported \"all pass\" in chat after manual launcher preparation. No per-check narrative supplied."
+  },
+  {
+    "PR": "38",
+    "Revision": "5f8feccebeb0682890a2023a59b4c33e514c5497",
+    "Check": "unicode",
+    "Status": "Pass",
+    "Notes": "Operator reported \"all pass\" in chat after manual launcher preparation. No per-check narrative supplied."
+  },
+  {
+    "PR": "38",
+    "Revision": "5f8feccebeb0682890a2023a59b4c33e514c5497",
+    "Check": "editing",
+    "Status": "Pass",
+    "Notes": "Operator reported \"all pass\" in chat after manual launcher preparation. No per-check narrative supplied."
+  },
+  {
+    "PR": "38",
+    "Revision": "5f8feccebeb0682890a2023a59b4c33e514c5497",
+    "Check": "navigation",
+    "Status": "Pass",
+    "Notes": "Operator reported \"all pass\" in chat after manual launcher preparation. No per-check narrative supplied."
+  },
+  {
+    "PR": "38",
+    "Revision": "5f8feccebeb0682890a2023a59b4c33e514c5497",
+    "Check": "focus",
+    "Status": "Pass",
+    "Notes": "Operator reported \"all pass\" in chat after manual launcher preparation. No per-check narrative supplied."
+  },
+  {
+    "PR": "38",
+    "Revision": "5f8feccebeb0682890a2023a59b4c33e514c5497",
+    "Check": "modifiers",
+    "Status": "Pass",
+    "Notes": "Operator reported \"all pass\" in chat after manual launcher preparation. No per-check narrative supplied."
+  },
+  {
+    "PR": "38",
+    "Revision": "5f8feccebeb0682890a2023a59b4c33e514c5497",
+    "Check": "quit",
+    "Status": "Pass",
+    "Notes": "Operator reported \"all pass\" in chat after manual launcher preparation. No per-check narrative supplied."
+  },
+  {
+    "PR": "38",
+    "Revision": "5f8feccebeb0682890a2023a59b4c33e514c5497",
+    "Check": "restoration",
+    "Status": "Pass",
+    "Notes": "Operator reported \"all pass\" in chat after manual launcher preparation. No per-check narrative supplied."
+  },
+  {
+    "PR": "39",
+    "Revision": "3aa9b9419dd7936d55bf6acb974f1b0d159f5d95",
+    "Check": "centre-corners",
+    "Status": "Pass",
+    "Notes": "Operator reported \"all pass\" in chat after manual launcher preparation. No per-check narrative supplied."
+  },
+  {
+    "PR": "39",
+    "Revision": "3aa9b9419dd7936d55bf6acb974f1b0d159f5d95",
+    "Check": "hover",
+    "Status": "Pass",
+    "Notes": "Operator reported \"all pass\" in chat after manual launcher preparation. No per-check narrative supplied."
+  },
+  {
+    "PR": "39",
+    "Revision": "3aa9b9419dd7936d55bf6acb974f1b0d159f5d95",
+    "Check": "press-release",
+    "Status": "Pass",
+    "Notes": "Operator reported \"all pass\" in chat after manual launcher preparation. No per-check narrative supplied."
+  },
+  {
+    "PR": "39",
+    "Revision": "3aa9b9419dd7936d55bf6acb974f1b0d159f5d95",
+    "Check": "wheel",
+    "Status": "Pass",
+    "Notes": "Operator reported \"all pass\" in chat after manual launcher preparation. No per-check narrative supplied."
+  },
+  {
+    "PR": "39",
+    "Revision": "3aa9b9419dd7936d55bf6acb974f1b0d159f5d95",
+    "Check": "horizontal-wheel",
+    "Status": "Pass",
+    "Notes": "Operator reported \"all pass\" in chat after manual launcher preparation. No per-check narrative supplied."
+  },
+  {
+    "PR": "39",
+    "Revision": "3aa9b9419dd7936d55bf6acb974f1b0d159f5d95",
+    "Check": "nested-scroll",
+    "Status": "Pass",
+    "Notes": "Operator reported \"all pass\" in chat after manual launcher preparation. No per-check narrative supplied."
+  },
+  {
+    "PR": "39",
+    "Revision": "3aa9b9419dd7936d55bf6acb974f1b0d159f5d95",
+    "Check": "resize",
+    "Status": "Pass",
+    "Notes": "Operator reported \"all pass\" in chat after manual launcher preparation. No per-check narrative supplied."
+  },
+  {
+    "PR": "39",
+    "Revision": "3aa9b9419dd7936d55bf6acb974f1b0d159f5d95",
+    "Check": "letterbox",
+    "Status": "Pass",
+    "Notes": "Operator reported \"all pass\" in chat after manual launcher preparation. No per-check narrative supplied."
+  },
+  {
+    "PR": "39",
+    "Revision": "3aa9b9419dd7936d55bf6acb974f1b0d159f5d95",
+    "Check": "mouse-modifiers",
+    "Status": "Pass",
+    "Notes": "Operator reported \"all pass\" in chat after manual launcher preparation. No per-check narrative supplied."
+  },
+  {
+    "PR": "39",
+    "Revision": "3aa9b9419dd7936d55bf6acb974f1b0d159f5d95",
+    "Check": "shift-selection",
+    "Status": "Pass",
+    "Notes": "Operator reported \"all pass\" in chat after manual launcher preparation. No per-check narrative supplied."
+  },
+  {
+    "PR": "39",
+    "Revision": "3aa9b9419dd7936d55bf6acb974f1b0d159f5d95",
+    "Check": "keyboard-regression",
+    "Status": "Pass",
+    "Notes": "Operator reported \"all pass\" in chat after manual launcher preparation. No per-check narrative supplied."
+  },
+  {
+    "PR": "39",
+    "Revision": "3aa9b9419dd7936d55bf6acb974f1b0d159f5d95",
+    "Check": "quit",
+    "Status": "Pass",
+    "Notes": "Operator reported \"all pass\" in chat after manual launcher preparation. No per-check narrative supplied."
+  },
+  {
+    "PR": "39",
+    "Revision": "3aa9b9419dd7936d55bf6acb974f1b0d159f5d95",
+    "Check": "restoration",
+    "Status": "Pass",
+    "Notes": "Operator reported \"all pass\" in chat after manual launcher preparation. No per-check narrative supplied."
+  }
+]
