@@ -31,7 +31,6 @@ class ProbeApp final : public CefApp {
   void OnBeforeCommandLineProcessing(const CefString&,
       CefRefPtr<CefCommandLine> command_line) override {
     command_line->AppendSwitch("use-fake-device-for-media-stream");
-    command_line->AppendSwitch("enable-media-stream");
   }
  private:
   IMPLEMENT_REFCOUNTING(ProbeApp);
@@ -107,15 +106,6 @@ int Probe(int argc, char** argv, const CefMainArgs& main_args, CefRefPtr<CefApp>
   settings.windowless_rendering_enabled = true;
   ConfigureProfile(profile, settings);
   Require(session.Initialize(main_args, settings, app), "CefInitialize failed");
-  if (!default_downloads.empty()) {
-    // Bound Chromium's fallback directory so a broken default-deny policy
-    // cannot pass by writing somewhere outside the evidence inventory.
-    const auto value = CefValue::Create();
-    value->SetString(std::filesystem::absolute(default_downloads).wstring());
-    CefString error;
-    Require(CefRequestContext::GetGlobalContext()->SetPreference(
-        "download.default_directory", value, error), "cannot bound default download directory");
-  }
   auto frames = std::make_shared<SourceFrameStore>();
   BrowserRuntimeOptions runtime;
   runtime.downloads = downloads;
@@ -188,6 +178,15 @@ int Probe(int argc, char** argv, const CefMainArgs& main_args, CefRefPtr<CefApp>
       Require(client->Status().denied_media > 0, "media request did not reach explicit host denial");
     } else if (scenario.starts_with("download-")) {
       wait_page("READY:download");
+      if (!default_downloads.empty()) {
+        // Bound Chromium's fallback directory so a broken default-deny policy
+        // cannot pass by writing somewhere outside the evidence inventory.
+        const auto value = CefValue::Create();
+        value->SetString(std::filesystem::absolute(default_downloads).wstring());
+        CefString error;
+        Require(CefRequestContext::GetGlobalContext()->SetPreference(
+            "download.default_directory", value, error), "cannot bound default download directory");
+      }
       Require(PumpUntil([&] { return frames->SnapshotState().view_generation > 0; }), "download page has no paint");
       Click(client);
       const bool allowed = scenario == "download-allow";
@@ -222,6 +221,7 @@ int Probe(int argc, char** argv, const CefMainArgs& main_args, CefRefPtr<CefApp>
   out << "{\"schema\":\"asciiomium-runtime-probe-v1\",\"scenario\":\"" << scenario
       << "\",\"passed\":" << (passed ? "true" : "false")
       << ",\"closed_cleanly\":true,\"profile_cleanup\":true,\"private\":" << (private_mode ? "true" : "false")
+      << ",\"profile_cleanup_attempts\":" << profile.cleanup_attempts()
       << ",\"verified_page_transitions\":" << verified_transitions
       << ",\"denied_popups\":" << status.denied_popups
       << ",\"denied_permissions\":" << status.denied_permissions

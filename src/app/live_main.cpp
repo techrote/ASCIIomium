@@ -95,6 +95,8 @@ struct LiveEvidence {
   std::string failed_url;
   bool private_mode = false;
   bool profile_cleanup = false;
+  unsigned profile_cleanup_attempts = 0;
+  int profile_cleanup_error = 0;
   asciiomium::browser::BrowserStatus browser_status;
   double duration_seconds = 0.0;
   int terminal_columns = 0;
@@ -531,6 +533,8 @@ void WriteReport(const std::filesystem::path& path,
       << "  \"url\":\"" << JsonEscape(asciiomium::browser::DiagnosticOrigin(evidence.url)) << "\",\n"
       << "  \"browser\":{\"profile_mode\":\"" << (evidence.private_mode ? "private" : "persistent")
       << "\",\"profile_cleanup\":" << (evidence.profile_cleanup ? "true" : "false")
+      << ",\"profile_cleanup_attempts\":" << evidence.profile_cleanup_attempts
+      << ",\"profile_cleanup_error\":" << evidence.profile_cleanup_error
       << ",\"current_origin\":\"" << JsonEscape(asciiomium::browser::DiagnosticOrigin(evidence.browser_status.url))
       << "\",\"loading\":" << (evidence.browser_status.loading ? "true" : "false")
       << ",\"can_go_back\":" << (evidence.browser_status.can_go_back ? "true" : "false")
@@ -1332,8 +1336,11 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
     std::_Exit(7);
   }
   evidence.profile_cleanup = profile.Finish();
+  evidence.profile_cleanup_attempts = profile.cleanup_attempts();
+  evidence.profile_cleanup_error = profile.cleanup_error_code();
   if (!evidence.profile_cleanup) {
-    std::cerr << "Private browser data cleanup failed; temporary data may remain.\n";
+    std::cerr << "Private browser data cleanup failed (OS error " << profile.cleanup_error_code()
+              << "); temporary data remains at " << CefString(profile.root().wstring()).ToString() << '\n';
     if (result == 0) result = 10;
   }
   if (!deferred_error.empty()) std::cerr << deferred_error << '\n';

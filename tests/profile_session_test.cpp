@@ -1,3 +1,7 @@
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
 #include "browser/profile_session.h"
 #include <filesystem>
 #include <fstream>
@@ -22,6 +26,18 @@ int main() {
       Require(locked, "live ownership collision refused");
     }
     Require(!std::filesystem::exists(private_root), "private data removed on scope exit");
+    {
+      ProfileSession locked({}, true);
+      const auto blocked_file = locked.root() / "held-open";
+      const auto handle = CreateFileW(blocked_file.c_str(), GENERIC_READ | GENERIC_WRITE,
+          0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+      Require(handle != INVALID_HANDLE_VALUE, "create cleanup negative-control lock");
+      const bool premature = locked.Finish(0);
+      const int error = locked.cleanup_error_code();
+      CloseHandle(handle);
+      Require(!premature && error != 0, "cleanup cannot claim success with an open file");
+      Require(locked.Finish() && !std::filesystem::exists(locked.root()), "cleanup succeeds after the blocking handle closes");
+    }
     // This temporary owner contains persistent profiles, keeping test cleanup local.
     ProfileSession test_root({}, true);
     const auto persistent = test_root.root() / "persistent";

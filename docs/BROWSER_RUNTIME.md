@@ -12,6 +12,9 @@ a stale lock filename after a crash does not prevent the next launch.
 It cannot be combined with `--profile`. Its browser data is removed after
 successful CEF shutdown, including installation data that CEF writes even
 with an empty cache path. Normal exits verify cleanup; failures are reported.
+On Windows, cleanup has a fixed two-second retry budget for child-process/file
+handles released just after shutdown. Reports preserve attempt count and any
+remaining OS error; a held-file negative test prevents false cleanup success.
 Hard process termination can leave the temporary root behind. A shutdown
 timeout restores the terminal and terminates without deleting data still in
 use by CEF. This is not a promise of forensic erasure.

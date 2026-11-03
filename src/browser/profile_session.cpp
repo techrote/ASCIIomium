@@ -5,11 +5,13 @@
 
 #include "browser/profile_session.h"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cwctype>
 #include <stdexcept>
 #include <system_error>
+#include <thread>
 #include <vector>
 
 namespace asciiomium::browser {
@@ -86,14 +88,26 @@ ProfileSession::ProfileSession(const std::filesystem::path& requested,
 
 ProfileSession::~ProfileSession() { (void)Finish(); }
 
-bool ProfileSession::Finish() noexcept {
+bool ProfileSession::Finish(int retry_budget_ms) noexcept {
   if (finished_) return true;
   if (cef_active_) return false;  // Never delete a root still owned by Chromium.
   if (lock_ != nullptr) { CloseHandle(static_cast<HANDLE>(lock_)); lock_ = nullptr; }
   if (private_ && !root_.empty()) {
-    std::error_code error;
-    std::filesystem::remove_all(root_, error);
-    if (error) return false;
+    // Windows can release Chromium child-process file/mapping handles shortly
+    // after CefShutdown returns. Retry only the owned disposable root, with a
+    // fixed budget; never call cleanup before CEF has stopped or claim success
+    // if an OS/file lock remains. This also tolerates transient scanner handles.
+    const auto deadline = std::chrono::steady_clock::now() +
+        std::chrono::milliseconds(std::max(0, retry_budget_ms));
+    while (true) {
+      std::error_code error;
+      ++cleanup_attempts_;
+      std::filesystem::remove_all(root_, error);
+      cleanup_error_ = error.value();
+      if (!error) break;
+      if (std::chrono::steady_clock::now() >= deadline) return false;
+      std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
   }
   finished_ = true;
   return true;

@@ -17,7 +17,9 @@ class ProfileSession {
   [[nodiscard]] const std::filesystem::path& root() const { return root_; }
   [[nodiscard]] bool private_mode() const { return private_; }
   // Call after CefShutdown to observe cleanup errors. Destructor is fallback.
-  [[nodiscard]] bool Finish() noexcept;
+  [[nodiscard]] bool Finish(int retry_budget_ms = 2000) noexcept;
+  [[nodiscard]] int cleanup_error_code() const noexcept { return cleanup_error_; }
+  [[nodiscard]] unsigned cleanup_attempts() const noexcept { return cleanup_attempts_; }
   void SetCefActive(bool active) noexcept { cef_active_ = active; }
 
  private:
@@ -26,6 +28,8 @@ class ProfileSession {
   bool private_ = false;
   bool finished_ = false;
   bool cef_active_ = false;
+  int cleanup_error_ = 0;
+  unsigned cleanup_attempts_ = 0;
 };
 
 // Creates a unique, application-selected destination. Remote suggested names
