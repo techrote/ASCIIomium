@@ -152,6 +152,9 @@ class OsrClient final : public CefClient,
   void OnAfterCreated(CefRefPtr<CefBrowser> browser) override;
   void OnBeforeClose(CefRefPtr<CefBrowser> browser) override;
 
+  void OnLoadStart(CefRefPtr<CefBrowser> browser,
+                   CefRefPtr<CefFrame> frame,
+                   cef_transition_type_t transition_type) override;
   void OnLoadEnd(CefRefPtr<CefBrowser> browser,
                  CefRefPtr<CefFrame> frame,
                  int http_status_code) override;
@@ -200,6 +203,7 @@ class OsrClient final : public CefClient,
   [[nodiscard]] std::string failed_url() const;
 
  private:
+  void ResetMainNavigationState();
   std::vector<DirtyRect> ConvertDirtyRects(const RectList& rects) const;
 
   std::shared_ptr<SourceFrameStore> frame_store_;
