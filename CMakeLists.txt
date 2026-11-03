@@ -33,6 +33,7 @@ foreach(config DEBUG RELEASE)
 endforeach()
 
 include(cmake/AcquireCEF.cmake)
+include(cmake/BuildIdentity.cmake)
 asciiomium_acquire_cef(CEF_ROOT)
 
 # Issue #8 begins using CEF's C++ wrapper library. Load the official CMake
@@ -63,6 +64,7 @@ set_target_properties(CEF::libcef PROPERTIES
 add_library(asciiomium_build_info STATIC
   src/app/build_info.cpp
   src/app/build_info.h)
+asciiomium_add_build_identity(asciiomium_build_info)
 target_include_directories(asciiomium_build_info PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_link_libraries(asciiomium_build_info PRIVATE CEF::libcef)
 target_compile_features(asciiomium_build_info PUBLIC cxx_std_20)
@@ -72,7 +74,8 @@ target_compile_definitions(asciiomium_build_info PRIVATE
   NOMINMAX
   ASCIIOMIUM_VERSION="${PROJECT_VERSION}"
   ASCIIOMIUM_BUILD_TYPE="$<CONFIG>"
-  ASCIIOMIUM_ARCH="x64")
+  ASCIIOMIUM_ARCH="x64"
+  ASCIIOMIUM_COMPILER="${CMAKE_CXX_COMPILER_ID}-${CMAKE_CXX_COMPILER_VERSION}")
 set_target_properties(asciiomium_build_info PROPERTIES FOLDER "ASCIIomium")
 
 # Browser/terminal geometry is a neutral subsystem shared by rendering and
@@ -92,10 +95,13 @@ add_library(asciiomium_terminal STATIC
   src/terminal/terminal_diagnostics.h
   src/terminal/terminal_geometry.cpp
   src/terminal/terminal_geometry.h
+  src/terminal/terminal_input_reader.cpp
+  src/terminal/terminal_input_reader.h
   src/terminal/terminal_sequences.cpp
   src/terminal/terminal_sequences.h
   src/terminal/terminal_session.cpp
-  src/terminal/terminal_session.h)
+  src/terminal/terminal_session.h
+  src/terminal/terminal_console_api.h)
 target_include_directories(asciiomium_terminal PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_compile_features(asciiomium_terminal PUBLIC cxx_std_20)
 target_compile_definitions(asciiomium_terminal PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
@@ -161,8 +167,11 @@ set_target_properties(asciiomium_source_frame PROPERTIES
   MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
 add_library(asciiomium_browser STATIC
+  src/browser/bounded_text.cpp
+  src/browser/bounded_text.h
   src/browser/browser_commands.cpp
   src/browser/browser_commands.h
+  src/browser/callback_state.h
   src/browser/profile_session.cpp
   src/browser/profile_session.h
   src/browser/private_process.cpp
@@ -268,7 +277,7 @@ set_target_properties(asciiomium_cef_capture PROPERTIES
   MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
 add_executable(asciiomium_runtime_probe tools/browser_runtime_probe.cpp)
-target_link_libraries(asciiomium_runtime_probe PRIVATE asciiomium_browser)
+target_link_libraries(asciiomium_runtime_probe PRIVATE asciiomium_browser asciiomium_build_info)
 target_compile_definitions(asciiomium_runtime_probe PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN
   ASCIIOMIUM_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 
@@ -323,6 +332,19 @@ asciiomium_stage_cef_browser_runtime(asciiomium_cef_capture)
 asciiomium_stage_cef_browser_runtime(asciiomium_runtime_probe)
 
 enable_testing()
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+add_test(NAME runtime_process_evidence
+  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/runtime_process_test.py")
+set_tests_properties(runtime_process_evidence PROPERTIES TIMEOUT 60)
+add_test(NAME build_identity_refresh
+  COMMAND "${CMAKE_COMMAND}"
+    "-DTEST_SOURCE_ROOT=${CMAKE_CURRENT_SOURCE_DIR}"
+    "-DTEST_BINARY_ROOT=${CMAKE_CURRENT_BINARY_DIR}/identity-regression"
+    "-DTEST_GENERATOR=${CMAKE_GENERATOR}"
+    "-DTEST_GENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}"
+    "-DTEST_BUILD_CONFIG=$<CONFIG>"
+    "-P" "${CMAKE_CURRENT_SOURCE_DIR}/tests/build_identity_test.cmake")
+set_tests_properties(build_identity_refresh PROPERTIES TIMEOUT 120)
 
 add_executable(asciiomium_tests tests/build_info_test.cpp)
 target_link_libraries(asciiomium_tests PRIVATE asciiomium_build_info CEF::libcef)
@@ -342,6 +364,25 @@ target_link_libraries(terminal_console_smoke PRIVATE asciiomium_terminal)
 target_compile_features(terminal_console_smoke PRIVATE cxx_std_20)
 set_target_properties(terminal_console_smoke PROPERTIES FOLDER "Tests")
 add_test(NAME terminal_console_smoke COMMAND "$<TARGET_FILE:terminal_console_smoke>")
+
+add_executable(terminal_lifecycle_tests tests/terminal_lifecycle_test.cpp)
+target_link_libraries(terminal_lifecycle_tests PRIVATE asciiomium_terminal)
+target_compile_features(terminal_lifecycle_tests PRIVATE cxx_std_20)
+set_target_properties(terminal_lifecycle_tests PROPERTIES FOLDER "Tests")
+add_test(NAME terminal_lifecycle COMMAND "$<TARGET_FILE:terminal_lifecycle_tests>")
+set_tests_properties(terminal_lifecycle PROPERTIES TIMEOUT 30)
+
+add_executable(terminal_input_tests tests/terminal_input_test.cpp)
+target_link_libraries(terminal_input_tests PRIVATE asciiomium_terminal)
+set_target_properties(terminal_input_tests PROPERTIES FOLDER "Tests")
+add_test(NAME terminal_input COMMAND "$<TARGET_FILE:terminal_input_tests>")
+set_tests_properties(terminal_input PROPERTIES TIMEOUT 20)
+
+add_executable(terminal_input_console tests/terminal_input_console_test.cpp)
+target_link_libraries(terminal_input_console PRIVATE asciiomium_terminal)
+set_target_properties(terminal_input_console PROPERTIES FOLDER "Tests")
+add_test(NAME terminal_input_console COMMAND "$<TARGET_FILE:terminal_input_console>")
+set_tests_properties(terminal_input_console PROPERTIES TIMEOUT 60)
 
 add_executable(full_frame_emitter_tests tests/full_frame_emitter_test.cpp)
 target_link_libraries(full_frame_emitter_tests PRIVATE asciiomium_terminal)
@@ -427,6 +468,25 @@ set_target_properties(source_frame_tests PROPERTIES
   FOLDER "Tests"
   MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 add_test(NAME source_frame COMMAND "$<TARGET_FILE:source_frame_tests>")
+set_tests_properties(source_frame PROPERTIES TIMEOUT 30)
+
+add_executable(callback_boundary_tests tests/callback_boundary_test.cpp)
+target_link_libraries(callback_boundary_tests PRIVATE asciiomium_browser)
+set_target_properties(callback_boundary_tests PROPERTIES
+  FOLDER "Tests"
+  MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+add_test(NAME callback_boundary COMMAND "$<TARGET_FILE:callback_boundary_tests>")
+set_tests_properties(callback_boundary PROPERTIES TIMEOUT 30)
+
+add_executable(osr_callback_tests tests/osr_callback_test.cpp)
+target_link_libraries(osr_callback_tests PRIVATE asciiomium_browser)
+target_compile_definitions(osr_callback_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+set_target_properties(osr_callback_tests PROPERTIES
+  FOLDER "Tests"
+  MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+asciiomium_stage_cef_runtime(osr_callback_tests)
+add_test(NAME osr_callback COMMAND "$<TARGET_FILE:osr_callback_tests>")
+set_tests_properties(osr_callback PROPERTIES TIMEOUT 30)
 
 add_executable(live_runtime_tests tests/live_runtime_test.cpp)
 target_link_libraries(live_runtime_tests PRIVATE

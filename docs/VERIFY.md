@@ -200,6 +200,11 @@ Record limitations rather than adding site-specific hacks.
 
 ## V7 — Soak and teardown
 
+The [bounded issue #16 lifecycle tests](LIFECYCLE_HARDENING.md) cover terminal
+faults/interleavings, frame publication under allocation failure, bounded CEF
+diagnostics, callback failure reporting, and small parser/popup boundaries. They do not satisfy the
+physical-session, repeated browser launch, or integrated telemetry gates below.
+
 At least one 30-minute session with periodic scrolling/navigation.
 
 Acceptance:

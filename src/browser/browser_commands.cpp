@@ -1,4 +1,5 @@
 #include "browser/browser_commands.h"
+#include "browser/bounded_text.h"
 
 #include <algorithm>
 #include <cctype>
@@ -48,7 +49,16 @@ bool IsAllowedNavigation(std::string_view url) {
          rest[2] != '/' && rest[2] != '?' && rest[2] != '#';
 }
 
-std::string DiagnosticOrigin(std::string_view url) {
+bool IsAllowedNavigationUtf16(std::u16string_view url) {
+  if (url.size() > 8192) return false;
+  const auto converted = BoundedUtf16Text(url, 8192);
+  return !converted.truncated && IsAllowedNavigation(converted.text);
+}
+
+std::string DiagnosticOrigin(std::string_view url, bool complete) {
+  // A clipped authority can hide a later '@' and turn credentials into what
+  // looks like a host. Only complete input is eligible for origin extraction.
+  if (!complete) return "[redacted]";
   const auto separator = url.find("://");
   if (separator == std::string_view::npos) return "[redacted]";
   const auto scheme = Lower(url.substr(0, separator));

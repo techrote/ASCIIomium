@@ -169,3 +169,56 @@ be removed and cleanup reported successful. The pipe/environment protocol carrie
 only a root created by that supervisor, never an arbitrary deletion target.
 Startup `--disable-logging` complements the severity setting because this CEF
 pin otherwise creates a fatal-level diagnostic file. See `BROWSER_RUNTIME.md`.
+
+## D-022 — Publish complete frames and retain callback failure evidence
+
+**Status:** implemented in the issue #16 branch; exact-head Windows tests and
+physical lifecycle acceptance are recorded separately.
+
+Source pixels and metadata become visible as one logical generation only after
+all required capacity is available. The newest-frame model remains in place;
+damage lists above 1,024 rectangles become one full-frame rectangle because the
+pixel copy is already complete. This bounds metadata without changing the image.
+
+Allocation/validation failures inside `OnPaint` are fatal run state, retained
+without allocating and observed by the owning main loop. Later paints cannot
+silently restore a successful result. Live, capture and probe reports expose
+the cause and rejected/suppressed counts; normal browser close and terminal
+cleanup still run. No executable may call `CefShutdown` with a live browser.
+
+Display/diagnostic strings are bounded before UTF-16 to UTF-8 conversion.
+Navigation validation requires the complete URL within its limit, and fixture
+console evidence requires the complete trusted address. See
+`LIFECYCLE_HARDENING.md` for scope, failure semantics and reproducible tests.
+
+## D-024 — Drain one bounded high-level console reader before input restoration
+
+**Status:** implemented; exact-revision Windows and physical qualification are
+recorded separately.
+
+Raw console input uses explicit `ReadConsoleW` and bounded incremental UTF-16
+to UTF-8 conversion. The hosted `f321cae` diagnostic proved that `ReadFile`
+with CP65001 returned NULs for valid non-ASCII input before mailbox publication.
+One dedicated reader owns a 1,024-unit staging buffer, one pending high
+surrogate and a fixed 4 KiB byte mailbox; even the largest encoded read fits in
+3,075 bytes. The main loop drains published bytes without performing an OS
+input read. No low-level event read, A/W fallback or flush is interleaved with
+this transport. Pre-acquisition typeahead, exact VT/control bytes and split
+surrogate pairs remain covered by strict native assertions.
+
+Normal restoration requests stop, repeatedly cancels a pending read across its
+entry race, proves native thread completion, joins, and closes the reader's
+separately opened `CONIN$` handle before restoring input code page/mode. The
+caller's handle remains open. A duplicate would share the same file object;
+the independent open gives reader lifetime its own host-side read context.
+The hosted `1290b62` reuse failure motivates this ownership boundary; the
+specific surviving-waiter cause remains an inference, and the ownership repair
+requires native qualification.
+Callback and output locks are not held during join/close. Emergency callbacks
+defer input restoration until the owned handle is released, even after the
+read returns. Join failure and owned-handle close failure are distinct outcomes;
+either causes fatal exit 12 with incomplete-cleanup evidence. The close-failure
+diagnostic does not claim a live worker. A cancellation request alone never
+counts as completion. Console setter
+ownership is recorded before an attempted change so failure after mutation
+still triggers rollback. See [the focused design and tests](TERMINAL_INPUT.md).

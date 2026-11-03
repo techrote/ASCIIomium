@@ -1,18 +1,41 @@
 #include "terminal/terminal_session.h"
 
 #include <algorithm>
-#include <limits>
 #include <stdexcept>
 #include <string>
 #include <system_error>
 
-#include "terminal/terminal_sequences.h"
-
 namespace asciiomium::terminal {
 namespace {
 
-[[noreturn]] void ThrowLastError(const char* operation) {
-  throw std::system_error(static_cast<int>(GetLastError()),
+class ExclusiveLock {
+ public:
+  explicit ExclusiveLock(SRWLOCK& lock) noexcept : lock_(&lock) {
+    AcquireSRWLockExclusive(lock_);
+  }
+  ~ExclusiveLock() { Unlock(); }
+  ExclusiveLock(const ExclusiveLock&) = delete;
+  ExclusiveLock& operator=(const ExclusiveLock&) = delete;
+
+  void Unlock() noexcept {
+    if (lock_) {
+      ReleaseSRWLockExclusive(lock_);
+      lock_ = nullptr;
+    }
+  }
+
+ private:
+  SRWLOCK* lock_;
+};
+
+DWORD LastError(const TerminalConsoleApi& api) noexcept {
+  const DWORD error = api.last_error(api.context);
+  return error != ERROR_SUCCESS ? error : ERROR_GEN_FAILURE;
+}
+
+[[noreturn]] void ThrowLastError(const TerminalConsoleApi& api,
+                                 const char* operation) {
+  throw std::system_error(static_cast<int>(LastError(api)),
                           std::system_category(), operation);
 }
 
@@ -22,7 +45,44 @@ bool IsUsableHandle(HANDLE handle) {
 
 }  // namespace
 
-std::atomic<TerminalSession*> TerminalSession::active_session_{nullptr};
+const TerminalConsoleApi& Win32TerminalConsoleApi() noexcept {
+  static const TerminalConsoleApi api{
+      nullptr,
+      [](void*, HANDLE handle, DWORD* mode) noexcept {
+        return GetConsoleMode(handle, mode);
+      },
+      [](void*) noexcept { return GetConsoleCP(); },
+      [](void*) noexcept { return GetConsoleOutputCP(); },
+      [](void*, HANDLE handle, DWORD mode) noexcept {
+        return SetConsoleMode(handle, mode);
+      },
+      [](void*, UINT page) noexcept { return SetConsoleCP(page); },
+      [](void*, UINT page) noexcept { return SetConsoleOutputCP(page); },
+      [](void*, PHANDLER_ROUTINE handler, BOOL add) noexcept {
+        return SetConsoleCtrlHandler(handler, add);
+      },
+      [](void*, HANDLE handle, CONSOLE_SCREEN_BUFFER_INFO* info) noexcept {
+        return GetConsoleScreenBufferInfo(handle, info);
+      },
+      [](void*, HANDLE handle, const void* bytes, DWORD size,
+         DWORD* written) noexcept {
+        return WriteFile(handle, bytes, size, written, nullptr);
+      },
+      [](void*) noexcept { return GetLastError(); },
+      [](void*, HANDLE handle, wchar_t* units, DWORD size, DWORD* read) noexcept {
+        return ReadConsoleW(handle, units, size, read, nullptr);
+      },
+      [](void*, HANDLE thread) noexcept { return CancelSynchronousIo(thread); },
+      [](void*, HANDLE) noexcept {
+        return CreateFileW(L"CONIN$", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                           nullptr, OPEN_EXISTING, 0, nullptr);
+      },
+      [](void*, HANDLE handle) noexcept { return CloseHandle(handle); }};
+  return api;
+}
+
+SRWLOCK TerminalSession::active_session_lock_ = SRWLOCK_INIT;
+TerminalSession* TerminalSession::active_session_ = nullptr;
 
 TerminalSession::TerminalSession(TerminalSessionOptions options)
     : TerminalSession(options,
@@ -32,56 +92,84 @@ TerminalSession::TerminalSession(TerminalSessionOptions options)
 TerminalSession::TerminalSession(TerminalSessionOptions options,
                                  HANDLE input_handle,
                                  HANDLE output_handle)
+    : TerminalSession(options, input_handle, output_handle,
+                      Win32TerminalConsoleApi()) {}
+
+TerminalSession::TerminalSession(TerminalSessionOptions options,
+                                 HANDLE input_handle,
+                                 HANDLE output_handle,
+                                 const TerminalConsoleApi& console_api)
     : options_(options),
       input_handle_(input_handle),
-      output_handle_(output_handle) {
-  TerminalSession* expected = nullptr;
-  if (!active_session_.compare_exchange_strong(expected, this)) {
+      output_handle_(output_handle),
+      console_api_(console_api),
+      input_reader_(input_handle, console_api) {
+  // Publish while holding the state gate, so a dispatched callback cannot see
+  // partially initialized ownership flags. The registry is released before
+  // any Win32 call that can install or remove a handler.
+  ExclusiveLock registry(active_session_lock_);
+  if (active_session_ != nullptr) {
     throw std::runtime_error("only one TerminalSession may be active per process");
   }
+  ExclusiveLock state(io_lock_);
+  active_session_ = this;
+  registry.Unlock();
 
   try {
-    Acquire();
+    AcquireLocked();
+  } catch (const std::exception& error) {
+    state.Unlock();
+    const auto restoration = Restore();
+    throw TerminalSessionAcquisitionError(error.what(), restoration);
   } catch (...) {
-    Restore();
+    state.Unlock();
+    (void)Restore();
     throw;
   }
 }
 
 TerminalSession::~TerminalSession() {
-  Restore();
+  (void)Restore();
 }
 
-void TerminalSession::Acquire() {
+void TerminalSession::AcquireLocked() {
   if (!IsUsableHandle(input_handle_) || !IsUsableHandle(output_handle_)) {
     throw std::runtime_error("ASCIIomium requires attached console input/output handles");
   }
 
-  if (!GetConsoleMode(input_handle_, &original_input_mode_)) {
-    ThrowLastError("GetConsoleMode(input)");
+  if (!console_api_.get_mode(console_api_.context, input_handle_,
+                             &original_input_mode_)) {
+    ThrowLastError(console_api_, "GetConsoleMode(input)");
   }
-  if (!GetConsoleMode(output_handle_, &original_output_mode_)) {
-    ThrowLastError("GetConsoleMode(output)");
+  if (!console_api_.get_mode(console_api_.context, output_handle_,
+                             &original_output_mode_)) {
+    ThrowLastError(console_api_, "GetConsoleMode(output)");
   }
 
-  original_input_code_page_ = GetConsoleCP();
-  original_output_code_page_ = GetConsoleOutputCP();
-  if (original_input_code_page_ == 0 || original_output_code_page_ == 0) {
-    ThrowLastError("GetConsoleCP/GetConsoleOutputCP");
+  original_input_code_page_ =
+      console_api_.get_input_code_page(console_api_.context);
+  if (original_input_code_page_ == 0) {
+    ThrowLastError(console_api_, "GetConsoleCP");
+  }
+  original_output_code_page_ =
+      console_api_.get_output_code_page(console_api_.context);
+  if (original_output_code_page_ == 0) {
+    ThrowLastError(console_api_, "GetConsoleOutputCP");
   }
 
   const DWORD output_mode =
       original_output_mode_ | ENABLE_VIRTUAL_TERMINAL_PROCESSING;
-  if (!SetConsoleMode(output_handle_, output_mode)) {
-    ThrowLastError("SetConsoleMode(output VT)");
-  }
+  // A failed console setter can still mutate state. Own the possible change
+  // before calling it so partial acquisition always attempts rollback.
   output_mode_changed_ = output_mode != original_output_mode_;
+  if (!console_api_.set_mode(console_api_.context, output_handle_, output_mode)) {
+    ThrowLastError(console_api_, "SetConsoleMode(output VT)");
+  }
 
   if (options_.raw_keyboard_input && !options_.enable_vt_input) {
     throw std::invalid_argument(
         "raw keyboard input requires ENABLE_VIRTUAL_TERMINAL_INPUT");
   }
-
   if (options_.mouse_tracking != MouseTrackingMode::Disabled &&
       !options_.enable_vt_input) {
     throw std::invalid_argument(
@@ -91,36 +179,33 @@ void TerminalSession::Acquire() {
   if (options_.enable_vt_input) {
     DWORD input_mode = original_input_mode_ | ENABLE_VIRTUAL_TERMINAL_INPUT;
     if (options_.raw_keyboard_input) {
-      // ReadFile should expose key bytes immediately. Processed input is
-      // disabled deliberately so Ctrl+C reaches the browser as 0x03 instead
-      // of being stolen by the console control handler. Ctrl+Alt+Q is the live
-      // browser's documented application quit chord.
       input_mode &= ~(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT |
                       ENABLE_PROCESSED_INPUT | ENABLE_MOUSE_INPUT |
                       ENABLE_WINDOW_INPUT | ENABLE_QUICK_EDIT_MODE);
       input_mode |= ENABLE_EXTENDED_FLAGS;
     }
-    if (!SetConsoleMode(input_handle_, input_mode)) {
-      ThrowLastError("SetConsoleMode(input VT)");
-    }
     input_mode_changed_ = input_mode != original_input_mode_;
+    if (!console_api_.set_mode(console_api_.context, input_handle_, input_mode)) {
+      ThrowLastError(console_api_, "SetConsoleMode(input VT)");
+    }
   }
 
   if (original_output_code_page_ != CP_UTF8) {
-    if (!SetConsoleOutputCP(CP_UTF8)) {
-      ThrowLastError("SetConsoleOutputCP(CP_UTF8)");
-    }
     output_code_page_changed_ = true;
+    if (!console_api_.set_output_code_page(console_api_.context, CP_UTF8)) {
+      ThrowLastError(console_api_, "SetConsoleOutputCP(CP_UTF8)");
+    }
   }
   if (original_input_code_page_ != CP_UTF8) {
-    if (!SetConsoleCP(CP_UTF8)) {
-      ThrowLastError("SetConsoleCP(CP_UTF8)");
-    }
     input_code_page_changed_ = true;
+    if (!console_api_.set_input_code_page(console_api_.context, CP_UTF8)) {
+      ThrowLastError(console_api_, "SetConsoleCP(CP_UTF8)");
+    }
   }
 
-  if (!SetConsoleCtrlHandler(&TerminalSession::ControlHandler, TRUE)) {
-    ThrowLastError("SetConsoleCtrlHandler(install)");
+  if (!console_api_.set_control_handler(
+          console_api_.context, &TerminalSession::ControlHandler, TRUE)) {
+    ThrowLastError(console_api_, "SetConsoleCtrlHandler(install)");
   }
   handler_installed_ = true;
 
@@ -130,23 +215,22 @@ void TerminalSession::Acquire() {
   }
 
   visual_state_acquired_ = true;
-  Write(BuildAcquireSequence(options_.use_alternate_screen,
-                             options_.hide_cursor));
+  WriteLocked(BuildAcquireSequence(options_.use_alternate_screen,
+                                   options_.hide_cursor));
   if (options_.mouse_tracking != MouseTrackingMode::Disabled) {
-    // Mark ownership before the write so constructor-failure cleanup still
-    // emits the disable sequence if the enable sequence was only partially
-    // written before an I/O error.
+    // A partial enable write still requires its corresponding disable attempt.
     mouse_tracking_acquired_ = true;
-    Write(BuildMouseTrackingEnableSequence(options_.mouse_tracking));
+    WriteLocked(BuildMouseTrackingEnableSequence(options_.mouse_tracking));
   }
+  if (options_.raw_keyboard_input) input_reader_.Start();
 }
 
 bool TerminalSession::RefreshGeometry() noexcept {
+  if (closing_.load(std::memory_order_acquire)) return false;
   CONSOLE_SCREEN_BUFFER_INFO info{};
-  if (!GetConsoleScreenBufferInfo(output_handle_, &info)) {
+  if (!console_api_.get_buffer_info(console_api_.context, output_handle_, &info)) {
     return false;
   }
-
   const int columns =
       std::max(1, static_cast<int>(info.srWindow.Right - info.srWindow.Left + 1));
   const int rows =
@@ -155,15 +239,26 @@ bool TerminalSession::RefreshGeometry() noexcept {
 }
 
 void TerminalSession::Write(std::string_view bytes) {
+  ExclusiveLock state(io_lock_);
+  WriteLocked(bytes);
+}
+
+void TerminalSession::WriteLocked(std::string_view bytes) {
+  if (closing_.load(std::memory_order_acquire)) {
+    throw std::logic_error("terminal output is closed for restoration");
+  }
+  // Keep the entire payload under the state gate, including short writes.
+  // An accepted write drains before cleanup; subsequent writes are rejected.
   while (!bytes.empty()) {
     const DWORD chunk_size = static_cast<DWORD>(
         std::min<std::size_t>(bytes.size(), static_cast<std::size_t>(0x7fffffff)));
     DWORD written = 0;
-    if (!WriteFile(output_handle_, bytes.data(), chunk_size, &written, nullptr)) {
-      ThrowLastError("WriteFile(terminal)");
+    if (!console_api_.write(console_api_.context, output_handle_, bytes.data(),
+                            chunk_size, &written)) {
+      ThrowLastError(console_api_, "WriteFile(terminal)");
     }
-    if (written == 0) {
-      throw std::runtime_error("WriteFile(terminal) made no progress");
+    if (written == 0 || written > chunk_size) {
+      throw std::runtime_error("WriteFile(terminal) made invalid progress");
     }
     bytes.remove_prefix(written);
   }
@@ -174,118 +269,153 @@ std::string TerminalSession::ReadInputAvailable(std::size_t max_bytes) {
     throw std::logic_error(
         "ReadInputAvailable requires raw_keyboard_input terminal mode");
   }
-  if (max_bytes == 0) {
-    return {};
-  }
-  max_bytes = std::min<std::size_t>(
-      max_bytes, static_cast<std::size_t>(64 * 1024));
-
-  const DWORD wait = WaitForSingleObject(input_handle_, 0);
-  if (wait == WAIT_TIMEOUT) {
-    return {};
-  }
-  if (wait != WAIT_OBJECT_0) {
-    if (wait == WAIT_FAILED) {
-      ThrowLastError("WaitForSingleObject(terminal input)");
-    }
-    throw std::runtime_error("unexpected terminal input wait result");
-  }
-
-  std::string bytes(max_bytes, '\0');
-  DWORD read = 0;
-  if (!ReadFile(input_handle_, bytes.data(),
-                static_cast<DWORD>(bytes.size()), &read, nullptr)) {
-    ThrowLastError("ReadFile(terminal input)");
-  }
-  bytes.resize(read);
-  return bytes;
+  if (closing_.load(std::memory_order_acquire) || max_bytes == 0) return {};
+  return input_reader_.TakeAvailable(max_bytes);
 }
 
-void TerminalSession::WriteBestEffort(std::string_view bytes) noexcept {
+DWORD TerminalSession::WriteBestEffortLocked(std::string_view bytes) noexcept {
   while (!bytes.empty()) {
     const DWORD chunk_size = static_cast<DWORD>(
         std::min<std::size_t>(bytes.size(), static_cast<std::size_t>(0x7fffffff)));
     DWORD written = 0;
-    if (!WriteFile(output_handle_, bytes.data(), chunk_size, &written, nullptr) ||
-        written == 0) {
-      return;
+    if (!console_api_.write(console_api_.context, output_handle_, bytes.data(),
+                            chunk_size, &written)) {
+      return LastError(console_api_);
     }
+    if (written == 0 || written > chunk_size) return ERROR_WRITE_FAULT;
     bytes.remove_prefix(written);
+  }
+  return ERROR_SUCCESS;
+}
+
+void TerminalSession::RecordRestoreFailure(TerminalRestoreFailure step,
+                                           DWORD error) noexcept {
+  if (error == ERROR_SUCCESS) return;
+  restore_result_.failed_steps |= static_cast<std::uint32_t>(step);
+  if (restore_result_.first_error == ERROR_SUCCESS) {
+    restore_result_.first_error = error;
   }
 }
 
-void TerminalSession::Restore() noexcept {
-  if (restore_started_.exchange(true, std::memory_order_acq_rel)) {
-    return;
-  }
-
-  // VT cleanup must be emitted while VT processing and UTF-8 output are still
-  // active. Each operation is best-effort so one failed cleanup step cannot
-  // prevent restoring the remaining Win32 console state.
-  if (visual_state_acquired_) {
+void TerminalSession::RestoreTerminalStateLocked(bool input_drained) noexcept {
+  // No allocations and no exception-producing string builders on this path.
+  // Failed steps remain recorded; later steps are always attempted.
+  if (!output_cleanup_completed_ && visual_state_acquired_) {
     if (mouse_tracking_acquired_) {
-      WriteBestEffort(BuildMouseTrackingDisableSequence(
-          options_.mouse_tracking));
-      mouse_tracking_acquired_ = false;
+      RecordRestoreFailure(TerminalRestoreFailure::MouseTracking,
+                           WriteBestEffortLocked(kDisableSgrMouse));
+      RecordRestoreFailure(
+          TerminalRestoreFailure::MouseTracking,
+          WriteBestEffortLocked(
+              options_.mouse_tracking == MouseTrackingMode::AnyEvent
+                  ? kDisableAnyEventMouse : kDisableButtonEventMouse));
     }
-    WriteBestEffort(kResetSgr);
+    RecordRestoreFailure(TerminalRestoreFailure::Sgr,
+                         WriteBestEffortLocked(kResetSgr));
     if (options_.hide_cursor) {
-      WriteBestEffort(kShowCursor);
+      RecordRestoreFailure(TerminalRestoreFailure::Cursor,
+                           WriteBestEffortLocked(kShowCursor));
     }
     if (options_.use_alternate_screen) {
-      WriteBestEffort(kLeaveAlternateScreen);
+      RecordRestoreFailure(TerminalRestoreFailure::AlternateScreen,
+                           WriteBestEffortLocked(kLeaveAlternateScreen));
     }
-    visual_state_acquired_ = false;
   }
 
-  if (input_code_page_changed_) {
-    SetConsoleCP(original_input_code_page_);
-    input_code_page_changed_ = false;
+  // Never change input code page/mode until both the native thread and its
+  // owned input handle have been released. Emergency callbacks defer these
+  // steps even if client cancellation returned but host read state remains.
+  if (input_drained && !input_cleanup_completed_ && input_code_page_changed_ &&
+      !console_api_.set_input_code_page(console_api_.context,
+                                        original_input_code_page_)) {
+    RecordRestoreFailure(TerminalRestoreFailure::InputCodePage,
+                         LastError(console_api_));
   }
-  if (output_code_page_changed_) {
-    SetConsoleOutputCP(original_output_code_page_);
-    output_code_page_changed_ = false;
+  if (!output_cleanup_completed_ && output_code_page_changed_ &&
+      !console_api_.set_output_code_page(console_api_.context,
+                                         original_output_code_page_)) {
+    RecordRestoreFailure(TerminalRestoreFailure::OutputCodePage,
+                         LastError(console_api_));
   }
-  if (input_mode_changed_) {
-    SetConsoleMode(input_handle_, original_input_mode_);
-    input_mode_changed_ = false;
+  if (input_drained && !input_cleanup_completed_ && input_mode_changed_ &&
+      !console_api_.set_mode(console_api_.context, input_handle_,
+                             original_input_mode_)) {
+    RecordRestoreFailure(TerminalRestoreFailure::InputMode,
+                         LastError(console_api_));
   }
-  if (output_mode_changed_) {
-    SetConsoleMode(output_handle_, original_output_mode_);
-    output_mode_changed_ = false;
+  if (!output_cleanup_completed_ && output_mode_changed_ &&
+      !console_api_.set_mode(console_api_.context, output_handle_,
+                             original_output_mode_)) {
+    RecordRestoreFailure(TerminalRestoreFailure::OutputMode,
+                         LastError(console_api_));
   }
+  output_cleanup_completed_ = true;
+  if (input_drained) input_cleanup_completed_ = true;
+}
 
+TerminalRestoreResult TerminalSession::Restore() noexcept {
+  closing_.store(true, std::memory_order_release);
+  stop_requested_.store(true, std::memory_order_release);
+  ExclusiveLock restoration(restore_lock_);
+  if (restore_result_.completed) return restore_result_;
+
+  // Cancel and join without any gate needed by a control callback or terminal
+  // writer. Actual completion, not a successful cancel request, permits input
+  // handle closure before mode/code-page restoration and state release.
+  const auto input_drain = input_reader_.StopAndJoin();
+  {
+    ExclusiveLock state(io_lock_);
+    if (!input_drain.succeeded()) {
+      RecordRestoreFailure(TerminalRestoreFailure::InputReaderDrain,
+                           input_drain.error);
+    }
+    RestoreTerminalStateLocked(input_drain.succeeded());
+  }
+  if (!input_drain.succeeded()) TerminalInputReader::FatalDrainFailure(input_drain);
+
+  // Do not assume handler removal drains callbacks. It must also not wait
+  // while holding a gate needed by a callback that Windows already dispatched.
   if (handler_installed_) {
-    SetConsoleCtrlHandler(&TerminalSession::ControlHandler, FALSE);
+    if (!console_api_.set_control_handler(
+            console_api_.context, &TerminalSession::ControlHandler, FALSE)) {
+      RecordRestoreFailure(TerminalRestoreFailure::ControlHandler,
+                           LastError(console_api_));
+    }
     handler_installed_ = false;
   }
-
-  TerminalSession* expected = this;
-  active_session_.compare_exchange_strong(expected, nullptr);
+  {
+    // A callback pins this object for all of its pointer use under this gate.
+    // Keep the slot reserved until handler removal, to prevent a new session's
+    // handler from being removed by the old session's teardown.
+    ExclusiveLock registry(active_session_lock_);
+    if (active_session_ == this) active_session_ = nullptr;
+  }
+  restore_result_.completed = true;
+  return restore_result_;
 }
 
 BOOL WINAPI TerminalSession::ControlHandler(DWORD control_type) {
-  TerminalSession* session = active_session_.load(std::memory_order_acquire);
-  if (session == nullptr) {
-    return FALSE;
-  }
+  ExclusiveLock registry(active_session_lock_);
+  TerminalSession* session = active_session_;
+  if (session == nullptr) return FALSE;
 
   switch (control_type) {
     case CTRL_C_EVENT:
     case CTRL_BREAK_EVENT:
-      // Let the main loop leave normally so teardown is sequenced through RAII.
       session->stop_requested_.store(true, std::memory_order_release);
       return TRUE;
-
     case CTRL_CLOSE_EVENT:
     case CTRL_LOGOFF_EVENT:
-    case CTRL_SHUTDOWN_EVENT:
-      // Windows may terminate the process shortly after this handler returns.
-      // Restore synchronously as a best-effort fallback for these paths.
+    case CTRL_SHUTDOWN_EVENT: {
       session->stop_requested_.store(true, std::memory_order_release);
-      session->Restore();
+      session->closing_.store(true, std::memory_order_release);
+      session->input_reader_.RequestStop();
+      ExclusiveLock state(session->io_lock_);
+      // Emergency cleanup never unregisters itself or waits for the main/CEF
+      // loop. Windows can still terminate us before this best-effort work ends.
+      session->RestoreTerminalStateLocked(session->input_reader_.input_released());
       return FALSE;
-
+    }
     default:
       return FALSE;
   }
