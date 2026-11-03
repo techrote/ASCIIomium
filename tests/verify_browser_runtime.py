@@ -190,6 +190,12 @@ def main() -> None:
                 if scenario.startswith("lifecycle-"):
                     assert record["probe"]["probe_stage"] == "complete" and record["probe"]["phase_reached"]
                     assert record["probe"]["lifecycle_phase"] == scenario.removeprefix("lifecycle-")
+                    if scenario == "lifecycle-resize-requested":
+                        resize = record["probe"]["resize"]
+                        assert resize["baseline_generation"] > 0 and resize["request_accepted"]
+                        assert (resize["initial_width"], resize["initial_height"]) == (640, 360)
+                        assert (resize["requested_width"], resize["requested_height"]) == (800, 450)
+                        assert not resize["explicit_pump_before_shutdown"]
             record["qualification_passed"] = True
         except BaseException as error:
             record["qualification_passed"] = False
@@ -298,7 +304,7 @@ def main() -> None:
             assert len(files) == 1 and files[0].name == "download.bin" and files[0].read_bytes() == PAYLOAD, "download bytes/path do not match controlled destination"
             results.append({"name": "download-byte-integrity", "passed": True, "bytes": len(PAYLOAD), "remote_filename_ignored": True})
             run("untrusted-TLS", "tls", ["--private"], base=secure)
-            phases = ["ready", "before-created", "navigation-requested", "held-load", "ready"] * 2
+            phases = ["ready", "before-created", "navigation-requested", "held-load", "resize-requested"] * 2
             for index, phase in enumerate(phases[:args.lifecycle_cycles]):
                 run_id = f"shutdown-{index:02d}"
                 held = http.hold(run_id) if phase == "held-load" else None

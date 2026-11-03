@@ -6,6 +6,7 @@
 #include <array>
 #include <chrono>
 #include <charconv>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -120,10 +121,11 @@ int Probe(int argc, char** argv, const CefMainArgs& main_args, CefRefPtr<CefApp>
   Require(LoopbackOrigin(origin),
           "qualification probe is restricted to loopback fixtures");
   Require(!scenario.empty() && !report.empty(), "scenario and report required");
-  constexpr std::array<std::string_view, 13> scenarios{
+  constexpr std::array<std::string_view, 14> scenarios{
       "storage-write", "storage-read", "storage-empty", "navigation", "policies",
       "download-deny", "download-allow", "tls", "hold", "lifecycle-ready",
-      "lifecycle-before-created", "lifecycle-navigation-requested", "lifecycle-held-load"};
+      "lifecycle-before-created", "lifecycle-navigation-requested", "lifecycle-held-load",
+      "lifecycle-resize-requested"};
   Require(std::find(scenarios.begin(), scenarios.end(), std::string_view(scenario)) != scenarios.end(),
           "unknown probe scenario");
   if (scenario == "lifecycle-held-load") {
@@ -160,6 +162,19 @@ int Probe(int argc, char** argv, const CefMainArgs& main_args, CefRefPtr<CefApp>
   int verified_transitions = 0;
   std::string lifecycle_phase;
   bool phase_reached = false;
+  std::uint64_t resize_baseline_generation = 0;
+  int resize_initial_width = 0;
+  int resize_initial_height = 0;
+  bool resize_requested = false;
+  auto write_resize_evidence = [&](std::ostream& out) {
+    if (lifecycle_phase != "resize-requested") return;
+    out << ",\"resize\":{\"baseline_generation\":" << resize_baseline_generation
+        << ",\"initial_width\":" << resize_initial_width
+        << ",\"initial_height\":" << resize_initial_height
+        << ",\"requested_width\":800,\"requested_height\":450"
+        << ",\"request_accepted\":" << (resize_requested ? "true" : "false")
+        << ",\"explicit_pump_before_shutdown\":false}";
+  };
   try {
     auto wait_page = [&](std::string_view prefix, std::string_view previous = {}) {
       Require(PumpUntil(client, [&] {
@@ -184,13 +199,28 @@ int Probe(int argc, char** argv, const CefMainArgs& main_args, CefRefPtr<CefApp>
         }), "held response did not reach an incomplete committed document");
         ++verified_transitions;
       } else {
-        Require(lifecycle_phase == "ready" || lifecycle_phase == "navigation-requested",
+        Require(lifecycle_phase == "ready" || lifecycle_phase == "navigation-requested" ||
+                lifecycle_phase == "resize-requested",
                 "unknown lifecycle phase");
         wait_page("PAGE:a:");
         if (lifecycle_phase == "navigation-requested") {
           // Shutdown follows this accepted request with no intervening pump.
           // This proves the queued-navigation path, not a network-start event.
           navigate("open " + origin + "/b");
+        } else if (lifecycle_phase == "resize-requested") {
+          Require(PumpUntil(client, [&] {
+            return frames->SnapshotState().view_generation > 0;
+          }), "resize shutdown has no initial paint");
+          const auto initial = frames->SnapshotView();
+          resize_baseline_generation = initial.generation;
+          resize_initial_width = initial.width;
+          resize_initial_height = initial.height;
+          Require(initial.valid() && initial.width == 640 && initial.height == 360,
+                  "resize shutdown has no valid initial viewport");
+          resize_requested = client->Resize(800, 450);
+          Require(resize_requested, "resize shutdown request was rejected");
+          // No explicit CEF pump occurs between this request and Shutdown.
+          // A target-size paint is deliberately not required for this phase.
         }
       }
       phase_reached = true;
@@ -284,7 +314,9 @@ int Probe(int argc, char** argv, const CefMainArgs& main_args, CefRefPtr<CefApp>
         << ",\"profile_cleanup_deferred\":true,\"profile_cleanup_error\":0,\"profile_cleanup_attempts\":0"
         << ",\"private\":" << (private_mode ? "true" : "false")
         << ",\"probe_stage\":\"before-shutdown\",\"lifecycle_phase\":\"" << lifecycle_phase
-        << "\",\"phase_reached\":" << (phase_reached ? "true" : "false") << ',';
+        << "\",\"phase_reached\":" << (phase_reached ? "true" : "false");
+    write_resize_evidence(checkpoint);
+    checkpoint << ',';
     checkpoint << "\"callbacks\":";
     WriteCallbackStatusJson(checkpoint, client->callback_status());
     checkpoint << ',';
@@ -317,8 +349,9 @@ int Probe(int argc, char** argv, const CefMainArgs& main_args, CefRefPtr<CefApp>
       << ",\"denied_media\":" << status.denied_media
       << ",\"denied_downloads\":" << status.denied_downloads
       << ",\"completed_downloads\":" << status.completed_downloads
-      << ",\"denied_certificates\":" << status.denied_certificates
-      << ",\"callbacks\":";
+      << ",\"denied_certificates\":" << status.denied_certificates;
+  write_resize_evidence(out);
+  out << ",\"callbacks\":";
   WriteCallbackStatusJson(out, callbacks);
   out << ',';
   WriteIdentityFields(out);

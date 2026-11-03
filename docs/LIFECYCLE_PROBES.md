@@ -14,7 +14,7 @@ Run the following five cases twice, in order:
 | `before-created` | `CreateBrowser` accepted, creation ownership registered, no message-loop pump yet, no created-browser callback observed | Close requested while asynchronous creation is pending |
 | `navigation-requested` | First page settled, next `open` request accepted, no intervening pump | Close immediately after queued navigation; no network-start claim |
 | `held-load` | Unique `LOADING:<run-id>` title observed while aggregate loading is true and main load completion is false | Close while an actual committed HTTP response body is incomplete |
-| `ready` | Fresh process again reaches the settled page | Normal close after the exceptional phases |
+| `resize-requested` | Settled page and valid 640×360 paint observed; request 800×450 resize and do not explicitly pump again before shutdown | Close with a pending viewport resize request; no target-paint claim |
 
 The held-response server flushes more than 4 KiB of HTML containing its unique
 title, declares the total content length, and withholds the suffix on an event.
@@ -22,6 +22,12 @@ The harness releases that event only after the probe process exits or its
 failure cleanup finishes. A 40-second safeguard is a failure if reached; elapsed
 time alone cannot pass the phase. The response's flushed/released/finished and
 expiry fields are preserved in the summary.
+
+The resize case records its initial paint generation, initial/requested sizes
+and accepted request. It requires no target-size paint before shutdown: waiting
+for one would duplicate the existing capture tool's settled resize test. The
+shutdown path itself pumps CEF until close, and any resulting callback failure
+still fails the case. Both resize cases retain the same cleanup requirements.
 
 Every successful case must report its exact reached phase and complete report
 stage, clean CEF close, supervisor worker exit zero, complete process-tree
