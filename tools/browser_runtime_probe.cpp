@@ -303,6 +303,7 @@ int Probe(int argc, char** argv, const CefMainArgs& main_args, CefRefPtr<CefApp>
     passed = !client->callback_failed();
   } catch (const std::exception& error) { failure = error.what(); }
   const auto status = client->Status();
+  const bool browser_created_before_shutdown = client->browser_created();
   if (!lifecycle_phase.empty()) {
     // Preserve the reached phase even if shutdown later exhausts its deadline.
     // The private supervisor finalizes cleanup only after the process tree exits.
@@ -314,7 +315,8 @@ int Probe(int argc, char** argv, const CefMainArgs& main_args, CefRefPtr<CefApp>
         << ",\"profile_cleanup_deferred\":true,\"profile_cleanup_error\":0,\"profile_cleanup_attempts\":0"
         << ",\"private\":" << (private_mode ? "true" : "false")
         << ",\"probe_stage\":\"before-shutdown\",\"lifecycle_phase\":\"" << lifecycle_phase
-        << "\",\"phase_reached\":" << (phase_reached ? "true" : "false");
+        << "\",\"phase_reached\":" << (phase_reached ? "true" : "false")
+        << ",\"browser_created_before_shutdown\":" << (browser_created_before_shutdown ? "true" : "false");
     write_resize_evidence(checkpoint);
     checkpoint << ',';
     checkpoint << "\"callbacks\":";
@@ -338,6 +340,7 @@ int Probe(int argc, char** argv, const CefMainArgs& main_args, CefRefPtr<CefApp>
       << "\",\"passed\":" << (passed ? "true" : "false")
       << ",\"probe_stage\":\"complete\",\"lifecycle_phase\":\"" << lifecycle_phase
       << "\",\"phase_reached\":" << (phase_reached ? "true" : "false")
+      << ",\"browser_created_before_shutdown\":" << (browser_created_before_shutdown ? "true" : "false")
       << ",\"closed_cleanly\":true,\"profile_cleanup\":" << (profile.cleanup_deferred() ? "false" : "true")
       << ",\"profile_cleanup_deferred\":" << (profile.cleanup_deferred() ? "true" : "false")
       << ",\"profile_cleanup_error\":" << profile.cleanup_error_code()

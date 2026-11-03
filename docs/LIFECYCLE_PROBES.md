@@ -36,9 +36,48 @@ probe writes a failed pre-shutdown checkpoint first, so an exhausted CEF close
 deadline can still leave phase evidence for its supervisor. That checkpoint is
 never accepted as a completed case.
 
+Both checkpoint and completed report retain `browser_created_before_shutdown`.
+The harness requires it to be false for `before-created` and true for the
+other four phases. This is a snapshot before shutdown starts; it does not keep
+the client alive across `CefShutdown` or claim that creation stayed pending
+while the shutdown loop pumped.
+
 The existing persistent write/restart/ownership-release cases separately cover
 reuse of a persistent profile lock. The ten extra cases use private roots to
 keep ownership, descendant lifetime and cleanup independently observable.
+
+## Closing while creation is pending
+
+The first real matrix at `c4a506b7` passed `ready`, then the `before-created`
+worker exited with access violation `0xC0000005`. Its preserved checkpoint
+reported the reached phase with no callback failure. The supervisor reaped
+the process tree and removed the private root, but had to force descendants;
+that cleanup did not qualify the browser shutdown. See
+[run 41607422994](https://github.com/techrote/ASCIIomium/actions/runs/41607422994).
+
+The pinned CEF source establishes a synchronous reentrancy hazard in the old
+late-creation close path. `SetAsWindowless` selects Alloy. Alloy's
+`CreateInternal` calls `OnAfterCreated`, then uses `platform_delegate_` again.
+Calling `CloseBrowser(true)` from that callback can synchronously destroy the
+windowless browser and reset that delegate before the creation continuation
+uses it. This source path is consistent with the observed access violation;
+the retained evidence has no crash stack proving the exact instruction.
+Primary sources at CEF `f059e67fa6aad5e8cce8bebea5df706ffddfb174`:
+
+- [Windowless runtime selection](https://github.com/chromiumembedded/cef/blob/f059e67fa6aad5e8cce8bebea5df706ffddfb174/include/internal/cef_win.h#L126-L129).
+- [Creation and synchronous close/destruction](https://github.com/chromiumembedded/cef/blob/f059e67fa6aad5e8cce8bebea5df706ffddfb174/libcef/browser/alloy/alloy_browser_host_impl.cc#L201-L224), including `CloseBrowser`, `CloseContents` and `DestroyBrowser` in the same file.
+- [Delegate reset during destruction](https://github.com/chromiumembedded/cef/blob/f059e67fa6aad5e8cce8bebea5df706ffddfb174/libcef/browser/browser_host_base.cc#L322-L330).
+- [Public close contract permitting synchronous completion](https://github.com/chromiumembedded/cef/blob/f059e67fa6aad5e8cce8bebea5df706ffddfb174/include/cef_browser.h#L340-L362).
+
+An early close request now remains latched through `OnAfterCreated`; that
+callback records the browser without focusing or closing it during shutdown.
+Each owning close loop (live, capture and `CefRuntimeSession`) services the
+request immediately after `CefDoMessageLoopWork` returns, when creation has
+unwound. This adds no posted task or callback allocation. Close intent is still
+recorded before the first explicit pump in the pending-creation case, the existing
+five-second deadline remains, and `OnBeforeClose` is still required before
+`CefShutdown`. The unchanged real phase is the regression test for this CEF
+continuation; exact-revision Windows qualification remains necessary.
 
 ## Source and failed-run evidence
 

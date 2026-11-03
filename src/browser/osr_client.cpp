@@ -95,9 +95,11 @@ void OsrClient::OnPaint(CefRefPtr<CefBrowser>,
 
 void OsrClient::OnAfterCreated(CefRefPtr<CefBrowser> browser) {
   browser_ = browser;
-  browser_->GetHost()->SetFocus(true);
   browser_created_.store(true, std::memory_order_release);
-  if (closing_) browser_->GetHost()->CloseBrowser(true);
+  // Alloy creation continues using its platform delegate after this callback.
+  // CloseBrowser(true) may destroy that delegate synchronously. Preserve an
+  // early close request for the owner's next call after the CEF pump returns.
+  if (!closing_) browser_->GetHost()->SetFocus(true);
 }
 
 void OsrClient::OnBeforeClose(CefRefPtr<CefBrowser>) {

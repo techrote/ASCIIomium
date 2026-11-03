@@ -187,6 +187,9 @@ class OsrClient final : public CefClient,
   [[nodiscard]] bool PointerScrollObserved() const;
   [[nodiscard]] std::string LatestFixtureObservation() const;
   [[nodiscard]] bool ExecuteMainFrameJavaScript(std::string_view code);
+  // Owner/UI thread only, outside CEF callbacks. If creation is still pending,
+  // repeat after each shutdown pump returns until OnBeforeClose is observed.
+  // OnAfterCreated retains the request without closing inside CEF creation.
   void CloseBrowser();
 
   [[nodiscard]] bool browser_created() const noexcept {

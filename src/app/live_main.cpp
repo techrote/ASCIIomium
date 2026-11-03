@@ -1339,6 +1339,7 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args,
   const auto close_deadline = Clock::now() + std::chrono::seconds(5);
   while (!client->closed() && Clock::now() < close_deadline) {
     CefDoMessageLoopWork();
+    client->CloseBrowser();  // Service pending creation after its stack unwinds.
     std::this_thread::sleep_for(std::chrono::milliseconds(5));
   }
   evidence.closed_cleanly = client->closed();

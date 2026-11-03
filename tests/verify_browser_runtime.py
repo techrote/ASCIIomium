@@ -190,6 +190,8 @@ def main() -> None:
                 if scenario.startswith("lifecycle-"):
                     assert record["probe"]["probe_stage"] == "complete" and record["probe"]["phase_reached"]
                     assert record["probe"]["lifecycle_phase"] == scenario.removeprefix("lifecycle-")
+                    assert record["probe"]["browser_created_before_shutdown"] is (scenario != "lifecycle-before-created"), \
+                        "browser creation state did not match the required shutdown phase"
                     if scenario == "lifecycle-resize-requested":
                         resize = record["probe"]["resize"]
                         assert resize["baseline_generation"] > 0 and resize["request_accepted"]

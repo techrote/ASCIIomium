@@ -34,6 +34,9 @@ class CefRuntimeSession {
       const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
       while (!client_->closed() && std::chrono::steady_clock::now() < deadline) {
         CefDoMessageLoopWork();
+        // Creation may have completed inside the pump. Close only after CEF's
+        // OnAfterCreated continuation has unwound; close can be synchronous.
+        client_->CloseBrowser();
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
       }
       if (callback_status) *callback_status = client_->callback_status();
