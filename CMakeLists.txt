@@ -335,6 +335,7 @@ enable_testing()
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 add_test(NAME runtime_process_evidence
   COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/runtime_process_test.py")
+set_tests_properties(runtime_process_evidence PROPERTIES TIMEOUT 60)
 add_test(NAME build_identity_refresh
   COMMAND "${CMAKE_COMMAND}"
     "-DTEST_SOURCE_ROOT=${CMAKE_CURRENT_SOURCE_DIR}"
@@ -343,6 +344,7 @@ add_test(NAME build_identity_refresh
     "-DTEST_GENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}"
     "-DTEST_BUILD_CONFIG=$<CONFIG>"
     "-P" "${CMAKE_CURRENT_SOURCE_DIR}/tests/build_identity_test.cmake")
+set_tests_properties(build_identity_refresh PROPERTIES TIMEOUT 120)
 
 add_executable(asciiomium_tests tests/build_info_test.cpp)
 target_link_libraries(asciiomium_tests PRIVATE asciiomium_build_info CEF::libcef)
@@ -466,6 +468,7 @@ set_target_properties(source_frame_tests PROPERTIES
   FOLDER "Tests"
   MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 add_test(NAME source_frame COMMAND "$<TARGET_FILE:source_frame_tests>")
+set_tests_properties(source_frame PROPERTIES TIMEOUT 30)
 
 add_executable(callback_boundary_tests tests/callback_boundary_test.cpp)
 target_link_libraries(callback_boundary_tests PRIVATE asciiomium_browser)
@@ -473,6 +476,7 @@ set_target_properties(callback_boundary_tests PROPERTIES
   FOLDER "Tests"
   MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 add_test(NAME callback_boundary COMMAND "$<TARGET_FILE:callback_boundary_tests>")
+set_tests_properties(callback_boundary PROPERTIES TIMEOUT 30)
 
 add_executable(osr_callback_tests tests/osr_callback_test.cpp)
 target_link_libraries(osr_callback_tests PRIVATE asciiomium_browser)
@@ -482,6 +486,7 @@ set_target_properties(osr_callback_tests PROPERTIES
   MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 asciiomium_stage_cef_runtime(osr_callback_tests)
 add_test(NAME osr_callback COMMAND "$<TARGET_FILE:osr_callback_tests>")
+set_tests_properties(osr_callback PROPERTIES TIMEOUT 30)
 
 add_executable(live_runtime_tests tests/live_runtime_test.cpp)
 target_link_libraries(live_runtime_tests PRIVATE

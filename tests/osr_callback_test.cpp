@@ -7,6 +7,7 @@
 #include <thread>
 
 #include "allocation_failure.h"
+#include "test_diagnostics.h"
 #include "browser/fixture_observation.h"
 #include "browser/osr_client.h"
 
@@ -21,18 +22,24 @@ void Require(bool condition, const char* message) {
 void PaintBoundary() {
   std::array<std::uint8_t, 64> pixels{};
   pixels.fill(127);
-  const CefRenderHandler::RectList damage{CefRect(0, 0, 4, 4)};
+  const CefRenderHandler::RectList damage{
+      CefRect(0, 0, 2, 2), CefRect(2, 0, 2, 2),
+      CefRect(0, 2, 2, 2), CefRect(2, 2, 2, 2)};
   // Conversion, pixel reserve, damage reserve: each allocation site must be
-  // contained by the real callback, without publishing an initial frame.
+  // contained by the real callback, without publishing an initial frame. Each
+  // payload is 64 bytes; small Debug iterator-proxy allocations are not faults.
+  static_assert(4 * sizeof(DirtyRect) == 64);
   for (std::ptrdiff_t allowed = 0; allowed < 3; ++allowed) {
     auto store = std::make_shared<SourceFrameStore>();
     CefRefPtr<OsrClient> client(new OsrClient(store, 4, 4));
     {
-      allocation_test::Scope allocation(allowed);
+      allocation_test::Scope allocation(allowed, 128, allocation_test::kPayloadMinimumBytes);
       client->OnPaint(nullptr, PET_VIEW, damage, pixels.data(), 4, 4);
     }
     const auto failure = client->callback_status();
-    Require(allocation_test::rejected && failure.first_failure == CallbackFailure::PaintAllocation &&
+    Require(allocation_test::rejected && allocation_test::rejected_request == 64 &&
+            allocation_test::eligible_allocations == static_cast<std::size_t>(allowed + 1) &&
+            failure.first_failure == CallbackFailure::PaintAllocation &&
             failure.paint_failures == 1 && store->SnapshotState().view_generation == 0 &&
             !store->SnapshotView().valid(),
             "real OnPaint contains conversion and frame allocation failure");
@@ -44,9 +51,13 @@ void PaintBoundary() {
 
   auto store = std::make_shared<SourceFrameStore>();
   CefRefPtr<OsrClient> client(new OsrClient(store, 4, 4));
-  client->OnPaint(nullptr, PET_VIEW, damage, pixels.data(), 4, 4);
-  Require(!client->callback_failed() && store->SnapshotView().valid(),
-          "normal real callback publishes a frame");
+  {
+    allocation_test::Scope allocation(-1, 128, allocation_test::kPayloadMinimumBytes);
+    client->OnPaint(nullptr, PET_VIEW, damage, pixels.data(), 4, 4);
+  }
+  Require(!allocation_test::rejected && allocation_test::eligible_allocations == 3 &&
+          !client->callback_failed() && store->SnapshotView().valid(),
+          "normal real callback publishes after exactly three eligible buffer allocations");
   CefRenderHandler::RectList excessive(kMaxSourceDirtyRects + 1, CefRect(0, 0, 1, 1));
   {
     allocation_test::Scope allocation(-1, 128);
@@ -98,10 +109,12 @@ void DiagnosticBoundary() {
           "title callback converts a bounded prefix of large native input");
   CefRefPtr<OsrClient> failing(new OsrClient(store, 4, 4));
   {
-    allocation_test::Scope allocation(0);
+    allocation_test::Scope allocation(0, 16384, allocation_test::kPayloadMinimumBytes);
     failing->OnTitleChange(nullptr, huge);
   }
-  Require(failing->callback_status().first_failure == CallbackFailure::DiagnosticAllocation &&
+  Require(allocation_test::rejected && allocation_test::rejected_request >= 4096 &&
+          allocation_test::eligible_allocations == 1 &&
+          failing->callback_status().first_failure == CallbackFailure::DiagnosticAllocation &&
           failing->callback_status().diagnostic_failures == 1 && failing->MainTitle().empty(),
           "diagnostic conversion allocation failure is contained and visible");
 
@@ -113,16 +126,21 @@ void DiagnosticBoundary() {
   late->OnBeforeClose(nullptr);
   bool escaped = false;
   bool allocation_rejected = false;
+  std::size_t rejected_size = 0;
+  std::size_t eligible_attempts = 0;
   bool allow_execution = true;
   std::thread io_callback([&] {
-    allocation_test::Scope allocation(0);
+    allocation_test::Scope allocation(0, 2048, allocation_test::kPayloadMinimumBytes);
     try { late->OnProtocolExecution(nullptr, nullptr, nullptr, allow_execution); }
     catch (...) { escaped = true; }
     allocation_rejected = allocation_test::rejected;
+    rejected_size = allocation_test::rejected_request;
+    eligible_attempts = allocation_test::eligible_allocations;
   });
   io_callback.join();
   late = nullptr;
-  Require(!escaped && allocation_rejected && !allow_execution &&
+  Require(!escaped && allocation_rejected && rejected_size >= allocation_test::kPayloadMinimumBytes &&
+          eligible_attempts == 1 && !allow_execution &&
           observer->Snapshot().first_failure == CallbackFailure::DiagnosticAllocation &&
           observer->Snapshot().diagnostic_failures == 1,
           "late IO Notice failure is contained and retained after client release");
@@ -130,7 +148,10 @@ void DiagnosticBoundary() {
 }  // namespace
 
 int main() {
+  test_diagnostics::Configure();
+  test_diagnostics::Stage("OSR paint boundaries");
   PaintBoundary();
+  test_diagnostics::Stage("OSR diagnostic boundaries");
   DiagnosticBoundary();
   if (failures != 0) return 1;
   std::cout << "OSR callback tests passed (direct callback boundary; no browser initialized)\n";

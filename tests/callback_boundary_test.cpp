@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "allocation_failure.h"
+#include "test_diagnostics.h"
 #include "browser/bounded_text.h"
 #include "browser/browser_commands.h"
 #include "browser/callback_state.h"
@@ -118,11 +119,13 @@ void CallbackFailures() {
   state.Paint([&] { published = true; });
   Require(published && !state.failed(), "successful paint has no failure");
   {
-    allocation_test::Scope allocation(0);
+    allocation_test::Scope allocation(0, 256, allocation_test::kPayloadMinimumBytes);
     state.Paint([] { std::vector<int> impossible(32); (void)impossible; });
   }
   auto status = state.Snapshot();
-  Require(status.first_failure == CallbackFailure::PaintAllocation &&
+  Require(allocation_test::rejected && allocation_test::rejected_request == 32 * sizeof(int) &&
+          allocation_test::eligible_allocations == 1 &&
+          status.first_failure == CallbackFailure::PaintAllocation &&
           status.paint_failures == 1 && status.suppressed_paints == 0,
           "allocation failure contained and retained without allocating");
   published = false;
@@ -146,10 +149,12 @@ void CallbackFailures() {
   CallbackState diagnostic;
   bool updated = true;
   {
-    allocation_test::Scope allocation(0);
+    allocation_test::Scope allocation(0, 256, allocation_test::kPayloadMinimumBytes);
     updated = diagnostic.Diagnostic([] { std::vector<int> impossible(32); (void)impossible; });
   }
-  Require(!updated && diagnostic.Snapshot().first_failure == CallbackFailure::DiagnosticAllocation &&
+  Require(allocation_test::rejected && allocation_test::rejected_request == 32 * sizeof(int) &&
+          allocation_test::eligible_allocations == 1 && !updated &&
+          diagnostic.Snapshot().first_failure == CallbackFailure::DiagnosticAllocation &&
           diagnostic.Snapshot().diagnostic_failures == 1,
           "diagnostic allocation failure remains observable");
   diagnostic.Paint([] {});
@@ -209,8 +214,12 @@ void BoundedDiagnostics() {
 }  // namespace
 
 int main() {
+  test_diagnostics::Configure();
+  test_diagnostics::Stage("transactional frame publication");
   FramePublication();
+  test_diagnostics::Stage("callback failure accounting");
   CallbackFailures();
+  test_diagnostics::Stage("bounded diagnostic conversion");
   BoundedDiagnostics();
   if (failures != 0) return 1;
   std::cout << "callback boundary tests passed\n";

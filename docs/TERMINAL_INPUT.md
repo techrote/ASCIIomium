@@ -149,6 +149,34 @@ cmake --build build --config Release --target terminal_input_tests terminal_inpu
 ctest --test-dir build -C Release --output-on-failure -R "terminal_input|terminal_lifecycle|terminal_console_smoke"
 ```
 
+### Native failure diagnostics
+
+The first hosted result at `ae578e5c2c27adc09a150220e0c1aec1bca86e89`
+([run 41559971458](https://github.com/techrote/ASCIIomium/actions/runs/41559971458))
+compiled the native test on Windows Server 2022 build 20348. The injected input
+and terminal lifecycle tests passed, but the first mixed Unicode/VT native
+case failed after 5.06 seconds waiting for its expected byte count. That log
+did not contain the returned bytes, so it does not establish whether the
+console conversion or application transport caused the failure.
+
+The follow-up keeps every original input string, exact byte assertion, native
+read limit and five-second wait deadline. A wrong received prefix now reports
+a mismatch immediately instead of becoming a misleading incomplete-read
+timeout. Failure evidence records the case, configured read limit, input/output
+modes and code pages, injected UTF-16 units, expected/received hex, and matching
+prefix length. A fixed test-only trace retains the first 16 native completions
+with requested/returned byte counts, OS errors and at most 32 raw bytes each,
+before the mailbox sees them. Expected/received displays are capped at 96 bytes.
+The console window's owner image is recorded when query access is available.
+No input-event reads, flushes, fallback transport or skip condition are added.
+
+Older console input conversion is a plausible lead: Microsoft's
+[Terminal PR 14745](https://github.com/microsoft/terminal/pull/14745) fixed
+incorrect UTF-8 byte sizing in the old conversion path. This is not a diagnosis
+of the hosted failure; the next native transcript must identify the bytes and
+host actually observed. The production reader is unchanged, and native UTF-8
+qualification remains open until the genuine Windows assertions pass.
+
 Linux runs using a mutex-backed Win32 type shim exercise the injected tests and
 portable concurrency logic only. They do not qualify real console behavior,
 Windows thread handles or native cancellation. Exact-revision Windows CI must

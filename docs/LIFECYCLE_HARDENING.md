@@ -231,9 +231,56 @@ accounting and suppression of later publication. It also proves that excess
 CEF damage collapses before allocating its full list, disabled/untrusted/huge
 console input allocates nothing, and large titles remain bounded. A separate
 thread invokes a late protocol callback after the close notification with
-allocations disabled, verifying that shared notice failures remain observable
+notice-buffer allocation rejected, verifying that shared notice failures remain observable
 after the client is released. These are
 callback-boundary tests, distinct from real Chromium runtime qualification.
+
+### Allocation injection and unattended failures
+
+MSVC's Debug STL allocates iterator proxies even in `noexcept` default/move
+constructors for vectors and strings. Throwing from such a proxy allocation
+terminates the process before the surrounding callback can catch an exception.
+The Visual Studio 2022 17.14 sources show this in
+[`vector`](https://github.com/microsoft/STL/blob/vs-2022-17.14/stl/inc/vector),
+[`xstring`](https://github.com/microsoft/STL/blob/vs-2022-17.14/stl/inc/xstring),
+and the two-pointer proxy in
+[`xmemory`](https://github.com/microsoft/STL/blob/vs-2022-17.14/stl/inc/xmemory).
+
+The tests distinguish deliberately failing fallible data-buffer allocations
+from proving that a path performs no allocation. Payload-failure scopes count
+only requests of at least 32 bytes, allowing the 16-byte Debug proxies on the
+supported x64 target. They record both the eligible attempt count and rejected
+request size. Direct paint tests use four dirty rectangles and a 4×4 BGRA
+frame: conversion, pixel storage and retained damage each request 64 bytes.
+The three fault cases reject those buffers in order; a successful cold callback
+must perform exactly three eligible allocations. Title and notice failures
+likewise reject data buffers rather than a container's Debug proxy.
+
+Strict no-allocation checks for disabled/untrusted console output and warmed
+frame updates still reject every allocation, including small requests. The
+frame-store reserve tests retain that strict mode because their containers
+already exist before injection starts. The maximum-request ceiling always
+applies to every request, independently of payload eligibility. The 1,024
+rectangle retention/collapse contract and all frame-state assertions remain
+unchanged. These tests do not claim recovery from an implementation's
+`noexcept` metadata-allocation failure.
+
+Callback and source-frame test processes emit stage markers and fail with a
+nonzero exit on unexpected termination or their CRT's assertion/error. CRT reports
+go to captured stderr, with no assertion-continue option or abort Windows Error
+Reporting dialog. This prevents a known injection-related termination path
+from waiting for unattended UI; it does not establish the cause of a CI stall
+without the completed test log. These handlers govern the test executable's
+CRT; the CTest deadline also bounds other native or third-party DLL paths.
+Sources: [CRT report hooks](https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/crtsetreporthook2-crtsetreporthookw2?view=msvc-170),
+[abort behavior](https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/set-abort-behavior?view=msvc-170).
+
+CTest limits `source_frame`, `callback_boundary` and `osr_callback` to 30 seconds,
+process-evidence controls to 60 seconds, and the build-identity regression to
+120 seconds. Existing shorter terminal/input deadlines remain intact. CI also
+uses a 120-second default for tests without a more specific limit and retains
+separate Debug/Release CTest logs and JUnit reports, plus temporary CTest logs,
+through an upload step that runs on failure as well as success.
 
 ## Remaining issue #16 work
 

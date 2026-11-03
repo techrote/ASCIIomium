@@ -12,6 +12,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -29,6 +30,16 @@ void Require(bool condition, const char* message) {
   if (!condition) throw std::runtime_error(message);
 }
 
+void PrintBytes(const char* name, std::string_view bytes) noexcept {
+  constexpr std::size_t limit = 96;
+  std::fprintf(stderr, "%s_count=%zu %s_hex=", name, bytes.size(), name);
+  for (std::size_t i = 0; i < std::min(bytes.size(), limit); ++i) {
+    std::fprintf(stderr, "%02X", static_cast<unsigned char>(bytes[i]));
+  }
+  if (bytes.size() > limit) std::fputs("[truncated]", stderr);
+  std::fputc('\n', stderr);
+}
+
 class Handle {
  public:
   explicit Handle(HANDLE value = INVALID_HANDLE_VALUE) : value_(value) {}
@@ -43,6 +54,32 @@ class Handle {
  private:
   HANDLE value_;
 };
+
+void DescribeConsoleOwner() noexcept {
+  DWORD process_id = 0;
+  const HWND window = GetConsoleWindow();
+  const DWORD thread_id = window ? GetWindowThreadProcessId(window, &process_id) : 0;
+  const DWORD owner_error = thread_id ? ERROR_SUCCESS : (window ? GetLastError() : ERROR_NOT_FOUND);
+  Handle process(process_id ? OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, process_id) : nullptr);
+  const DWORD open_error = process.get() ? ERROR_SUCCESS : (process_id ? GetLastError() : owner_error);
+  std::array<wchar_t, 1024> path{};
+  DWORD length = static_cast<DWORD>(path.size());
+  const BOOL found = process.get() && QueryFullProcessImageNameW(process.get(), 0, path.data(), &length);
+  const DWORD image_error = found ? ERROR_SUCCESS : (process.get() ? GetLastError() : open_error);
+  std::fprintf(stderr, "CONSOLE OWNER: pid=%lu owner_error=%lu open_error=%lu image_error=%lu image=",
+      static_cast<unsigned long>(process_id), static_cast<unsigned long>(owner_error),
+      static_cast<unsigned long>(open_error), static_cast<unsigned long>(image_error));
+  // This is best-effort context, not a qualification condition. Keep stderr
+  // byte-oriented and bounded even if the image path contains non-ASCII text.
+  if (found) {
+    for (DWORD i = 0; i < std::min<DWORD>(length, static_cast<DWORD>(path.size())); ++i) {
+      const auto value = static_cast<unsigned int>(path[i]);
+      std::fputc(value <= 0x7fu ? static_cast<int>(value) : '?', stderr);
+    }
+  }
+  std::fputc('\n', stderr);
+  std::fflush(stderr);
+}
 
 struct Console {
   Handle input{CreateFileW(L"CONIN$", GENERIC_READ | GENERIC_WRITE,
@@ -99,8 +136,17 @@ void QueueText(HANDLE input, std::u16string_view text) {
     records[i].Event.KeyEvent.uChar.UnicodeChar = static_cast<wchar_t>(text[i]);
   }
   DWORD written = 0;
-  Require(WriteConsoleInputW(input, records.data(), static_cast<DWORD>(records.size()),
-                             &written) && written == records.size(),
+  const BOOL ok = WriteConsoleInputW(input, records.data(), static_cast<DWORD>(records.size()), &written);
+  const DWORD error = ok ? ERROR_SUCCESS : GetLastError();
+  std::fprintf(stderr, "INPUT FIXTURE: utf16_units=%zu written=%lu error=%lu utf16_prefix=",
+      text.size(), static_cast<unsigned long>(written), static_cast<unsigned long>(error));
+  for (std::size_t i = 0; i < std::min<std::size_t>(text.size(), 32); ++i) {
+    std::fprintf(stderr, "%04X", static_cast<unsigned int>(text[i]));
+  }
+  if (text.size() > 32) std::fputs("[truncated]", stderr);
+  std::fputc('\n', stderr);
+  std::fflush(stderr);
+  Require(ok && written == records.size(),
           "WriteConsoleInputW text fixture");
 }
 
@@ -113,22 +159,56 @@ TerminalSessionOptions Options() {
 }
 
 struct NativeReads {
+  struct CompletedRead {
+    unsigned call = 0;
+    DWORD requested = 0, count = 0, error = ERROR_SUCCESS;
+    BOOL succeeded = FALSE;
+    std::array<char, 32> prefix{};
+    std::size_t prefix_size = 0;
+  };
+
+  const char* case_name;
   DWORD read_limit;
   std::atomic_uint calls{0}, cancels{0};
   std::atomic<DWORD> last_count{0};
   std::atomic_bool active{false};
   std::atomic<PHANDLER_ROUTINE> handler{nullptr};
   TerminalConsoleApi api = Win32TerminalConsoleApi();
+  // Record the actual native output before the mailbox sees it. This trace is
+  // test-only, fixed-capacity, and never performs an input-event read or flush.
+  std::mutex evidence_mutex;
+  std::array<CompletedRead, 16> completed_reads{};
+  std::size_t completed_count = 0, native_bytes = 0;
 
-  explicit NativeReads(DWORD limit = TerminalInputReader::kCapacity) : read_limit(limit) {
+  explicit NativeReads(const char* name, DWORD limit = TerminalInputReader::kCapacity)
+      : case_name(name), read_limit(limit) {
+    std::fprintf(stderr, "INPUT CASE: %s native_read_limit=%lu\n", case_name,
+                 static_cast<unsigned long>(read_limit));
+    std::fflush(stderr);
     api.context = this;
     api.read = [](void* context, HANDLE input, void* bytes, DWORD size,
                   DWORD* count) noexcept -> BOOL {
       auto& self = *static_cast<NativeReads*>(context);
-      self.calls.fetch_add(1);
+      const unsigned call = self.calls.fetch_add(1) + 1;
       self.active.store(true);
-      const BOOL ok = ReadFile(input, bytes, std::min(size, self.read_limit), count, nullptr);
+      const DWORD requested = std::min(size, self.read_limit);
+      const BOOL ok = ReadFile(input, bytes, requested, count, nullptr);
       const DWORD error = ok ? ERROR_SUCCESS : GetLastError();
+      {
+        std::lock_guard lock(self.evidence_mutex);
+        if (self.completed_count < self.completed_reads.size()) {
+          auto& sample = self.completed_reads[self.completed_count];
+          sample.call = call;
+          sample.requested = requested;
+          sample.count = ok ? *count : 0;
+          sample.error = error;
+          sample.succeeded = ok;
+          sample.prefix_size = std::min<std::size_t>(sample.count, sample.prefix.size());
+          std::copy_n(static_cast<const char*>(bytes), sample.prefix_size, sample.prefix.data());
+        }
+        ++self.completed_count;
+        if (ok) self.native_bytes += *count;
+      }
       self.active.store(false);
       self.last_count.store(ok ? *count : 0);
       SetLastError(error);
@@ -147,7 +227,76 @@ struct NativeReads {
       return ok;
     };
   }
+
+  void Describe(const Console& console, std::string_view expected,
+                std::string_view received) noexcept {
+    std::array<CompletedRead, 16> samples{};
+    std::size_t count = 0, byte_count = 0;
+    {
+      std::lock_guard lock(evidence_mutex);
+      samples = completed_reads;
+      count = completed_count;
+      byte_count = native_bytes;
+    }
+    DWORD input_mode = 0, output_mode = 0;
+    const BOOL input_ok = GetConsoleMode(console.input.get(), &input_mode);
+    const DWORD input_error = input_ok ? ERROR_SUCCESS : GetLastError();
+    const BOOL output_ok = GetConsoleMode(console.output.get(), &output_mode);
+    const DWORD output_error = output_ok ? ERROR_SUCCESS : GetLastError();
+    std::fprintf(stderr,
+        "INPUT FAILURE: case=%s native_read_limit=%lu calls=%u completed=%zu "
+        "native_bytes=%zu active=%d cancels=%u\n",
+        case_name, static_cast<unsigned long>(read_limit), calls.load(), count,
+        byte_count, static_cast<int>(active.load()), cancels.load());
+    std::fprintf(stderr,
+        "console_input_mode=0x%08lX input_mode_error=%lu console_input_cp=%u "
+        "console_output_mode=0x%08lX output_mode_error=%lu console_output_cp=%u\n",
+        static_cast<unsigned long>(input_mode), static_cast<unsigned long>(input_error),
+        GetConsoleCP(), static_cast<unsigned long>(output_mode),
+        static_cast<unsigned long>(output_error), GetConsoleOutputCP());
+    PrintBytes("expected", expected);
+    PrintBytes("received", received);
+    std::size_t prefix = 0;
+    while (prefix < std::min(expected.size(), received.size()) && expected[prefix] == received[prefix]) {
+      ++prefix;
+    }
+    std::fprintf(stderr, "matching_prefix_bytes=%zu\n", prefix);
+    for (std::size_t i = 0; i < std::min(count, samples.size()); ++i) {
+      const auto& sample = samples[i];
+      std::fprintf(stderr, "native_call=%u requested=%lu ok=%d returned=%lu error=%lu ",
+          sample.call, static_cast<unsigned long>(sample.requested), static_cast<int>(sample.succeeded),
+          static_cast<unsigned long>(sample.count), static_cast<unsigned long>(sample.error));
+      PrintBytes("native_prefix", std::string_view(sample.prefix.data(), sample.prefix_size));
+    }
+    if (count > samples.size()) std::fprintf(stderr, "native_samples_omitted=%zu\n", count - samples.size());
+    std::fflush(stderr);
+  }
 };
+
+void ReadExactBytes(TerminalSession& session, const Console& console, NativeReads& trace,
+                    std::string_view expected, std::size_t max_bytes, bool vary_limit = false) {
+  std::string received;
+  received.reserve(expected.size() + max_bytes);
+  const auto deadline = std::chrono::steady_clock::now() + 5s;
+  unsigned fragment = 0;
+  try {
+    for (;;) {
+      received += session.ReadInputAvailable(vary_limit ? 1 + fragment++ % max_bytes : max_bytes);
+      // A wrong short prefix is already a mismatch. Do not disguise native
+      // replacement/NUL bytes as a timeout waiting for the UTF-8 byte count.
+      Require(received.size() <= expected.size() &&
+              std::equal(received.begin(), received.end(), expected.begin()),
+              "native byte stream differs from expected UTF-8/VT bytes");
+      if (received.size() == expected.size()) return;
+      Require(std::chrono::steady_clock::now() < deadline,
+              "native byte stream is incomplete without another key");
+      std::this_thread::sleep_for(1ms);
+    }
+  } catch (...) {
+    trace.Describe(console, expected, received);
+    throw;
+  }
+}
 
 void TestRetainedRecordsAndUtf8(Console& console) {
   // These records predate raw/VT acquisition. A signalled input handle does
@@ -168,7 +317,7 @@ void TestRetainedRecordsAndUtf8(Console& console) {
   Require(WaitForSingleObject(console.input.get(), 0) == WAIT_OBJECT_0,
           "retained non-character input signals the handle");
 
-  NativeReads trace;
+  NativeReads trace("retained-records/mixed-utf8-vt");
   TerminalSession session(Options(), console.input.get(), console.output.get(), trace.api);
   Until([&] { return trace.active.load(); }, "native ReadFile starts");
   unsigned heartbeat = 0;
@@ -183,13 +332,7 @@ void TestRetainedRecordsAndUtf8(Console& console) {
   QueueText(console.input.get(), u"x\u00A3\u20AC\U0001F600\x1b[A\x1bOP\x1b[<0;3;4M\x03");
   const std::string expected = "x\xC2\xA3\xE2\x82\xAC\xF0\x9F\x98\x80"
                                "\x1b[A\x1bOP\x1b[<0;3;4M\x03";
-  std::string received;
-  unsigned fragment = 0;
-  Until([&] {
-    received += session.ReadInputAvailable(1 + fragment++ % 3);
-    return received.size() >= expected.size();
-  }, "native Unicode/VT stream is delivered without another key");
-  Require(received == expected, "native UTF-8/VT bytes changed or were lost");
+  ReadExactBytes(session, console, trace, expected, 3, true);
   Until([&] { return trace.calls.load() >= 2 && trace.active.load(); },
         "native reader returns to idle blocked read");
   Require(session.Restore().succeeded(), "native blocked-read cancellation/restoration");
@@ -225,31 +368,23 @@ void TestMutatingSetterFailure(Console& console) {
 }
 
 void TestPreAcquisitionTypeahead(Console& console) {
+  NativeReads trace("pre-acquisition-typeahead");
   QueueText(console.input.get(), u"retained:\u00A3\u20AC\U0001F600");
-  TerminalSession session(Options(), console.input.get(), console.output.get());
+  TerminalSession session(Options(), console.input.get(), console.output.get(), trace.api);
   const std::string expected = "retained:\xC2\xA3\xE2\x82\xAC\xF0\x9F\x98\x80";
-  std::string bytes;
-  Until([&] {
-    bytes += session.ReadInputAvailable(1);
-    return bytes.size() >= expected.size();
-  }, "pre-acquisition typeahead survives mode change");
-  Require(bytes == expected, "pre-acquisition BMP/surrogate typeahead changed");
+  ReadExactBytes(session, console, trace, expected, 1);
   Require(session.Restore().succeeded() && console.Restored(), "typeahead session restore");
 }
 
 void TestNativeUtf8ReadBoundaries(Console& console) {
   for (DWORD limit : {1u, 2u, 3u}) {
-    NativeReads trace(limit);
+    NativeReads trace("native-utf8-read-boundary", limit);
     TerminalSession session(Options(), console.input.get(), console.output.get(), trace.api);
     Until([&] { return trace.active.load(); }, "native short read starts");
     QueueText(console.input.get(), u"\u00A3\u20AC\U0001F600");
     const std::string expected = "\xC2\xA3\xE2\x82\xAC\xF0\x9F\x98\x80";
-    std::string bytes;
-    Until([&] {
-      bytes += session.ReadInputAvailable(3);
-      return bytes.size() >= expected.size();
-    }, "native UTF-8 cache drains without another key");
-    Require(bytes == expected && trace.calls.load() >= (expected.size() + limit - 1) / limit,
+    ReadExactBytes(session, console, trace, expected, 3);
+    Require(trace.calls.load() >= (expected.size() + limit - 1) / limit,
             "actual short ReadFile calls lost or changed converted UTF-8 suffixes");
     Require(session.Restore().succeeded() && console.Restored(),
             "native short-read session restoration");
@@ -257,7 +392,7 @@ void TestNativeUtf8ReadBoundaries(Console& console) {
 }
 
 void TestEmergencyDefersInputRestore(Console& console) {
-  NativeReads trace;
+  NativeReads trace("emergency-deferred-input-restore");
   TerminalSession session(Options(), console.input.get(), console.output.get(), trace.api);
   Until([&] { return trace.active.load(); }, "native read active before emergency callback");
   const auto handler = trace.handler.load();
@@ -296,7 +431,7 @@ void TestRestoreFailureAfterMutation(Console& console) {
 
 void TestMailboxStop(Console& console) {
   QueueText(console.input.get(), std::u16string(TerminalInputReader::kCapacity * 2, u'q'));
-  NativeReads trace;
+  NativeReads trace("mailbox-backpressure-stop");
   TerminalSession session(Options(), console.input.get(), console.output.get(), trace.api);
   Until([&] { return session.ReadInputAvailable(1) == "q"; },
         "native mailbox becomes nonempty");
@@ -360,6 +495,7 @@ void FatalDrainChild(Console& console) {
 
 int Child(bool fatal) {
   Console console;
+  DescribeConsoleOwner();
   if (fatal) FatalDrainChild(console);
   TestRetainedRecordsAndUtf8(console);
   TestPreAcquisitionTypeahead(console);
