@@ -146,3 +146,26 @@ Pointer precision remains terminal-cell granular. Cells outside contained
 browser content are rejected rather than assigned synthetic sub-cell or
 letterbox coordinates. Mouse tracking is RAII-owned and must be disabled during
 terminal restoration.
+
+## D-018 — Explicit profile ownership and temporary browser commands
+
+**Status:** implemented; Windows CI and physical command-row qualification are
+recorded separately in the #13 PR.
+
+Each persistent profile has its own CEF root/cache and an exclusive OS lock.
+Private mode has a unique temporary root plus an empty cache path; removal
+requires completed CEF shutdown. Browser commands use Ctrl+Alt+O and a bounded
+temporary bottom-row overlay after the shared VT parser. Page Ctrl shortcuts
+and Ctrl+Alt+Q retain their accepted meanings. UI/report handling is separate:
+the transient status can show the current URL, but diagnostics store origins
+only. Browser popup windows and unsupported sensitive capabilities are denied
+explicitly; downloads require an opted-in directory with application-selected
+unique paths. See `BROWSER_RUNTIME.md` for the pinned CEF API rationale and tests.
+
+Windows qualification found that completed CEF shutdown does not release every
+process-owned file handle. Private sessions therefore use an ordinary OSR worker
+and an owning supervisor: only after the complete worker job exits can the root
+be removed and cleanup reported successful. The pipe/environment protocol carries
+only a root created by that supervisor, never an arbitrary deletion target.
+Startup `--disable-logging` complements the severity setting because this CEF
+pin otherwise creates a fatal-level diagnostic file. See `BROWSER_RUNTIME.md`.

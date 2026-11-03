@@ -17,6 +17,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Verify deterministic web fixtures in Chromium
         shell: pwsh
@@ -38,7 +40,7 @@ jobs:
 
       - name: Build Debug
         shell: pwsh
-        run: cmake --build build --config Debug --target asciiomium asciiomium_live asciiomium_tests terminal_logic_tests terminal_console_smoke full_frame_emitter_tests vt_console_smoke render_golden_tests color_quantizer_tests benchmark_result_tests input_parser_tests cef_key_translator_tests cef_pointer_translator_tests fixture_observation_tests source_frame_tests live_runtime_tests viewport_transform_tests asciiomium_frame_dump asciiomium_color_ramp asciiomium_vt_preview asciiomium_benchmark asciiomium_cef_capture --parallel
+        run: cmake --build build --config Debug --target asciiomium asciiomium_live asciiomium_tests terminal_logic_tests terminal_console_smoke full_frame_emitter_tests vt_console_smoke render_golden_tests color_quantizer_tests benchmark_result_tests input_parser_tests browser_commands_tests profile_session_tests private_process_tests asciiomium_runtime_probe cef_key_translator_tests cef_pointer_translator_tests fixture_observation_tests source_frame_tests live_runtime_tests viewport_transform_tests asciiomium_frame_dump asciiomium_color_ramp asciiomium_vt_preview asciiomium_benchmark asciiomium_cef_capture --parallel
 
       - name: Test Debug
         shell: pwsh
@@ -111,7 +113,7 @@ jobs:
             --width 640 --height 360 `
             --columns 100 --rows 30 `
             --fps 20 --cef-fps 60 --duration-ms 1500 `
-            --no-terminal --quiet `
+            --no-terminal --private --quiet `
             --report .\build\live-static-debug.json `
             --evidence-svg .\build\live-static-debug.svg `
             --vt-output .\build\live-static-debug.vt
@@ -140,7 +142,7 @@ jobs:
 
       - name: Build Release
         shell: pwsh
-        run: cmake --build build --config Release --target asciiomium asciiomium_live asciiomium_tests terminal_logic_tests terminal_console_smoke full_frame_emitter_tests vt_console_smoke render_golden_tests color_quantizer_tests benchmark_result_tests input_parser_tests cef_key_translator_tests cef_pointer_translator_tests fixture_observation_tests source_frame_tests live_runtime_tests viewport_transform_tests asciiomium_frame_dump asciiomium_color_ramp asciiomium_vt_preview asciiomium_benchmark asciiomium_cef_capture --parallel
+        run: cmake --build build --config Release --target asciiomium asciiomium_live asciiomium_tests terminal_logic_tests terminal_console_smoke full_frame_emitter_tests vt_console_smoke render_golden_tests color_quantizer_tests benchmark_result_tests input_parser_tests browser_commands_tests profile_session_tests private_process_tests asciiomium_runtime_probe cef_key_translator_tests cef_pointer_translator_tests fixture_observation_tests source_frame_tests live_runtime_tests viewport_transform_tests asciiomium_frame_dump asciiomium_color_ramp asciiomium_vt_preview asciiomium_benchmark asciiomium_cef_capture --parallel
 
       - name: Test Release
         shell: pwsh
@@ -204,7 +206,7 @@ jobs:
             --width 640 --height 360 `
             --columns 120 --rows 40 `
             --fps 20 --cef-fps 60 --duration-ms 2000 `
-            --no-terminal --quiet `
+            --no-terminal --private --quiet `
             --report .\build\live-motion-release.json `
             --evidence-svg .\build\live-motion-release.svg `
             --vt-output .\build\live-motion-release.vt
@@ -240,7 +242,7 @@ jobs:
             --columns 100 --rows 30 `
             --fps 20 --cef-fps 60 --duration-ms 2000 `
             --input-hex 1b5b3c33353b35313b31364d1b5b3c303b35313b31364d1b5b3c303b35313b31366d `
-            --no-terminal --quiet `
+            --no-terminal --private --quiet `
             --report .\build\live-mouse-click-release.json
 
       - name: Validate Release mouse-click-to-CEF acceptance
@@ -270,7 +272,7 @@ jobs:
             --columns 100 --rows 30 `
             --fps 20 --cef-fps 60 --duration-ms 2000 `
             --input-hex 1b5b3c33353b35313b31364d1b5b3c36353b35313b31364d `
-            --no-terminal --quiet `
+            --no-terminal --private --quiet `
             --report .\build\live-mouse-wheel-release.json
 
       - name: Validate Release mouse-wheel-to-CEF acceptance
@@ -302,7 +304,7 @@ jobs:
             --columns 100 --rows 30 `
             --fps 20 --cef-fps 60 --duration-ms 1500 `
             --input-script asciiomium `
-            --no-terminal --quiet `
+            --no-terminal --private --quiet `
             --report .\build\live-input-release.json
 
       - name: Validate Release keyboard-to-CEF acceptance
@@ -326,6 +328,20 @@ jobs:
           if (-not $data.runtime.terminal_restored) { throw 'input live teardown did not complete' }
           if (-not $data.runtime.closed_cleanly) { throw 'CEF did not close cleanly after input run' }
 
+      - name: Qualify real CEF browser runtime
+        shell: pwsh
+        run: python tests/verify_browser_runtime.py --exe build/bin/RELEASE/asciiomium_runtime_probe.exe --output build/browser-runtime-evidence.json
+
+      - name: Upload browser runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: asciiomium-browser-runtime-evidence
+          path: |
+            build/browser-runtime-evidence.json
+            build/runtime-probes/*
+          if-no-files-found: warn
+
       - name: Upload colour-ramp evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -335,6 +351,22 @@ jobs:
             build/color-modes-debug.svg
             build/color-modes-release.svg
           if-no-files-found: error
+
+      - name: Record private cleanup residue on failure
+        if: failure()
+        shell: pwsh
+        run: |
+          # Only names/metadata from our disposable fixture roots, never file
+          # contents or the runner's persistent browser/user profiles.
+          $base = Join-Path $env:TEMP 'ASCIIomium'
+          $entries = @()
+          if (Test-Path $base) {
+            $entries = @(Get-ChildItem $base -Directory -Filter 'private-*' | ForEach-Object {
+              Get-ChildItem $_.FullName -Recurse -Force | Select-Object FullName, Length, Attributes
+            } | Select-Object -First 100)
+          }
+          $entries | ConvertTo-Json -Depth 4 | Set-Content build/private-cleanup-residue.json
+          $entries | Format-Table -AutoSize
 
       - name: Upload fixture and benchmark evidence
         if: always()
@@ -376,4 +408,5 @@ jobs:
             build/live-mouse-click-release.json
             build/live-mouse-wheel-release.json
             build/live-input-release.json
+            build/private-cleanup-residue.json
           if-no-files-found: error

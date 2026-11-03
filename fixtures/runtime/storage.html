@@ -1,0 +1,39 @@
+<!doctype html><meta charset="utf-8"><title>WAIT:storage</title>
+<h1>Benign browser storage qualification</h1>
+<p>This loopback-only fixture stores fixed test markers. It reports boolean success, never cookie values.</p>
+<script>
+(async () => {
+  const mode = new URL(location.href).searchParams.get('mode');
+  const value = 'asciiomium-benign-v1';
+  const db = await new Promise((resolve, reject) => {
+    const request = indexedDB.open('asciiomium-qualification', 1);
+    request.onupgradeneeded = () => request.result.createObjectStore('markers');
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  function stored(write) {
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction('markers', write ? 'readwrite' : 'readonly');
+      const store = transaction.objectStore('markers');
+      const request = write ? store.put(value, 'marker') : store.get('marker');
+      let result;
+      request.onsuccess = () => { result = request.result; };
+      transaction.oncomplete = () => resolve(result);
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error);
+    });
+  }
+  if (mode === 'write') {
+    document.cookie = 'asciiomium_persistent=' + value + '; Max-Age=3600; Path=/; SameSite=Lax';
+    document.cookie = 'asciiomium_session=' + value + '; Path=/; SameSite=Lax';
+    localStorage.setItem('asciiomium-marker', value);
+    await stored(true);
+  }
+  const cookies = new Map(document.cookie.split(';').map(x => x.trim().split('=')));
+  const results = [cookies.get('asciiomium_persistent'), cookies.get('asciiomium_session'),
+    localStorage.getItem('asciiomium-marker'), await stored(false)];
+  const pass = mode === 'empty' ? results.every(x => x === undefined || x === null) : results.every(x => x === value);
+  db.close();
+  document.title = (pass ? 'PASS:' : 'FAIL:') + 'storage-' + mode;
+})().catch(() => { document.title = 'FAIL:storage-exception'; });
+</script>
