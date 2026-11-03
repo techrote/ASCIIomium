@@ -1,0 +1,416 @@
+{
+  "schema": "asciiomium-telemetry-qualification-v1",
+  "source_revision": "b041201ed6d06546eb93eda368d3d06284b6321c",
+  "source_tree": "002576133fee8d09716d68eba2bb6e7b0621cfd5",
+  "configuration": "RELEASE",
+  "qualification": "Automated headless CEF/runtime telemetry; no physical terminal writes or acceptance claimed",
+  "timing_scope": "Whole-run means, bounded rolling percentiles; process excludes Chromium child processes",
+  "overhead_note": "Microbenchmark estimates clock/history work only. Separate live on/off runs are observations with browser scheduling variation, not paired-frame causal speedup claims.",
+  "overhead": {
+    "schema": "asciiomium-telemetry-overhead-v1",
+    "scope": "paired integer workload plus eight clock reads and six fixed-history updates; no CEF/terminal",
+    "iterations_per_trial": 100000,
+    "trials": 7,
+    "clock_reads_per_instrumented_iteration": 8,
+    "history_updates_per_instrumented_iteration": 6,
+    "history_capacity_each": 2048,
+    "history_storage_bytes_total": 98496,
+    "history_retained_samples_each": 2048,
+    "checksum": 15678863919443179835,
+    "median_incremental_ns_per_iteration": 219.962,
+    "median_incremental_percent_of_50ms_budget": 0.00044,
+    "endpoint_process_probe_pair_ms": 0.0209,
+    "endpoint_cpu_counter_available": true,
+    "observations": [
+      {
+        "baseline_ms": 2.2204,
+        "instrumented_ms": 24.2558,
+        "incremental_ns_per_iteration": 220.354
+      },
+      {
+        "baseline_ms": 2.2195,
+        "instrumented_ms": 24.2157,
+        "incremental_ns_per_iteration": 219.962
+      },
+      {
+        "baseline_ms": 2.2217,
+        "instrumented_ms": 24.2182,
+        "incremental_ns_per_iteration": 219.965
+      },
+      {
+        "baseline_ms": 2.2211,
+        "instrumented_ms": 24.1982,
+        "incremental_ns_per_iteration": 219.771
+      },
+      {
+        "baseline_ms": 2.2307,
+        "instrumented_ms": 24.1733,
+        "incremental_ns_per_iteration": 219.426
+      },
+      {
+        "baseline_ms": 2.2196,
+        "instrumented_ms": 24.2437,
+        "incremental_ns_per_iteration": 220.241
+      },
+      {
+        "baseline_ms": 2.2203,
+        "instrumented_ms": 24.2135,
+        "incremental_ns_per_iteration": 219.932
+      }
+    ]
+  },
+  "benchmarks": [
+    {
+      "case": "static-full",
+      "fixture": "flat-ui",
+      "emitter": "full",
+      "timings": "on",
+      "same_frame_comparison": true,
+      "wall_seconds": 3.006884,
+      "rendered_frames": 2,
+      "emitted_frames": 2,
+      "bytes_per_second": 27953.191939,
+      "conversion": {
+        "sample_count": 2,
+        "mean_scope": "all accepted samples in measurement interval",
+        "mean_ms": 4.7142,
+        "percentile_scope": "most recent samples",
+        "percentile_capacity": 2048,
+        "percentile_sample_count": 2,
+        "percentile_index": "ceil(p*(N-1)) on ascending samples",
+        "p50_ms": 5.0869,
+        "p95_ms": 5.0869
+      },
+      "planning": {
+        "sample_count": 2,
+        "mean_scope": "all accepted samples in measurement interval",
+        "mean_ms": 0.1096,
+        "percentile_scope": "most recent samples",
+        "percentile_capacity": 2048,
+        "percentile_sample_count": 2,
+        "percentile_index": "ceil(p*(N-1)) on ascending samples",
+        "p50_ms": 0.1115,
+        "p95_ms": 0.1115
+      },
+      "serialization": {
+        "sample_count": 2,
+        "mean_scope": "all accepted samples in measurement interval",
+        "mean_ms": 1.4125,
+        "percentile_scope": "most recent samples",
+        "percentile_capacity": 2048,
+        "percentile_sample_count": 2,
+        "percentile_index": "ceil(p*(N-1)) on ascending samples",
+        "p50_ms": 2.5706,
+        "p95_ms": 2.5706
+      },
+      "process": {
+        "scope": "ASCIIomium browser process only; excludes CEF child processes",
+        "start": {
+          "working_set_bytes": 54673408,
+          "private_bytes": 20770816,
+          "lifetime_peak_working_set_bytes": 54673408,
+          "logical_processors": 4
+        },
+        "end": {
+          "working_set_bytes": 86036480,
+          "private_bytes": 35864576,
+          "lifetime_peak_working_set_bytes": 87236608,
+          "logical_processors": 4
+        },
+        "cpu_time_ms": 500.0,
+        "cpu_interval_seconds": 3.006894,
+        "cpu_sampling_uncertainty_seconds": 6E-06,
+        "cpu_interval_source": "steady-clock midpoints around GetProcessTimes",
+        "cpu_percent_one_core": 16.628455,
+        "cpu_percent_machine": 4.157114
+      },
+      "differential_to_full_ratio": 0.881216,
+      "report_sha256": "83413cd6db513b4023298fda1f23d558b9b30a84b6713b8234571447d4eb122f"
+    },
+    {
+      "case": "static-differential",
+      "fixture": "flat-ui",
+      "emitter": "differential",
+      "timings": "on",
+      "same_frame_comparison": true,
+      "wall_seconds": 3.012576,
+      "rendered_frames": 2,
+      "emitted_frames": 2,
+      "bytes_per_second": 24586.264435,
+      "conversion": {
+        "sample_count": 2,
+        "mean_scope": "all accepted samples in measurement interval",
+        "mean_ms": 4.7873,
+        "percentile_scope": "most recent samples",
+        "percentile_capacity": 2048,
+        "percentile_sample_count": 2,
+        "percentile_index": "ceil(p*(N-1)) on ascending samples",
+        "p50_ms": 5.1365,
+        "p95_ms": 5.1365
+      },
+      "planning": {
+        "sample_count": 2,
+        "mean_scope": "all accepted samples in measurement interval",
+        "mean_ms": 0.1105,
+        "percentile_scope": "most recent samples",
+        "percentile_capacity": 2048,
+        "percentile_sample_count": 2,
+        "percentile_index": "ceil(p*(N-1)) on ascending samples",
+        "p50_ms": 0.1163,
+        "p95_ms": 0.1163
+      },
+      "serialization": {
+        "sample_count": 2,
+        "mean_scope": "all accepted samples in measurement interval",
+        "mean_ms": 1.37215,
+        "percentile_scope": "most recent samples",
+        "percentile_capacity": 2048,
+        "percentile_sample_count": 2,
+        "percentile_index": "ceil(p*(N-1)) on ascending samples",
+        "p50_ms": 2.3266,
+        "p95_ms": 2.3266
+      },
+      "process": {
+        "scope": "ASCIIomium browser process only; excludes CEF child processes",
+        "start": {
+          "working_set_bytes": 54620160,
+          "private_bytes": 20545536,
+          "lifetime_peak_working_set_bytes": 54620160,
+          "logical_processors": 4
+        },
+        "end": {
+          "working_set_bytes": 85737472,
+          "private_bytes": 35254272,
+          "lifetime_peak_working_set_bytes": 90050560,
+          "logical_processors": 4
+        },
+        "cpu_time_ms": 437.5,
+        "cpu_interval_seconds": 3.012603,
+        "cpu_sampling_uncertainty_seconds": 6E-06,
+        "cpu_interval_source": "steady-clock midpoints around GetProcessTimes",
+        "cpu_percent_one_core": 14.522324,
+        "cpu_percent_machine": 3.630581
+      },
+      "differential_to_full_ratio": 0.881216,
+      "report_sha256": "294062c33cc75be75bf3ce11072a3a35b79dcab8f50b0889ae9e861ac9beb7ae"
+    },
+    {
+      "case": "motion-full",
+      "fixture": "motion-scroll",
+      "emitter": "full",
+      "timings": "on",
+      "same_frame_comparison": true,
+      "wall_seconds": 3.001012,
+      "rendered_frames": 50,
+      "emitted_frames": 50,
+      "bytes_per_second": 849529.950308,
+      "conversion": {
+        "sample_count": 50,
+        "mean_scope": "all accepted samples in measurement interval",
+        "mean_ms": 4.465104,
+        "percentile_scope": "most recent samples",
+        "percentile_capacity": 2048,
+        "percentile_sample_count": 50,
+        "percentile_index": "ceil(p*(N-1)) on ascending samples",
+        "p50_ms": 4.3492,
+        "p95_ms": 5.0736
+      },
+      "planning": {
+        "sample_count": 50,
+        "mean_scope": "all accepted samples in measurement interval",
+        "mean_ms": 0.06515,
+        "percentile_scope": "most recent samples",
+        "percentile_capacity": 2048,
+        "percentile_sample_count": 50,
+        "percentile_index": "ceil(p*(N-1)) on ascending samples",
+        "p50_ms": 0.0546,
+        "p95_ms": 0.1128
+      },
+      "serialization": {
+        "sample_count": 50,
+        "mean_scope": "all accepted samples in measurement interval",
+        "mean_ms": 2.353724,
+        "percentile_scope": "most recent samples",
+        "percentile_capacity": 2048,
+        "percentile_sample_count": 50,
+        "percentile_index": "ceil(p*(N-1)) on ascending samples",
+        "p50_ms": 2.0023,
+        "p95_ms": 4.0835
+      },
+      "process": {
+        "scope": "ASCIIomium browser process only; excludes CEF child processes",
+        "start": {
+          "working_set_bytes": 56446976,
+          "private_bytes": 21635072,
+          "lifetime_peak_working_set_bytes": 56446976,
+          "logical_processors": 4
+        },
+        "end": {
+          "working_set_bytes": 87629824,
+          "private_bytes": 36507648,
+          "lifetime_peak_working_set_bytes": 89653248,
+          "logical_processors": 4
+        },
+        "cpu_time_ms": 968.75,
+        "cpu_interval_seconds": 3.001023,
+        "cpu_sampling_uncertainty_seconds": 5E-06,
+        "cpu_interval_source": "steady-clock midpoints around GetProcessTimes",
+        "cpu_percent_one_core": 32.280659,
+        "cpu_percent_machine": 8.070165
+      },
+      "differential_to_full_ratio": 0.075208,
+      "report_sha256": "0fc110fae39e27ee259f448013c8f27fa09c017ff997bbbdedfda80b5385565b"
+    },
+    {
+      "case": "motion-differential",
+      "fixture": "motion-scroll",
+      "emitter": "differential",
+      "timings": "on",
+      "same_frame_comparison": true,
+      "wall_seconds": 3.002048,
+      "rendered_frames": 50,
+      "emitted_frames": 50,
+      "bytes_per_second": 63779.795119,
+      "conversion": {
+        "sample_count": 50,
+        "mean_scope": "all accepted samples in measurement interval",
+        "mean_ms": 4.482334,
+        "percentile_scope": "most recent samples",
+        "percentile_capacity": 2048,
+        "percentile_sample_count": 50,
+        "percentile_index": "ceil(p*(N-1)) on ascending samples",
+        "p50_ms": 4.3436,
+        "p95_ms": 5.2966
+      },
+      "planning": {
+        "sample_count": 50,
+        "mean_scope": "all accepted samples in measurement interval",
+        "mean_ms": 0.064574,
+        "percentile_scope": "most recent samples",
+        "percentile_capacity": 2048,
+        "percentile_sample_count": 50,
+        "percentile_index": "ceil(p*(N-1)) on ascending samples",
+        "p50_ms": 0.055,
+        "p95_ms": 0.1191
+      },
+      "serialization": {
+        "sample_count": 50,
+        "mean_scope": "all accepted samples in measurement interval",
+        "mean_ms": 0.232718,
+        "percentile_scope": "most recent samples",
+        "percentile_capacity": 2048,
+        "percentile_sample_count": 50,
+        "percentile_index": "ceil(p*(N-1)) on ascending samples",
+        "p50_ms": 0.1766,
+        "p95_ms": 0.4058
+      },
+      "process": {
+        "scope": "ASCIIomium browser process only; excludes CEF child processes",
+        "start": {
+          "working_set_bytes": 54591488,
+          "private_bytes": 20574208,
+          "lifetime_peak_working_set_bytes": 54591488,
+          "logical_processors": 4
+        },
+        "end": {
+          "working_set_bytes": 85794816,
+          "private_bytes": 35287040,
+          "lifetime_peak_working_set_bytes": 90263552,
+          "logical_processors": 4
+        },
+        "cpu_time_ms": 1046.875,
+        "cpu_interval_seconds": 3.002058,
+        "cpu_sampling_uncertainty_seconds": 6E-06,
+        "cpu_interval_source": "steady-clock midpoints around GetProcessTimes",
+        "cpu_percent_one_core": 34.871906,
+        "cpu_percent_machine": 8.717976
+      },
+      "differential_to_full_ratio": 0.075107,
+      "report_sha256": "f9d536e27f3c623b9609fb21cffc0e99f2df757f1cb10e6f0b7dfd39d72cdcaa"
+    },
+    {
+      "case": "motion-timers-on",
+      "fixture": "motion-scroll",
+      "emitter": "differential",
+      "timings": "on",
+      "same_frame_comparison": false,
+      "wall_seconds": 3.000345,
+      "rendered_frames": 52,
+      "emitted_frames": 52,
+      "bytes_per_second": 64568.234863,
+      "conversion": {
+        "sample_count": 52,
+        "mean_scope": "all accepted samples in measurement interval",
+        "mean_ms": 4.471813,
+        "percentile_scope": "most recent samples",
+        "percentile_capacity": 2048,
+        "percentile_sample_count": 52,
+        "percentile_index": "ceil(p*(N-1)) on ascending samples",
+        "p50_ms": 4.3049,
+        "p95_ms": 5.1724
+      },
+      "planning": {
+        "sample_count": 52,
+        "mean_scope": "all accepted samples in measurement interval",
+        "mean_ms": 0.061585,
+        "percentile_scope": "most recent samples",
+        "percentile_capacity": 2048,
+        "percentile_sample_count": 52,
+        "percentile_index": "ceil(p*(N-1)) on ascending samples",
+        "p50_ms": 0.0569,
+        "p95_ms": 0.0889
+      },
+      "serialization": {
+        "sample_count": 52,
+        "mean_scope": "all accepted samples in measurement interval",
+        "mean_ms": 0.221065,
+        "percentile_scope": "most recent samples",
+        "percentile_capacity": 2048,
+        "percentile_sample_count": 52,
+        "percentile_index": "ceil(p*(N-1)) on ascending samples",
+        "p50_ms": 0.151,
+        "p95_ms": 0.4466
+      },
+      "process": {
+        "scope": "ASCIIomium browser process only; excludes CEF child processes",
+        "start": {
+          "working_set_bytes": 54312960,
+          "private_bytes": 20332544,
+          "lifetime_peak_working_set_bytes": 54448128,
+          "logical_processors": 4
+        },
+        "end": {
+          "working_set_bytes": 86036480,
+          "private_bytes": 35561472,
+          "lifetime_peak_working_set_bytes": 89755648,
+          "logical_processors": 4
+        },
+        "cpu_time_ms": 812.5,
+        "cpu_interval_seconds": 3.000358,
+        "cpu_sampling_uncertainty_seconds": 5E-06,
+        "cpu_interval_source": "steady-clock midpoints around GetProcessTimes",
+        "cpu_percent_one_core": 27.080102,
+        "cpu_percent_machine": 6.770026
+      },
+      "differential_to_full_ratio": null,
+      "report_sha256": "781e27ac222334073472dee526ee142909e2575f6b2f351e9b31f24a0b2ab66d"
+    },
+    {
+      "case": "motion-timers-off",
+      "fixture": "motion-scroll",
+      "emitter": "differential",
+      "timings": "off",
+      "same_frame_comparison": false,
+      "wall_seconds": 3.000025,
+      "rendered_frames": 52,
+      "emitted_frames": 52,
+      "bytes_per_second": 65220.456496,
+      "conversion": null,
+      "planning": null,
+      "serialization": null,
+      "process": null,
+      "differential_to_full_ratio": null,
+      "report_sha256": "7ee19683d3eed34cac80ae071177fa8550323c2657597306b6e83c4220470c4e"
+    }
+  ]
+}

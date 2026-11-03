@@ -1,0 +1,361 @@
+{
+  "schema": "asciiomium-package-verification-v1",
+  "source_revision": "36d11ec954fb86051a6240739c23a4a0e120ba38",
+  "inventory_verified": true,
+  "physical_windows_terminal": false,
+  "smoke": {
+    "versions": {
+      "asciiomium.exe": "ASCIIomium 0.1.0\nCEF compile: 151.3.17+gf059e67+chromium-151.0.7922.138\nCEF runtime: 151.3.17\nChromium runtime: 151.0.7922.138\nBuild: Release\nArchitecture: x64\nSource revision: 36d11ec954fb86051a6240739c23a4a0e120ba38\nSource tree: 106b38e41488da8b65dd293256eeafe86869530f\nSource identity: available\nSource checkout dirty: no\nCompiler: MSVC-19.44.35229.0\nFixture manifest SHA-256: 0b0a484727bc8dcf4316f33e29b7954b1b34a4fcb6c59bffd8b8c810a6fe41a0\nCEF ABI/header match: yes",
+      "asciiomium_live.exe": "ASCIIomium 0.1.0\nCEF compile: 151.3.17+gf059e67+chromium-151.0.7922.138\nCEF runtime: 151.3.17\nChromium runtime: 151.0.7922.138\nBuild: Release\nArchitecture: x64\nSource revision: 36d11ec954fb86051a6240739c23a4a0e120ba38\nSource tree: 106b38e41488da8b65dd293256eeafe86869530f\nSource identity: available\nSource checkout dirty: no\nCompiler: MSVC-19.44.35229.0\nFixture manifest SHA-256: 0b0a484727bc8dcf4316f33e29b7954b1b34a4fcb6c59bffd8b8c810a6fe41a0\nCEF ABI/header match: yes"
+    },
+    "processes": [
+      {
+        "command": [
+          "C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\asciiomium-extraction-q0nggbk4\\package\\asciiomium.exe",
+          "--version"
+        ],
+        "timeout_seconds": 20,
+        "returncode": 0,
+        "stdout": "ASCIIomium 0.1.0\nCEF compile: 151.3.17+gf059e67+chromium-151.0.7922.138\nCEF runtime: 151.3.17\nChromium runtime: 151.0.7922.138\nBuild: Release\nArchitecture: x64\nSource revision: 36d11ec954fb86051a6240739c23a4a0e120ba38\nSource tree: 106b38e41488da8b65dd293256eeafe86869530f\nSource identity: available\nSource checkout dirty: no\nCompiler: MSVC-19.44.35229.0\nFixture manifest SHA-256: 0b0a484727bc8dcf4316f33e29b7954b1b34a4fcb6c59bffd8b8c810a6fe41a0\nCEF ABI/header match: yes\n",
+        "stderr": ""
+      },
+      {
+        "command": [
+          "C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\asciiomium-extraction-q0nggbk4\\package\\asciiomium_live.exe",
+          "--version"
+        ],
+        "timeout_seconds": 20,
+        "returncode": 0,
+        "stdout": "ASCIIomium 0.1.0\nCEF compile: 151.3.17+gf059e67+chromium-151.0.7922.138\nCEF runtime: 151.3.17\nChromium runtime: 151.0.7922.138\nBuild: Release\nArchitecture: x64\nSource revision: 36d11ec954fb86051a6240739c23a4a0e120ba38\nSource tree: 106b38e41488da8b65dd293256eeafe86869530f\nSource identity: available\nSource checkout dirty: no\nCompiler: MSVC-19.44.35229.0\nFixture manifest SHA-256: 0b0a484727bc8dcf4316f33e29b7954b1b34a4fcb6c59bffd8b8c810a6fe41a0\nCEF ABI/header match: yes\n",
+        "stderr": ""
+      },
+      {
+        "command": [
+          "C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\asciiomium-extraction-q0nggbk4\\package\\asciiomium_live.exe",
+          "--private",
+          "--fixture",
+          "flat-ui",
+          "--no-terminal",
+          "--quiet",
+          "--duration-ms",
+          "2200",
+          "--report",
+          "C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\asciiomium-extraction-q0nggbk4\\unrelated-working-directory\\flat-ui.json",
+          "--freeze"
+        ],
+        "timeout_seconds": 45,
+        "returncode": 0,
+        "stdout": "",
+        "stderr": ""
+      },
+      {
+        "command": [
+          "C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\asciiomium-extraction-q0nggbk4\\package\\asciiomium_live.exe",
+          "--private",
+          "--fixture",
+          "motion-scroll",
+          "--no-terminal",
+          "--quiet",
+          "--duration-ms",
+          "3000",
+          "--report",
+          "C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\asciiomium-extraction-q0nggbk4\\unrelated-working-directory\\motion-scroll.json"
+        ],
+        "timeout_seconds": 45,
+        "returncode": 0,
+        "stdout": "",
+        "stderr": ""
+      }
+    ],
+    "fixtures": [
+      {
+        "fixture": "flat-ui",
+        "result": {
+          "private_supervisor": {
+            "worker_exit": 0,
+            "process_tree_reaped": true,
+            "forced_descendants": false,
+            "profile_removed": true
+          },
+          "schema": "asciiomium-live-v1",
+          "fixture_resolution": "executable-relative",
+          "cef_compile": "151.3.17+gf059e67+chromium-151.0.7922.138",
+          "cef_runtime": "151.3.17",
+          "chromium_runtime": "151.0.7922.138",
+          "url": "file://[local]",
+          "browser": {
+            "profile_mode": "private",
+            "profile_cleanup": true,
+            "profile_cleanup_deferred": false,
+            "profile_cleanup_attempts": 1,
+            "profile_cleanup_error": 0,
+            "current_origin": "file://[local]",
+            "loading": false,
+            "can_go_back": false,
+            "can_go_forward": false,
+            "denied_popups": 0,
+            "denied_permissions": 0,
+            "denied_media": 0,
+            "denied_downloads": 0,
+            "completed_downloads": 0,
+            "denied_protocols": 0,
+            "denied_certificates": 0,
+            "denied_dialogs": 0
+          },
+          "exit_reason": "duration",
+          "sandbox": "disabled-temporary-direct-executable-bootstrap",
+          "load": {
+            "complete": true,
+            "http_status": 200,
+            "error_code": 0,
+            "error_text": "",
+            "failed_url": "[redacted]"
+          },
+          "source": {
+            "viewport_width": 960,
+            "viewport_height": 540,
+            "cef_fps_cap": 60,
+            "presentation_generation": 2,
+            "view_generation": 2,
+            "view_paint_count": 2,
+            "popup_generation": 0,
+            "popup_paint_count": 0,
+            "popup_visible": false,
+            "observed_view_paints_per_second": 0.906154
+          },
+          "renderer": {
+            "glyph_encoder": "halfblock-u2580",
+            "color_mode": "1024",
+            "sampling_filter": "box",
+            "max_fps": 20,
+            "terminal_columns": 120,
+            "terminal_rows": 40,
+            "fit_mode": "contain",
+            "cell_aspect": 0.5
+          },
+          "geometry": {
+            "generation": 1,
+            "sample_columns": 120,
+            "sample_rows": 80,
+            "content_sample_rect": [
+              0.0,
+              6.25,
+              120.0,
+              67.5
+            ],
+            "content_terminal_rect": [
+              0.0,
+              3.125,
+              120.0,
+              33.75
+            ],
+            "cef_resize_requests": 0
+          },
+          "scheduler": {
+            "latest_source_generation": 2,
+            "last_rendered_source_generation": 2,
+            "rendered_frames": 2,
+            "emitted_frames": 2,
+            "coalesced_generations": 0,
+            "forced_refreshes": 0,
+            "observed_emitted_fps": 0.906154
+          },
+          "timing_ms": {
+            "conversion": {
+              "average": 7.2514,
+              "p95": 7.2963
+            },
+            "serialization": {
+              "average": 0.9478,
+              "p95": 1.7303
+            },
+            "terminal_write": {
+              "average": 0.0,
+              "p95": 0.0
+            }
+          },
+          "input": {
+            "decoded_events": 0,
+            "unsupported_events": 0,
+            "cef_events": 0,
+            "pointer_decoded_events": 0,
+            "pointer_cef_events": 0,
+            "pointer_rejected_events": 0,
+            "script_sent": false,
+            "hex_sent": false,
+            "fixture_ready_observed": false,
+            "fixture_complete_observed": false,
+            "focus_observed": false,
+            "event_observed": false,
+            "value_observed": false,
+            "dom_observed": false,
+            "pointer_dom_observed": false,
+            "pointer_scroll_observed": false,
+            "wheel_delta_per_notch": 120,
+            "fixture_sequence": 0,
+            "fixture_events": "",
+            "paint_observed": false,
+            "generation_before": 0,
+            "generation_after": 2
+          },
+          "runtime": {
+            "duration_seconds": 2.207129,
+            "loop_iterations": 585,
+            "idle_iterations": 582,
+            "popup_composited_frames": 0,
+            "last_vt_bytes": 38624,
+            "terminal_output": false,
+            "terminal_restored": true,
+            "closed_cleanly": true
+          }
+        }
+      },
+      {
+        "fixture": "motion-scroll",
+        "result": {
+          "private_supervisor": {
+            "worker_exit": 0,
+            "process_tree_reaped": true,
+            "forced_descendants": false,
+            "profile_removed": true
+          },
+          "schema": "asciiomium-live-v1",
+          "fixture_resolution": "executable-relative",
+          "cef_compile": "151.3.17+gf059e67+chromium-151.0.7922.138",
+          "cef_runtime": "151.3.17",
+          "chromium_runtime": "151.0.7922.138",
+          "url": "file://[local]",
+          "browser": {
+            "profile_mode": "private",
+            "profile_cleanup": true,
+            "profile_cleanup_deferred": false,
+            "profile_cleanup_attempts": 1,
+            "profile_cleanup_error": 0,
+            "current_origin": "file://[local]",
+            "loading": false,
+            "can_go_back": false,
+            "can_go_forward": false,
+            "denied_popups": 0,
+            "denied_permissions": 0,
+            "denied_media": 0,
+            "denied_downloads": 0,
+            "completed_downloads": 0,
+            "denied_protocols": 0,
+            "denied_certificates": 0,
+            "denied_dialogs": 0
+          },
+          "exit_reason": "duration",
+          "sandbox": "disabled-temporary-direct-executable-bootstrap",
+          "load": {
+            "complete": true,
+            "http_status": 200,
+            "error_code": 0,
+            "error_text": "",
+            "failed_url": "[redacted]"
+          },
+          "source": {
+            "viewport_width": 960,
+            "viewport_height": 540,
+            "cef_fps_cap": 60,
+            "presentation_generation": 113,
+            "view_generation": 113,
+            "view_paint_count": 113,
+            "popup_generation": 0,
+            "popup_paint_count": 0,
+            "popup_visible": false,
+            "observed_view_paints_per_second": 37.652869
+          },
+          "renderer": {
+            "glyph_encoder": "halfblock-u2580",
+            "color_mode": "1024",
+            "sampling_filter": "box",
+            "max_fps": 20,
+            "terminal_columns": 120,
+            "terminal_rows": 40,
+            "fit_mode": "contain",
+            "cell_aspect": 0.5
+          },
+          "geometry": {
+            "generation": 1,
+            "sample_columns": 120,
+            "sample_rows": 80,
+            "content_sample_rect": [
+              0.0,
+              6.25,
+              120.0,
+              67.5
+            ],
+            "content_terminal_rect": [
+              0.0,
+              3.125,
+              120.0,
+              33.75
+            ],
+            "cef_resize_requests": 0
+          },
+          "scheduler": {
+            "latest_source_generation": 113,
+            "last_rendered_source_generation": 110,
+            "rendered_frames": 32,
+            "emitted_frames": 32,
+            "coalesced_generations": 78,
+            "forced_refreshes": 0,
+            "observed_emitted_fps": 10.662759
+          },
+          "timing_ms": {
+            "conversion": {
+              "average": 7.524397,
+              "p95": 8.0251
+            },
+            "serialization": {
+              "average": 1.089312,
+              "p95": 2.1035
+            },
+            "terminal_write": {
+              "average": 4.7e-05,
+              "p95": 0.0001
+            }
+          },
+          "input": {
+            "decoded_events": 0,
+            "unsupported_events": 0,
+            "cef_events": 0,
+            "pointer_decoded_events": 0,
+            "pointer_cef_events": 0,
+            "pointer_rejected_events": 0,
+            "script_sent": false,
+            "hex_sent": false,
+            "fixture_ready_observed": false,
+            "fixture_complete_observed": false,
+            "focus_observed": false,
+            "event_observed": false,
+            "value_observed": false,
+            "dom_observed": false,
+            "pointer_dom_observed": false,
+            "pointer_scroll_observed": false,
+            "wheel_delta_per_notch": 120,
+            "fixture_sequence": 0,
+            "fixture_events": "",
+            "paint_observed": false,
+            "generation_before": 0,
+            "generation_after": 113
+          },
+          "runtime": {
+            "duration_seconds": 3.001099,
+            "loop_iterations": 944,
+            "idle_iterations": 911,
+            "popup_composited_frames": 0,
+            "last_vt_bytes": 28478,
+            "terminal_output": false,
+            "terminal_restored": true,
+            "closed_cleanly": true
+          }
+        }
+      }
+    ],
+    "missing_runtime_negative_control": true,
+    "package_unchanged_after_smoke": true
+  },
+  "success": true,
+  "failure": null
+}

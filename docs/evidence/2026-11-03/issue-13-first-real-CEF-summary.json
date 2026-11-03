@@ -1,0 +1,228 @@
+{
+  "schema": "asciiomium-browser-runtime-v1",
+  "source_revision": "c83353cc1e5974ad09922e57b1d07e7674d7e472",
+  "qualification": "automated-real-CEF-loopback",
+  "physical_windows_terminal": false,
+  "results": [
+    {
+      "name": "persistent-write",
+      "exit_code": 0,
+      "expected_exit": 0,
+      "probe": {
+        "schema": "asciiomium-runtime-probe-v1",
+        "scenario": "storage-write",
+        "passed": true,
+        "closed_cleanly": true,
+        "profile_cleanup": true,
+        "profile_cleanup_deferred": false,
+        "profile_cleanup_error": 0,
+        "private": false,
+        "profile_cleanup_attempts": 0,
+        "verified_page_transitions": 1,
+        "denied_popups": 0,
+        "denied_permissions": 0,
+        "denied_media": 0,
+        "denied_downloads": 0,
+        "completed_downloads": 0,
+        "denied_certificates": 0
+      }
+    },
+    {
+      "name": "persistent-restart",
+      "exit_code": 0,
+      "expected_exit": 0,
+      "probe": {
+        "schema": "asciiomium-runtime-probe-v1",
+        "scenario": "storage-read",
+        "passed": true,
+        "closed_cleanly": true,
+        "profile_cleanup": true,
+        "profile_cleanup_deferred": false,
+        "profile_cleanup_error": 0,
+        "private": false,
+        "profile_cleanup_attempts": 0,
+        "verified_page_transitions": 1,
+        "denied_popups": 0,
+        "denied_permissions": 0,
+        "denied_media": 0,
+        "denied_downloads": 0,
+        "completed_downloads": 0,
+        "denied_certificates": 0
+      }
+    },
+    {
+      "name": "separate-profile",
+      "exit_code": 0,
+      "expected_exit": 0,
+      "probe": {
+        "schema": "asciiomium-runtime-probe-v1",
+        "scenario": "storage-empty",
+        "passed": true,
+        "closed_cleanly": true,
+        "profile_cleanup": true,
+        "profile_cleanup_deferred": false,
+        "profile_cleanup_error": 0,
+        "private": false,
+        "profile_cleanup_attempts": 0,
+        "verified_page_transitions": 1,
+        "denied_popups": 0,
+        "denied_permissions": 0,
+        "denied_media": 0,
+        "denied_downloads": 0,
+        "completed_downloads": 0,
+        "denied_certificates": 0
+      }
+    },
+    {
+      "name": "private-write",
+      "exit_code": 0,
+      "expected_exit": 0,
+      "probe": {
+        "private_supervisor": {
+          "worker_exit": 0,
+          "process_tree_reaped": true,
+          "forced_descendants": false,
+          "profile_removed": true
+        },
+        "schema": "asciiomium-runtime-probe-v1",
+        "scenario": "storage-write",
+        "passed": true,
+        "closed_cleanly": true,
+        "profile_cleanup": true,
+        "profile_cleanup_deferred": false,
+        "profile_cleanup_error": 0,
+        "private": true,
+        "profile_cleanup_attempts": 1,
+        "verified_page_transitions": 1,
+        "denied_popups": 0,
+        "denied_permissions": 0,
+        "denied_media": 0,
+        "denied_downloads": 0,
+        "completed_downloads": 0,
+        "denied_certificates": 0
+      }
+    },
+    {
+      "name": "private-restart",
+      "exit_code": 0,
+      "expected_exit": 0,
+      "probe": {
+        "private_supervisor": {
+          "worker_exit": 0,
+          "process_tree_reaped": true,
+          "forced_descendants": false,
+          "profile_removed": true
+        },
+        "schema": "asciiomium-runtime-probe-v1",
+        "scenario": "storage-empty",
+        "passed": true,
+        "closed_cleanly": true,
+        "profile_cleanup": true,
+        "profile_cleanup_deferred": false,
+        "profile_cleanup_error": 0,
+        "private": true,
+        "profile_cleanup_attempts": 1,
+        "verified_page_transitions": 1,
+        "denied_popups": 0,
+        "denied_permissions": 0,
+        "denied_media": 0,
+        "denied_downloads": 0,
+        "completed_downloads": 0,
+        "denied_certificates": 0
+      }
+    },
+    {
+      "name": "persistent-still-intact",
+      "exit_code": 0,
+      "expected_exit": 0,
+      "probe": {
+        "schema": "asciiomium-runtime-probe-v1",
+        "scenario": "storage-read",
+        "passed": true,
+        "closed_cleanly": true,
+        "profile_cleanup": true,
+        "profile_cleanup_deferred": false,
+        "profile_cleanup_error": 0,
+        "private": false,
+        "profile_cleanup_attempts": 0,
+        "verified_page_transitions": 1,
+        "denied_popups": 0,
+        "denied_permissions": 0,
+        "denied_media": 0,
+        "denied_downloads": 0,
+        "completed_downloads": 0,
+        "denied_certificates": 0
+      }
+    },
+    {
+      "name": "diagnostic-file-logging-disabled",
+      "passed": true
+    },
+    {
+      "name": "ownership-collision",
+      "exit_code": 1,
+      "expected_exit": 1
+    },
+    {
+      "name": "after-ownership-release",
+      "exit_code": 0,
+      "expected_exit": 0,
+      "probe": {
+        "schema": "asciiomium-runtime-probe-v1",
+        "scenario": "storage-read",
+        "passed": true,
+        "closed_cleanly": true,
+        "profile_cleanup": true,
+        "profile_cleanup_deferred": false,
+        "profile_cleanup_error": 0,
+        "private": false,
+        "profile_cleanup_attempts": 0,
+        "verified_page_transitions": 1,
+        "denied_popups": 0,
+        "denied_permissions": 0,
+        "denied_media": 0,
+        "denied_downloads": 0,
+        "completed_downloads": 0,
+        "denied_certificates": 0
+      }
+    },
+    {
+      "name": "navigation-history-reload-stop-recovery",
+      "exit_code": 1,
+      "expected_exit": 0,
+      "probe": {
+        "private_supervisor": {
+          "worker_exit": 1,
+          "process_tree_reaped": true,
+          "forced_descendants": false,
+          "profile_removed": true
+        },
+        "schema": "asciiomium-runtime-probe-v1",
+        "scenario": "navigation",
+        "passed": false,
+        "closed_cleanly": true,
+        "profile_cleanup": true,
+        "profile_cleanup_deferred": false,
+        "profile_cleanup_error": 0,
+        "private": true,
+        "profile_cleanup_attempts": 1,
+        "verified_page_transitions": 8,
+        "denied_popups": 0,
+        "denied_permissions": 0,
+        "denied_media": 0,
+        "denied_downloads": 0,
+        "completed_downloads": 0,
+        "denied_certificates": 0
+      }
+    }
+  ],
+  "http_requests": {
+    "/storage": 7,
+    "/favicon.ico": 15,
+    "/a": 4,
+    "/b": 5,
+    "/slow": 1,
+    "/redirect": 1,
+    "/network-error": 2
+  }
+}

@@ -1,0 +1,84 @@
+{
+  "schema": "asciiomium-differential-qualification-v1",
+  "source_revision": "1272351b03502e7600c1229da8a50bfa4d433bdb",
+  "configuration": "RELEASE",
+  "qualification": "automated headless CEF and exact serialized bytes; physical Windows Terminal acceptance outstanding",
+  "pairing": "Full and differential serializers consume each identical logical frame in one run; comparison adds CPU work.",
+  "static_caveat": "The live scheduler already idles a stable source; synthetic repeated frames separately prove zero delta payload.",
+  "fixtures": [
+    {
+      "fixture": "flat-ui",
+      "rendered_frames": 2,
+      "emitted_frames": 2,
+      "full_reference_bytes": 84052,
+      "differential_bytes": 74068,
+      "differential_to_full_ratio": 0.8812163898538999,
+      "full_bytes_per_rendered_frame": 42026,
+      "differential_bytes_per_rendered_frame": 37034.0,
+      "full_bytes_per_second": 20997.55105181363,
+      "differential_bytes_per_second": 18503.383822,
+      "changed_cells": 13994,
+      "changed_runs": 168,
+      "planning": {
+        "average_ms": 0.15275,
+        "p50_ms": 0.1765,
+        "p95_ms": 0.1765,
+        "sample_count": 2,
+        "percentile_retained_samples": 2
+      },
+      "serialization": {
+        "average_ms": 2.35705,
+        "p50_ms": 4.2984,
+        "p95_ms": 4.2984,
+        "sample_count": 2,
+        "percentile_retained_samples": 2
+      },
+      "reference_serialization": {
+        "average_ms": 2.3829,
+        "p50_ms": 4.4318,
+        "p95_ms": 4.4318,
+        "sample_count": 2,
+        "percentile_retained_samples": 2
+      },
+      "snapshot_sha256": "541bb2fd1febc4a5d32f651bf1b5034b3d2f00a6e3794ec4ae0634aca052e2f2"
+    },
+    {
+      "fixture": "motion-scroll",
+      "rendered_frames": 67,
+      "emitted_frames": 67,
+      "full_reference_bytes": 3441504,
+      "differential_bytes": 261487,
+      "differential_to_full_ratio": 0.0759804434340335,
+      "full_bytes_per_rendered_frame": 51365.73134328358,
+      "differential_bytes_per_rendered_frame": 3902.791045,
+      "full_bytes_per_second": 858746.742742332,
+      "differential_bytes_per_second": 65247.950171,
+      "changed_cells": 27480,
+      "changed_runs": 3202,
+      "planning": {
+        "average_ms": 0.066633,
+        "p50_ms": 0.059,
+        "p95_ms": 0.1004,
+        "sample_count": 67,
+        "percentile_retained_samples": 67
+      },
+      "serialization": {
+        "average_ms": 0.293767,
+        "p50_ms": 0.2334,
+        "p95_ms": 0.5058,
+        "sample_count": 67,
+        "percentile_retained_samples": 67
+      },
+      "reference_serialization": {
+        "average_ms": 2.283339,
+        "p50_ms": 1.9791,
+        "p95_ms": 3.4998,
+        "sample_count": 67,
+        "percentile_retained_samples": 67
+      },
+      "snapshot_sha256": "33d602da5986f00d0fe6d2d361b4a9b764d210e0a8f1a682da36dee3593fc8d6"
+    }
+  ],
+  "periodic_full_reconstructions": 6,
+  "diagnostic_full_reconstructions": 2
+}

@@ -1,0 +1,24 @@
+{
+  "schema": "asciiomium-runtime-evidence-custody-v1",
+  "source_revision": "c83353cc1e5974ad09922e57b1d07e7674d7e472",
+  "source_tree": "a1c077f4025cbfc828262bc6850341cf7e995fe0",
+  "run_id": 41554504138,
+  "run_url": "https://github.com/techrote/ASCIIomium/actions/runs/41554504138",
+  "run_result": "failure",
+  "artifact_id": 13195060573,
+  "artifact_file": "ASCIIomium-runtime-c83353c-first-policy-run.zip",
+  "artifact_bytes": 6341,
+  "artifact_sha256": "e75d7b3d16e54a0601ee11c6dd1878c25c02ab05d80e9fda6e973b59440cd613",
+  "summary_sha256": "a18cce972fe911e1da5dfc6154f4ce6d6a6bf77be3eb75b7d8fe8adf08a41179",
+  "passed": [
+    "persistent-cookie-session-cookie-localStorage-IndexedDB-write-and-restart",
+    "separate-profile-isolation",
+    "private-write-empty-restart-and-process-tree-cleanup",
+    "persistent-state-retained-after-private",
+    "diagnostic-file-logging-disabled",
+    "concurrent-profile-owner-refused",
+    "profile-reopened-after-owner-release"
+  ],
+  "failed": "network-error recovery retained stale main-navigation error; policy/download/TLS cases not reached",
+  "physical_windows_terminal": false
+}

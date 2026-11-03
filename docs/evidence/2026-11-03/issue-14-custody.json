@@ -1,0 +1,46 @@
+{
+  "schema": "asciiomium-actions-custody-v1",
+  "repository": "techrote/ASCIIomium",
+  "pull_request": 41,
+  "source_revision": "1272351b03502e7600c1229da8a50bfa4d433bdb",
+  "source_tree": "4d53624bca769624ec08a0736d119e14ebe2d50f",
+  "workflow_run_id": 41548940956,
+  "workflow_url": "https://github.com/techrote/ASCIIomium/actions/runs/41548940956",
+  "artifact_id": 13190183078,
+  "archive_sha256": "139212cae9565ff057f84abb2c6f51ceb7f5eca3b6a4d0f953f4017ea8f8efcd",
+  "physical_windows_terminal_acceptance": "outstanding",
+  "members": {
+    "diagnostic-repaint.json": {
+      "bytes": 3117,
+      "sha256": "2d632e5397d398ecca3cf6ff74a7f95cdf5d8fe931644eddb079eefab0a9678e"
+    },
+    "flat-ui.vt": {
+      "bytes": 59617,
+      "sha256": "541bb2fd1febc4a5d32f651bf1b5034b3d2f00a6e3794ec4ae0634aca052e2f2"
+    },
+    "flat-ui.json": {
+      "bytes": 3223,
+      "sha256": "7980c74973ced456b37822a47be1da705b968ef66812aebd10721189f0b247db"
+    },
+    "forced-repaint.json": {
+      "bytes": 3122,
+      "sha256": "be89447a570bcf16972b9fe0c8758ddf723d74b1f7f9ddc67c6dd18815d4de61"
+    },
+    "motion-scroll.json": {
+      "bytes": 3250,
+      "sha256": "e6eb5cc0d099018604200e89a6cc5f9dbcbb467fc5e220b7d5970c2985c3ff01"
+    },
+    "motion-scroll.vt": {
+      "bytes": 52021,
+      "sha256": "33d602da5986f00d0fe6d2d361b4a9b764d210e0a8f1a682da36dee3593fc8d6"
+    },
+    "summary.json": {
+      "bytes": 3028,
+      "sha256": "7ff313ce97a0ee01600e999948fd67f78c9424f4c5ad5e8b34c6b4907f5da134"
+    },
+    "synthetic.json": {
+      "bytes": 2115,
+      "sha256": "9cf14a9beb7865f40e60417b38b28d09d1c838596a8a635a609942a57196f77f"
+    }
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "payload_manifest_sha256": "79feba690b1ee6ac3c9c3a35f2a49d951ffc0110fa67295b5f94a13ac34b68a6",
+  "provenance_sha256": "729ca64c7c51eb1b22c8fc0341051149b6d532a9e91ecdce091dcb6f8c56a425",
+  "schema": "asciiomium-package-custody-v1",
+  "source_revision": "36d11ec954fb86051a6240739c23a4a0e120ba38",
+  "source_tree": "106b38e41488da8b65dd293256eeafe86869530f",
+  "verifier_sha256": "d1358d5cbf6c813bbeb7dfa535fd2e4f4ede17990aa0fa51f8a5b6d31deff642",
+  "workflow": {
+    "run_attempt": "1",
+    "run_id": "41557252823"
+  },
+  "zip_bytes": 183535791,
+  "zip_file": "ASCIIomium-0.1.0-windows-x64-dev-36d11ec954fb.zip",
+  "zip_sha256": "c849bf5d4c4dddf1eb9171dbc5b7c0c10a80cacc736d37890bdccb06541059c5"
+}

@@ -1,0 +1,631 @@
+{
+  "schema": "asciiomium-qualified-evidence-review-v1",
+  "verified": true,
+  "run_id": 41557252823,
+  "run_number": 109,
+  "run_attempt": 1,
+  "source_revision": "36d11ec954fb86051a6240739c23a4a0e120ba38",
+  "source_tree": "106b38e41488da8b65dd293256eeafe86869530f",
+  "checks_passed": [
+    "clean local exact source",
+    "GitHub commit exact tree",
+    "PR 43 exact current head",
+    "successful exact-head Actions run",
+    "Actions artifact asciiomium-browser-runtime-evidence",
+    "Actions artifact asciiomium-colour-mode-ramp",
+    "Actions artifact asciiomium-cef-osr-evidence",
+    "Actions artifact asciiomium-live-pipeline-evidence",
+    "Actions artifact asciiomium-fixture-benchmark-evidence",
+    "Actions artifact asciiomium-portable-windows",
+    "Actions artifact asciiomium-package-extraction-evidence",
+    "all seven artifacts present",
+    "custody schema/source/run",
+    "custody hash PROVENANCE.json",
+    "custody hash SHA256SUMS.json",
+    "custody hash verify_package.py",
+    "clean-job identical CUSTODY.json",
+    "clean-job identical PROVENANCE.json",
+    "clean-job identical SHA256SUMS.json",
+    "inner ZIP custody digest and size",
+    "ZIP digest sidecar",
+    "full payload/fixture/dependency verifier",
+    "manifest algorithm",
+    "inner/outer identical PROVENANCE.json",
+    "inner/outer identical SHA256SUMS.json",
+    "inner/outer identical verify_package.py",
+    "provenance source/configuration",
+    "Git source content cef-lock.json",
+    "Git source content verify_package.py",
+    "Git source content README.txt",
+    "Git source content browse.cmd",
+    "Git source content fixtures/web/MANIFEST.json",
+    "Git source content fixtures/web/colour-ramps.html",
+    "Git source content fixtures/web/raster-imagery.html",
+    "Git source content fixtures/web/motion-scroll.html",
+    "Git source content fixtures/web/index.html",
+    "Git source content fixtures/web/common.js",
+    "Git source content fixtures/web/common.css",
+    "Git source content fixtures/web/input-focus.html",
+    "Git source content fixtures/web/flat-ui.html",
+    "CEF pin/Chromium/archive checksum/commit",
+    "AMD64 PE asciiomium.exe",
+    "AMD64 PE asciiomium_live.exe",
+    "AMD64 PE chrome_elf.dll",
+    "AMD64 PE d3dcompiler_47.dll",
+    "AMD64 PE libcef.dll",
+    "AMD64 PE libEGL.dll",
+    "AMD64 PE libGLESv2.dll",
+    "AMD64 PE vk_swiftshader.dll",
+    "AMD64 PE vulkan-1.dll",
+    "AMD64 PE dxil.dll",
+    "AMD64 PE dxcompiler.dll",
+    "clean smoke successful exact source",
+    "four successful clean-smoke subprocesses",
+    "clean-run binary identity asciiomium.exe",
+    "clean-run binary identity asciiomium_live.exe",
+    "clean fixture flat-ui",
+    "clean fixture motion-scroll",
+    "repeated animation paints",
+    "both expected clean fixtures",
+    "negative control and unchanged package",
+    "qualification limits explicit",
+    "20/20 CTest in each configuration",
+    "13 real CEF case logs",
+    "real CEF case and postcondition evidence"
+  ],
+  "actions_artifacts": [
+    {
+      "artifact_id": 13196420000,
+      "name": "asciiomium-browser-runtime-evidence",
+      "path": "actions-artifacts/asciiomium-browser-runtime-evidence.zip",
+      "bytes": 8938,
+      "sha256": "e5c045074f37830cf4b9e2fd268fa9f75c14fc38fac2d1e6feceb5a81999b14c",
+      "actions_digest_match": true,
+      "actions_size_match": true
+    },
+    {
+      "artifact_id": 13196305101,
+      "name": "asciiomium-colour-mode-ramp",
+      "path": "actions-artifacts/asciiomium-colour-mode-ramp.zip",
+      "bytes": 28230,
+      "sha256": "99a03ac44c32bfb1d541e3619947bc7434af7b15629e31e6858b7957d0c9a996",
+      "actions_digest_match": true,
+      "actions_size_match": true
+    },
+    {
+      "artifact_id": 13195776052,
+      "name": "asciiomium-cef-osr-evidence",
+      "path": "actions-artifacts/asciiomium-cef-osr-evidence.zip",
+      "bytes": 204458,
+      "sha256": "5c92b25466f34988038b310450299df7df3749310147b2441bc67220064d2f57",
+      "actions_digest_match": true,
+      "actions_size_match": true
+    },
+    {
+      "artifact_id": 13195731140,
+      "name": "asciiomium-live-pipeline-evidence",
+      "path": "actions-artifacts/asciiomium-live-pipeline-evidence.zip",
+      "bytes": 58302,
+      "sha256": "90e63dc8b59fc94923e749dae1f637c85521e6eae8f2a027ca0c406344e35083",
+      "actions_digest_match": true,
+      "actions_size_match": true
+    },
+    {
+      "artifact_id": 13195721072,
+      "name": "asciiomium-fixture-benchmark-evidence",
+      "path": "actions-artifacts/asciiomium-fixture-benchmark-evidence.zip",
+      "bytes": 390606,
+      "sha256": "57d45aca177a3417da924f059caa22b824d31282694cd605f5f206e5b755ef21",
+      "actions_digest_match": true,
+      "actions_size_match": true
+    },
+    {
+      "artifact_id": 13195701111,
+      "name": "asciiomium-portable-windows",
+      "path": "actions-artifacts/asciiomium-portable-windows.zip",
+      "bytes": 183620050,
+      "sha256": "4a79008cfc1f5aab34c5404c3cf0724192e0d3466f7a66c75661530589a78336",
+      "actions_digest_match": true,
+      "actions_size_match": true
+    },
+    {
+      "artifact_id": 13195174483,
+      "name": "asciiomium-package-extraction-evidence",
+      "path": "actions-artifacts/asciiomium-package-extraction-evidence.zip",
+      "bytes": 14152,
+      "sha256": "84d2ae926e7adf5c0028e353294c82403bb8ecc3727d6d68d82f25432ab8f8a0",
+      "actions_digest_match": true,
+      "actions_size_match": true
+    }
+  ],
+  "internal_zip": {
+    "path": "extracted-artifacts/asciiomium-portable-windows/ASCIIomium-0.1.0-windows-x64-dev-36d11ec954fb.zip",
+    "bytes": 183535791,
+    "sha256": "c849bf5d4c4dddf1eb9171dbc5b7c0c10a80cacc736d37890bdccb06541059c5"
+  },
+  "custody_files": [
+    {
+      "path": "extracted-artifacts/asciiomium-portable-windows/CUSTODY.json",
+      "bytes": 701,
+      "sha256": "72e7ca325e3df24ceabc54f140e191b74edfb7a0361de63492b0899dbfbc6884"
+    },
+    {
+      "path": "extracted-artifacts/asciiomium-portable-windows/PROVENANCE.json",
+      "bytes": 32523,
+      "sha256": "729ca64c7c51eb1b22c8fc0341051149b6d532a9e91ecdce091dcb6f8c56a425"
+    },
+    {
+      "path": "extracted-artifacts/asciiomium-portable-windows/SHA256SUMS.json",
+      "bytes": 35769,
+      "sha256": "79feba690b1ee6ac3c9c3a35f2a49d951ffc0110fa67295b5f94a13ac34b68a6"
+    },
+    {
+      "path": "extracted-artifacts/asciiomium-portable-windows/verify_package.py",
+      "bytes": 14247,
+      "sha256": "d1358d5cbf6c813bbeb7dfa535fd2e4f4ede17990aa0fa51f8a5b6d31deff642"
+    },
+    {
+      "path": "extracted-artifacts/asciiomium-portable-windows/ASCIIomium-0.1.0-windows-x64-dev-36d11ec954fb.zip.sha256",
+      "bytes": 117,
+      "sha256": "e9475fae9386d3bffc00fd82f95816c5ab5bcef8ef6a7dee07ffdc6802f40587"
+    }
+  ],
+  "clean_smoke_report": {
+    "path": "extracted-artifacts/asciiomium-package-extraction-evidence/package-smoke.json",
+    "bytes": 13678,
+    "sha256": "5d00c45cdddd444ffee1ded192a10187a327f220389f63e726cdbd7ae9a434e7"
+  },
+  "logs": [
+    {
+      "path": "job-125659038465-build-and-test.log",
+      "bytes": 161055,
+      "sha256": "e96fd236af3cf9c1107b1bdc6dd28b4cee754805ae7ee2b308ca31f70932c10a"
+    },
+    {
+      "path": "job-125663430365-package-clean-extraction.log",
+      "bytes": 9002,
+      "sha256": "1c89cf3678688945f764f3e618185b5769ef9f3ebf30ba26a4785a26a1a81867"
+    }
+  ],
+  "payload_files": 254,
+  "manifest_entries": 253,
+  "payload_uncompressed_bytes": 435155962,
+  "cef": {
+    "archive_sha1": "f21afbaaeb82c02a9e13dbb012c6fd0b2f11f005",
+    "archive_sha256": "35ebab2d7b4ba5900574ceded0d484c8197caf6574708ed2c5b84cfa6ee2b449",
+    "archive_url": "https://cef-builds.spotifycdn.com/cef_binary_151.3.17%2Bgf059e67%2Bchromium-151.0.7922.138_windows64.tar.bz2",
+    "chromium": "151.0.7922.138",
+    "commit": "f059e67fa6aad5e8cce8bebea5df706ffddfb174",
+    "platform": "windows64",
+    "version": "151.3.17+gf059e67+chromium-151.0.7922.138"
+  },
+  "cef_payload_files": 237,
+  "cef_locale_files": 220,
+  "fixture_manifest_sha256": "0b0a484727bc8dcf4316f33e29b7954b1b34a4fcb6c59bffd8b8c810a6fe41a0",
+  "source_file_comparisons": [
+    {
+      "file": "cef-lock.json",
+      "repository_path": "cmake/cef-lock.json",
+      "exact_bytes": false,
+      "content_equal_after_crlf_to_lf": true,
+      "package_bytes": 660,
+      "git_blob_bytes": 648,
+      "package_sha256": "b1084b547bdf5b6fe6eeea9021e019ac818746ce082bffbd0f0565e1bdd18e18",
+      "git_blob_sha256": "0433e08edb19d69ec7a6e0f386f2dc1e4b4bf6c12c5bef1ab89063817141ff5c"
+    },
+    {
+      "file": "verify_package.py",
+      "repository_path": "tools/verify_package.py",
+      "exact_bytes": false,
+      "content_equal_after_crlf_to_lf": true,
+      "package_bytes": 14247,
+      "git_blob_bytes": 13985,
+      "package_sha256": "d1358d5cbf6c813bbeb7dfa535fd2e4f4ede17990aa0fa51f8a5b6d31deff642",
+      "git_blob_sha256": "91aa50098b5af5221ab2e6393c248f647c0230df13a6a3429da4ca849608a5fd"
+    },
+    {
+      "file": "README.txt",
+      "repository_path": "packaging/README.txt",
+      "exact_bytes": false,
+      "content_equal_after_crlf_to_lf": true,
+      "package_bytes": 2382,
+      "git_blob_bytes": 2338,
+      "package_sha256": "7a4829a3bea4b4e7f6fbbf8af4a84201468049a35897b799f35abe95e28e95b5",
+      "git_blob_sha256": "772df40c07254f326beeee402744c57b935558807bbfa324e0efa179b683a241"
+    },
+    {
+      "file": "browse.cmd",
+      "repository_path": "packaging/browse.cmd",
+      "exact_bytes": false,
+      "content_equal_after_crlf_to_lf": true,
+      "package_bytes": 74,
+      "git_blob_bytes": 70,
+      "package_sha256": "f331f477ba5a4de0bc276eaf2cf98c80ac85bffc11d797a1bf93dbc068918b81",
+      "git_blob_sha256": "4dabb2020dc04b8729cf4a152fd2e86f0bf7b9b7f1d666682ac4397481c77e7c"
+    },
+    {
+      "file": "fixtures/web/MANIFEST.json",
+      "repository_path": "fixtures/web/MANIFEST.json",
+      "exact_bytes": true,
+      "content_equal_after_crlf_to_lf": true,
+      "package_bytes": 1025,
+      "git_blob_bytes": 1025,
+      "package_sha256": "0b0a484727bc8dcf4316f33e29b7954b1b34a4fcb6c59bffd8b8c810a6fe41a0",
+      "git_blob_sha256": "0b0a484727bc8dcf4316f33e29b7954b1b34a4fcb6c59bffd8b8c810a6fe41a0"
+    },
+    {
+      "file": "fixtures/web/colour-ramps.html",
+      "repository_path": "fixtures/web/colour-ramps.html",
+      "exact_bytes": true,
+      "content_equal_after_crlf_to_lf": true,
+      "package_bytes": 3116,
+      "git_blob_bytes": 3116,
+      "package_sha256": "e75ba862de578fbe68dd19ee52fec2850ac1b8a78548550d1d6cbab89d876af2",
+      "git_blob_sha256": "e75ba862de578fbe68dd19ee52fec2850ac1b8a78548550d1d6cbab89d876af2"
+    },
+    {
+      "file": "fixtures/web/raster-imagery.html",
+      "repository_path": "fixtures/web/raster-imagery.html",
+      "exact_bytes": true,
+      "content_equal_after_crlf_to_lf": true,
+      "package_bytes": 8718,
+      "git_blob_bytes": 8718,
+      "package_sha256": "2df9f5bf194279a0f761c8ca0fe1df2e96392cc992339439e8e93d6631a72a10",
+      "git_blob_sha256": "2df9f5bf194279a0f761c8ca0fe1df2e96392cc992339439e8e93d6631a72a10"
+    },
+    {
+      "file": "fixtures/web/motion-scroll.html",
+      "repository_path": "fixtures/web/motion-scroll.html",
+      "exact_bytes": true,
+      "content_equal_after_crlf_to_lf": true,
+      "package_bytes": 2573,
+      "git_blob_bytes": 2573,
+      "package_sha256": "67e9be79b0fadb5b644f9e01a0ded566b271478f2ab8d953f4209ed424e45699",
+      "git_blob_sha256": "67e9be79b0fadb5b644f9e01a0ded566b271478f2ab8d953f4209ed424e45699"
+    },
+    {
+      "file": "fixtures/web/index.html",
+      "repository_path": "fixtures/web/index.html",
+      "exact_bytes": true,
+      "content_equal_after_crlf_to_lf": true,
+      "package_bytes": 1779,
+      "git_blob_bytes": 1779,
+      "package_sha256": "dff841f30f1708a0e46057480e4ace285f181b730c47c98cad98137b98d6aa7a",
+      "git_blob_sha256": "dff841f30f1708a0e46057480e4ace285f181b730c47c98cad98137b98d6aa7a"
+    },
+    {
+      "file": "fixtures/web/common.js",
+      "repository_path": "fixtures/web/common.js",
+      "exact_bytes": true,
+      "content_equal_after_crlf_to_lf": true,
+      "package_bytes": 348,
+      "git_blob_bytes": 348,
+      "package_sha256": "a5590a6033e40e66a4c0de695c505f7c26b5965c61c74c0feb8d5ebd72bbcb95",
+      "git_blob_sha256": "a5590a6033e40e66a4c0de695c505f7c26b5965c61c74c0feb8d5ebd72bbcb95"
+    },
+    {
+      "file": "fixtures/web/common.css",
+      "repository_path": "fixtures/web/common.css",
+      "exact_bytes": true,
+      "content_equal_after_crlf_to_lf": true,
+      "package_bytes": 4622,
+      "git_blob_bytes": 4622,
+      "package_sha256": "4ed724962215f1efbf22b04731fa0fa39b35391dad1f009c84a17bb462e3936f",
+      "git_blob_sha256": "4ed724962215f1efbf22b04731fa0fa39b35391dad1f009c84a17bb462e3936f"
+    },
+    {
+      "file": "fixtures/web/input-focus.html",
+      "repository_path": "fixtures/web/input-focus.html",
+      "exact_bytes": true,
+      "content_equal_after_crlf_to_lf": true,
+      "package_bytes": 7041,
+      "git_blob_bytes": 7041,
+      "package_sha256": "ef8dacce64e82dc86309ac18d3f89245d0c93ccffc0322c587d70d24b53644a9",
+      "git_blob_sha256": "ef8dacce64e82dc86309ac18d3f89245d0c93ccffc0322c587d70d24b53644a9"
+    },
+    {
+      "file": "fixtures/web/flat-ui.html",
+      "repository_path": "fixtures/web/flat-ui.html",
+      "exact_bytes": true,
+      "content_equal_after_crlf_to_lf": true,
+      "package_bytes": 2970,
+      "git_blob_bytes": 2970,
+      "package_sha256": "551286d448351300c122570b632a312f1c0d5e798ea8e3012133ce7a13a19075",
+      "git_blob_sha256": "551286d448351300c122570b632a312f1c0d5e798ea8e3012133ce7a13a19075"
+    }
+  ],
+  "pe_files": [
+    {
+      "path": "package-payload/asciiomium.exe",
+      "bytes": 295936,
+      "sha256": "80dfcd874bad15c131c337e6ab3d5d6a197b0c18cfd22767973d30528b71f2d1"
+    },
+    {
+      "path": "package-payload/asciiomium_live.exe",
+      "bytes": 972800,
+      "sha256": "91ca0d00cc6d6fcb8652df288fadfc73eec873494542f62cecea867afcb26696"
+    },
+    {
+      "path": "package-payload/chrome_elf.dll",
+      "bytes": 2799616,
+      "sha256": "2cd3c5e7dbcb1c0f9d8cb47a52e3f0ec1ca46d0e7a066dc693eb1ebcb21960b1"
+    },
+    {
+      "path": "package-payload/d3dcompiler_47.dll",
+      "bytes": 4741488,
+      "sha256": "a05f99734f7c4822fefc12b367af21fd0976ed6608752fb1e1e80b6ece7ecbbb"
+    },
+    {
+      "path": "package-payload/libcef.dll",
+      "bytes": 285378560,
+      "sha256": "46f8d94f01fa28b3388e9fc2808503f6dedc3421b563c7791153a2a193008d96"
+    },
+    {
+      "path": "package-payload/libEGL.dll",
+      "bytes": 461312,
+      "sha256": "1e42f574118f4b0910e09f1702156dab6f2dab2dc4fa6c8479080583eed6b708"
+    },
+    {
+      "path": "package-payload/libGLESv2.dll",
+      "bytes": 461312,
+      "sha256": "2400a42daa656ee479515e06d5b20e9cb1c5a116e164755b503fd3a5d4a70299"
+    },
+    {
+      "path": "package-payload/vk_swiftshader.dll",
+      "bytes": 5447168,
+      "sha256": "6cb629a0485c6421de537c3b346f51157d3004915d97e199e0762c9a79ac412a"
+    },
+    {
+      "path": "package-payload/vulkan-1.dll",
+      "bytes": 967168,
+      "sha256": "e59cb82dfd94b185bd0a5389e04a2e86eed56371f1457cf971a763fd910cf180"
+    },
+    {
+      "path": "package-payload/dxil.dll",
+      "bytes": 1502784,
+      "sha256": "0850398076e9e30cd9ac28fc7d56a7d350ea755b0f3b6b2fc8f35a930888c845"
+    },
+    {
+      "path": "package-payload/dxcompiler.dll",
+      "bytes": 25753088,
+      "sha256": "b38c27a078e3479324a63c306610cdd443504ab4a84a876976cd489c38965089"
+    }
+  ],
+  "clean_fixtures": [
+    {
+      "fixture": "flat-ui",
+      "duration_seconds": 2.207129,
+      "view_paint_count": 2,
+      "rendered_frames": 2,
+      "profile_cleanup_attempts": 1,
+      "process_tree_reaped": true,
+      "forced_descendants": false,
+      "terminal_output": false,
+      "fixture_resolution": "executable-relative"
+    },
+    {
+      "fixture": "motion-scroll",
+      "duration_seconds": 3.001099,
+      "view_paint_count": 113,
+      "rendered_frames": 32,
+      "profile_cleanup_attempts": 1,
+      "process_tree_reaped": true,
+      "forced_descendants": false,
+      "terminal_output": false,
+      "fixture_resolution": "executable-relative"
+    }
+  ],
+  "ctest": [
+    {
+      "configuration": "Debug",
+      "passed": 20,
+      "total": 20,
+      "seconds": 14.58,
+      "tests": [
+        {
+          "name": "package_inventory",
+          "seconds": 2.23
+        },
+        {
+          "name": "build_identity_refresh",
+          "seconds": 11.73
+        },
+        {
+          "name": "build_info",
+          "seconds": 0.05
+        },
+        {
+          "name": "terminal_logic",
+          "seconds": 0.01
+        },
+        {
+          "name": "terminal_console_smoke",
+          "seconds": 0.02
+        },
+        {
+          "name": "full_frame_emitter",
+          "seconds": 0.01
+        },
+        {
+          "name": "vt_console_smoke",
+          "seconds": 0.01
+        },
+        {
+          "name": "render_golden",
+          "seconds": 0.01
+        },
+        {
+          "name": "color_quantizer",
+          "seconds": 0.01
+        },
+        {
+          "name": "benchmark_result",
+          "seconds": 0.01
+        },
+        {
+          "name": "input_parser",
+          "seconds": 0.01
+        },
+        {
+          "name": "browser_commands",
+          "seconds": 0.04
+        },
+        {
+          "name": "profile_session",
+          "seconds": 0.21
+        },
+        {
+          "name": "private_process",
+          "seconds": 0.1
+        },
+        {
+          "name": "cef_key_translator",
+          "seconds": 0.01
+        },
+        {
+          "name": "cef_pointer_translator",
+          "seconds": 0.01
+        },
+        {
+          "name": "fixture_observation",
+          "seconds": 0.01
+        },
+        {
+          "name": "source_frame",
+          "seconds": 0.01
+        },
+        {
+          "name": "live_runtime",
+          "seconds": 0.01
+        },
+        {
+          "name": "viewport_transform",
+          "seconds": 0.01
+        }
+      ]
+    },
+    {
+      "configuration": "Release",
+      "passed": 20,
+      "total": 20,
+      "seconds": 13.74,
+      "tests": [
+        {
+          "name": "package_inventory",
+          "seconds": 1.48
+        },
+        {
+          "name": "build_identity_refresh",
+          "seconds": 11.81
+        },
+        {
+          "name": "build_info",
+          "seconds": 0.05
+        },
+        {
+          "name": "terminal_logic",
+          "seconds": 0.01
+        },
+        {
+          "name": "terminal_console_smoke",
+          "seconds": 0.01
+        },
+        {
+          "name": "full_frame_emitter",
+          "seconds": 0.01
+        },
+        {
+          "name": "vt_console_smoke",
+          "seconds": 0.01
+        },
+        {
+          "name": "render_golden",
+          "seconds": 0.01
+        },
+        {
+          "name": "color_quantizer",
+          "seconds": 0.01
+        },
+        {
+          "name": "benchmark_result",
+          "seconds": 0.01
+        },
+        {
+          "name": "input_parser",
+          "seconds": 0.01
+        },
+        {
+          "name": "browser_commands",
+          "seconds": 0.01
+        },
+        {
+          "name": "profile_session",
+          "seconds": 0.21
+        },
+        {
+          "name": "private_process",
+          "seconds": 0.07
+        },
+        {
+          "name": "cef_key_translator",
+          "seconds": 0.01
+        },
+        {
+          "name": "cef_pointer_translator",
+          "seconds": 0.01
+        },
+        {
+          "name": "fixture_observation",
+          "seconds": 0.01
+        },
+        {
+          "name": "source_frame",
+          "seconds": 0.01
+        },
+        {
+          "name": "live_runtime",
+          "seconds": 0.01
+        },
+        {
+          "name": "viewport_transform",
+          "seconds": 0.01
+        }
+      ]
+    }
+  ],
+  "runtime_pass_cases": [
+    "persistent-write",
+    "persistent-restart",
+    "separate-profile",
+    "private-write",
+    "private-restart",
+    "persistent-still-intact",
+    "ownership-collision",
+    "after-ownership-release",
+    "navigation-history-reload-stop-recovery",
+    "popup-permission-denial",
+    "download-default-denial",
+    "download-controlled-destination",
+    "untrusted-TLS"
+  ],
+  "runtime_additional_postconditions": [
+    {
+      "name": "diagnostic-file-logging-disabled",
+      "passed": true
+    },
+    {
+      "name": "download-byte-integrity",
+      "passed": true,
+      "bytes": 37,
+      "remote_filename_ignored": true
+    }
+  ],
+  "limitations": [
+    "No Windows execution repeated locally; live execution evidence is the exact-head hosted run.",
+    "Physical Windows Terminal display/input/resize/restoration and 30-minute interactive soak remain unqualified.",
+    "Unsigned development candidate; CEF sandbox disabled.",
+    "Not integrated #14/#15 telemetry/performance or new #16 lifecycle qualification.",
+    "CEF original archive SHA256 is builder provenance; local review checked packaged dependency bytes against its payload map and the exact-source lock without redownloading the full CEF archive.",
+    "Four packaged source text files use Windows CRLF rather than Git LF; content matches after newline normalization. All fixture files match Git bytes exactly."
+  ]
+}

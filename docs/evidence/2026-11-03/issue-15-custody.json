@@ -1,0 +1,754 @@
+{
+  "workflow_run": 41552670081,
+  "workflow_job": 125643862957,
+  "conclusion": "success",
+  "artifact": {
+    "id": 13191874974,
+    "name": "asciiomium-runtime-telemetry-evidence",
+    "size_in_bytes": 19794,
+    "url": "https://api.github.com/repos/techrote/ASCIIomium/actions/artifacts/13191874974",
+    "archive_download_url": "https://api.github.com/repos/techrote/ASCIIomium/actions/artifacts/13191874974/zip",
+    "expired": false,
+    "created_at": "2026-11-03T00:34:46Z",
+    "expires_at": "2027-02-01T00:24:53Z",
+    "updated_at": "2026-11-03T00:34:46Z",
+    "digest": "sha256:1a3789bf5d128f66e9d8080955d4cff63131c8b495c0c83dda4537af447a2b79",
+    "workflow_run": {
+      "id": 41552670081,
+      "repository_id": 1368617739,
+      "head_repository_id": 1368617739,
+      "head_branch": "issue-15-structured-telemetry",
+      "head_sha": "b041201ed6d06546eb93eda368d3d06284b6321c"
+    }
+  },
+  "zip_sha256": "1a3789bf5d128f66e9d8080955d4cff63131c8b495c0c83dda4537af447a2b79",
+  "verified_reports": 6,
+  "identity": {
+    "asciiomium_version": "0.1.0",
+    "source_revision": "b041201ed6d06546eb93eda368d3d06284b6321c",
+    "source_tree": "002576133fee8d09716d68eba2bb6e7b0621cfd5",
+    "source_dirty": false,
+    "build_configuration": "Release",
+    "compiler": "MSVC-19.44.35229.0",
+    "architecture": "x64",
+    "cef_compile": "151.3.17+gf059e67+chromium-151.0.7922.138",
+    "cef_runtime": "151.3.17",
+    "chromium_runtime": "151.0.7922.138",
+    "cef_headers_match_runtime": true
+  },
+  "overhead": {
+    "schema": "asciiomium-telemetry-overhead-v1",
+    "scope": "paired integer workload plus eight clock reads and six fixed-history updates; no CEF/terminal",
+    "iterations_per_trial": 100000,
+    "trials": 7,
+    "clock_reads_per_instrumented_iteration": 8,
+    "history_updates_per_instrumented_iteration": 6,
+    "history_capacity_each": 2048,
+    "history_storage_bytes_total": 98496,
+    "history_retained_samples_each": 2048,
+    "checksum": 15678863919443179835,
+    "median_incremental_ns_per_iteration": 219.962,
+    "median_incremental_percent_of_50ms_budget": 0.00044,
+    "endpoint_process_probe_pair_ms": 0.0209,
+    "endpoint_cpu_counter_available": true,
+    "observations": [
+      {
+        "baseline_ms": 2.2204,
+        "instrumented_ms": 24.2558,
+        "incremental_ns_per_iteration": 220.354
+      },
+      {
+        "baseline_ms": 2.2195,
+        "instrumented_ms": 24.2157,
+        "incremental_ns_per_iteration": 219.962
+      },
+      {
+        "baseline_ms": 2.2217,
+        "instrumented_ms": 24.2182,
+        "incremental_ns_per_iteration": 219.965
+      },
+      {
+        "baseline_ms": 2.2211,
+        "instrumented_ms": 24.1982,
+        "incremental_ns_per_iteration": 219.771
+      },
+      {
+        "baseline_ms": 2.2307,
+        "instrumented_ms": 24.1733,
+        "incremental_ns_per_iteration": 219.426
+      },
+      {
+        "baseline_ms": 2.2196,
+        "instrumented_ms": 24.2437,
+        "incremental_ns_per_iteration": 220.241
+      },
+      {
+        "baseline_ms": 2.2203,
+        "instrumented_ms": 24.2135,
+        "incremental_ns_per_iteration": 219.932
+      }
+    ]
+  },
+  "benchmarks": [
+    {
+      "case": "static-full",
+      "measurement": {
+        "benchmark_mode": true,
+        "requested_duration_ms": 3000,
+        "wall_seconds": 3.006884,
+        "scope": "render loop; excludes CEF initialization and shutdown",
+        "completed_normally": true,
+        "exit_reason": "duration"
+      },
+      "output": {
+        "rendered_frames": 2,
+        "emitted_frames": 2,
+        "empty_payload_frames": 0,
+        "frame_accounting_consistent": true,
+        "full_reconstructions": 1,
+        "bytes_serialized": 84052,
+        "bytes_written_to_terminal": null,
+        "terminal_write_scope": "completed successful payloads; partial failed write byte counts unavailable",
+        "changed_cells": 13994,
+        "changed_runs": 168,
+        "written_cells": 16000,
+        "emitted_runs": 100,
+        "rendered_fps": 0.66514,
+        "emitted_fps": 0.66514,
+        "bytes_per_rendered_frame": 42026.0,
+        "bytes_per_second": 27953.191939,
+        "same_frame_full_bytes": 84052,
+        "same_frame_differential_bytes": 74068,
+        "same_frame_differential_to_full_ratio": 0.881216
+      },
+      "source": {
+        "view_paints_start": 0,
+        "view_paints_end": 2,
+        "popup_paints_start": 0,
+        "popup_paints_end": 0,
+        "presentation_generation_start": 0,
+        "presentation_generation_end": 2,
+        "last_rendered_generation": 2,
+        "distinct_generations_rendered": 2,
+        "coalesced_generations": 0,
+        "unrendered_tail_generations": 0,
+        "view_paints_per_second": 0.66514
+      },
+      "timing": {
+        "conversion": {
+          "sample_count": 2,
+          "mean_scope": "all accepted samples in measurement interval",
+          "mean_ms": 4.7142,
+          "percentile_scope": "most recent samples",
+          "percentile_capacity": 2048,
+          "percentile_sample_count": 2,
+          "percentile_index": "ceil(p*(N-1)) on ascending samples",
+          "p50_ms": 5.0869,
+          "p95_ms": 5.0869
+        },
+        "diff_planning": {
+          "sample_count": 2,
+          "mean_scope": "all accepted samples in measurement interval",
+          "mean_ms": 0.1096,
+          "percentile_scope": "most recent samples",
+          "percentile_capacity": 2048,
+          "percentile_sample_count": 2,
+          "percentile_index": "ceil(p*(N-1)) on ascending samples",
+          "p50_ms": 0.1115,
+          "p95_ms": 0.1115
+        },
+        "selected_serialization": {
+          "sample_count": 2,
+          "mean_scope": "all accepted samples in measurement interval",
+          "mean_ms": 1.4125,
+          "percentile_scope": "most recent samples",
+          "percentile_capacity": 2048,
+          "percentile_sample_count": 2,
+          "percentile_index": "ceil(p*(N-1)) on ascending samples",
+          "p50_ms": 2.5706,
+          "p95_ms": 2.5706
+        },
+        "terminal_write": null,
+        "compared_full_serialization": {
+          "sample_count": 2,
+          "mean_scope": "all accepted samples in measurement interval",
+          "mean_ms": 1.4125,
+          "percentile_scope": "most recent samples",
+          "percentile_capacity": 2048,
+          "percentile_sample_count": 2,
+          "percentile_index": "ceil(p*(N-1)) on ascending samples",
+          "p50_ms": 2.5706,
+          "p95_ms": 2.5706
+        },
+        "compared_differential_serialization": {
+          "sample_count": 2,
+          "mean_scope": "all accepted samples in measurement interval",
+          "mean_ms": 1.31575,
+          "percentile_scope": "most recent samples",
+          "percentile_capacity": 2048,
+          "percentile_sample_count": 2,
+          "percentile_index": "ceil(p*(N-1)) on ascending samples",
+          "p50_ms": 2.231,
+          "p95_ms": 2.231
+        }
+      },
+      "process": {
+        "scope": "ASCIIomium browser process only; excludes CEF child processes",
+        "start": {
+          "working_set_bytes": 54673408,
+          "private_bytes": 20770816,
+          "lifetime_peak_working_set_bytes": 54673408,
+          "logical_processors": 4
+        },
+        "end": {
+          "working_set_bytes": 86036480,
+          "private_bytes": 35864576,
+          "lifetime_peak_working_set_bytes": 87236608,
+          "logical_processors": 4
+        },
+        "cpu_time_ms": 500.0,
+        "cpu_interval_seconds": 3.006894,
+        "cpu_sampling_uncertainty_seconds": 6e-06,
+        "cpu_interval_source": "steady-clock midpoints around GetProcessTimes",
+        "cpu_percent_one_core": 16.628455,
+        "cpu_percent_machine": 4.157114
+      },
+      "report_sha256": "83413cd6db513b4023298fda1f23d558b9b30a84b6713b8234571447d4eb122f"
+    },
+    {
+      "case": "static-differential",
+      "measurement": {
+        "benchmark_mode": true,
+        "requested_duration_ms": 3000,
+        "wall_seconds": 3.012576,
+        "scope": "render loop; excludes CEF initialization and shutdown",
+        "completed_normally": true,
+        "exit_reason": "duration"
+      },
+      "output": {
+        "rendered_frames": 2,
+        "emitted_frames": 2,
+        "empty_payload_frames": 0,
+        "frame_accounting_consistent": true,
+        "full_reconstructions": 1,
+        "bytes_serialized": 74068,
+        "bytes_written_to_terminal": null,
+        "terminal_write_scope": "completed successful payloads; partial failed write byte counts unavailable",
+        "changed_cells": 13994,
+        "changed_runs": 168,
+        "written_cells": 13994,
+        "emitted_runs": 168,
+        "rendered_fps": 0.663884,
+        "emitted_fps": 0.663884,
+        "bytes_per_rendered_frame": 37034.0,
+        "bytes_per_second": 24586.264435,
+        "same_frame_full_bytes": 84052,
+        "same_frame_differential_bytes": 74068,
+        "same_frame_differential_to_full_ratio": 0.881216
+      },
+      "source": {
+        "view_paints_start": 0,
+        "view_paints_end": 2,
+        "popup_paints_start": 0,
+        "popup_paints_end": 0,
+        "presentation_generation_start": 0,
+        "presentation_generation_end": 2,
+        "last_rendered_generation": 2,
+        "distinct_generations_rendered": 2,
+        "coalesced_generations": 0,
+        "unrendered_tail_generations": 0,
+        "view_paints_per_second": 0.663884
+      },
+      "timing": {
+        "conversion": {
+          "sample_count": 2,
+          "mean_scope": "all accepted samples in measurement interval",
+          "mean_ms": 4.7873,
+          "percentile_scope": "most recent samples",
+          "percentile_capacity": 2048,
+          "percentile_sample_count": 2,
+          "percentile_index": "ceil(p*(N-1)) on ascending samples",
+          "p50_ms": 5.1365,
+          "p95_ms": 5.1365
+        },
+        "diff_planning": {
+          "sample_count": 2,
+          "mean_scope": "all accepted samples in measurement interval",
+          "mean_ms": 0.1105,
+          "percentile_scope": "most recent samples",
+          "percentile_capacity": 2048,
+          "percentile_sample_count": 2,
+          "percentile_index": "ceil(p*(N-1)) on ascending samples",
+          "p50_ms": 0.1163,
+          "p95_ms": 0.1163
+        },
+        "selected_serialization": {
+          "sample_count": 2,
+          "mean_scope": "all accepted samples in measurement interval",
+          "mean_ms": 1.37215,
+          "percentile_scope": "most recent samples",
+          "percentile_capacity": 2048,
+          "percentile_sample_count": 2,
+          "percentile_index": "ceil(p*(N-1)) on ascending samples",
+          "p50_ms": 2.3266,
+          "p95_ms": 2.3266
+        },
+        "terminal_write": null,
+        "compared_full_serialization": {
+          "sample_count": 2,
+          "mean_scope": "all accepted samples in measurement interval",
+          "mean_ms": 1.6487,
+          "percentile_scope": "most recent samples",
+          "percentile_capacity": 2048,
+          "percentile_sample_count": 2,
+          "percentile_index": "ceil(p*(N-1)) on ascending samples",
+          "p50_ms": 2.9938,
+          "p95_ms": 2.9938
+        },
+        "compared_differential_serialization": {
+          "sample_count": 2,
+          "mean_scope": "all accepted samples in measurement interval",
+          "mean_ms": 1.37215,
+          "percentile_scope": "most recent samples",
+          "percentile_capacity": 2048,
+          "percentile_sample_count": 2,
+          "percentile_index": "ceil(p*(N-1)) on ascending samples",
+          "p50_ms": 2.3266,
+          "p95_ms": 2.3266
+        }
+      },
+      "process": {
+        "scope": "ASCIIomium browser process only; excludes CEF child processes",
+        "start": {
+          "working_set_bytes": 54620160,
+          "private_bytes": 20545536,
+          "lifetime_peak_working_set_bytes": 54620160,
+          "logical_processors": 4
+        },
+        "end": {
+          "working_set_bytes": 85737472,
+          "private_bytes": 35254272,
+          "lifetime_peak_working_set_bytes": 90050560,
+          "logical_processors": 4
+        },
+        "cpu_time_ms": 437.5,
+        "cpu_interval_seconds": 3.012603,
+        "cpu_sampling_uncertainty_seconds": 6e-06,
+        "cpu_interval_source": "steady-clock midpoints around GetProcessTimes",
+        "cpu_percent_one_core": 14.522324,
+        "cpu_percent_machine": 3.630581
+      },
+      "report_sha256": "294062c33cc75be75bf3ce11072a3a35b79dcab8f50b0889ae9e861ac9beb7ae"
+    },
+    {
+      "case": "motion-full",
+      "measurement": {
+        "benchmark_mode": true,
+        "requested_duration_ms": 3000,
+        "wall_seconds": 3.001012,
+        "scope": "render loop; excludes CEF initialization and shutdown",
+        "completed_normally": true,
+        "exit_reason": "duration"
+      },
+      "output": {
+        "rendered_frames": 50,
+        "emitted_frames": 50,
+        "empty_payload_frames": 0,
+        "frame_accounting_consistent": true,
+        "full_reconstructions": 1,
+        "bytes_serialized": 2549450,
+        "bytes_written_to_terminal": null,
+        "terminal_write_scope": "completed successful payloads; partial failed write byte counts unavailable",
+        "changed_cells": 22648,
+        "changed_runs": 2052,
+        "written_cells": 400000,
+        "emitted_runs": 2500,
+        "rendered_fps": 16.661044,
+        "emitted_fps": 16.661044,
+        "bytes_per_rendered_frame": 50989.0,
+        "bytes_per_second": 849529.950308,
+        "same_frame_full_bytes": 2549450,
+        "same_frame_differential_bytes": 191738,
+        "same_frame_differential_to_full_ratio": 0.075208
+      },
+      "source": {
+        "view_paints_start": 0,
+        "view_paints_end": 173,
+        "popup_paints_start": 0,
+        "popup_paints_end": 0,
+        "presentation_generation_start": 0,
+        "presentation_generation_end": 173,
+        "last_rendered_generation": 171,
+        "distinct_generations_rendered": 50,
+        "coalesced_generations": 121,
+        "unrendered_tail_generations": 2,
+        "view_paints_per_second": 57.647211
+      },
+      "timing": {
+        "conversion": {
+          "sample_count": 50,
+          "mean_scope": "all accepted samples in measurement interval",
+          "mean_ms": 4.465104,
+          "percentile_scope": "most recent samples",
+          "percentile_capacity": 2048,
+          "percentile_sample_count": 50,
+          "percentile_index": "ceil(p*(N-1)) on ascending samples",
+          "p50_ms": 4.3492,
+          "p95_ms": 5.0736
+        },
+        "diff_planning": {
+          "sample_count": 50,
+          "mean_scope": "all accepted samples in measurement interval",
+          "mean_ms": 0.06515,
+          "percentile_scope": "most recent samples",
+          "percentile_capacity": 2048,
+          "percentile_sample_count": 50,
+          "percentile_index": "ceil(p*(N-1)) on ascending samples",
+          "p50_ms": 0.0546,
+          "p95_ms": 0.1128
+        },
+        "selected_serialization": {
+          "sample_count": 50,
+          "mean_scope": "all accepted samples in measurement interval",
+          "mean_ms": 2.353724,
+          "percentile_scope": "most recent samples",
+          "percentile_capacity": 2048,
+          "percentile_sample_count": 50,
+          "percentile_index": "ceil(p*(N-1)) on ascending samples",
+          "p50_ms": 2.0023,
+          "p95_ms": 4.0835
+        },
+        "terminal_write": null,
+        "compared_full_serialization": {
+          "sample_count": 50,
+          "mean_scope": "all accepted samples in measurement interval",
+          "mean_ms": 2.353724,
+          "percentile_scope": "most recent samples",
+          "percentile_capacity": 2048,
+          "percentile_sample_count": 50,
+          "percentile_index": "ceil(p*(N-1)) on ascending samples",
+          "p50_ms": 2.0023,
+          "p95_ms": 4.0835
+        },
+        "compared_differential_serialization": {
+          "sample_count": 50,
+          "mean_scope": "all accepted samples in measurement interval",
+          "mean_ms": 0.264504,
+          "percentile_scope": "most recent samples",
+          "percentile_capacity": 2048,
+          "percentile_sample_count": 50,
+          "percentile_index": "ceil(p*(N-1)) on ascending samples",
+          "p50_ms": 0.1703,
+          "p95_ms": 0.3994
+        }
+      },
+      "process": {
+        "scope": "ASCIIomium browser process only; excludes CEF child processes",
+        "start": {
+          "working_set_bytes": 56446976,
+          "private_bytes": 21635072,
+          "lifetime_peak_working_set_bytes": 56446976,
+          "logical_processors": 4
+        },
+        "end": {
+          "working_set_bytes": 87629824,
+          "private_bytes": 36507648,
+          "lifetime_peak_working_set_bytes": 89653248,
+          "logical_processors": 4
+        },
+        "cpu_time_ms": 968.75,
+        "cpu_interval_seconds": 3.001023,
+        "cpu_sampling_uncertainty_seconds": 5e-06,
+        "cpu_interval_source": "steady-clock midpoints around GetProcessTimes",
+        "cpu_percent_one_core": 32.280659,
+        "cpu_percent_machine": 8.070165
+      },
+      "report_sha256": "0fc110fae39e27ee259f448013c8f27fa09c017ff997bbbdedfda80b5385565b"
+    },
+    {
+      "case": "motion-differential",
+      "measurement": {
+        "benchmark_mode": true,
+        "requested_duration_ms": 3000,
+        "wall_seconds": 3.002048,
+        "scope": "render loop; excludes CEF initialization and shutdown",
+        "completed_normally": true,
+        "exit_reason": "duration"
+      },
+      "output": {
+        "rendered_frames": 50,
+        "emitted_frames": 50,
+        "empty_payload_frames": 0,
+        "frame_accounting_consistent": true,
+        "full_reconstructions": 1,
+        "bytes_serialized": 191470,
+        "bytes_written_to_terminal": null,
+        "terminal_write_scope": "completed successful payloads; partial failed write byte counts unavailable",
+        "changed_cells": 22648,
+        "changed_runs": 2053,
+        "written_cells": 22961,
+        "emitted_runs": 1859,
+        "rendered_fps": 16.655297,
+        "emitted_fps": 16.655297,
+        "bytes_per_rendered_frame": 3829.4,
+        "bytes_per_second": 63779.795119,
+        "same_frame_full_bytes": 2549291,
+        "same_frame_differential_bytes": 191470,
+        "same_frame_differential_to_full_ratio": 0.075107
+      },
+      "source": {
+        "view_paints_start": 0,
+        "view_paints_end": 172,
+        "popup_paints_start": 0,
+        "popup_paints_end": 0,
+        "presentation_generation_start": 0,
+        "presentation_generation_end": 172,
+        "last_rendered_generation": 169,
+        "distinct_generations_rendered": 50,
+        "coalesced_generations": 119,
+        "unrendered_tail_generations": 3,
+        "view_paints_per_second": 57.294222
+      },
+      "timing": {
+        "conversion": {
+          "sample_count": 50,
+          "mean_scope": "all accepted samples in measurement interval",
+          "mean_ms": 4.482334,
+          "percentile_scope": "most recent samples",
+          "percentile_capacity": 2048,
+          "percentile_sample_count": 50,
+          "percentile_index": "ceil(p*(N-1)) on ascending samples",
+          "p50_ms": 4.3436,
+          "p95_ms": 5.2966
+        },
+        "diff_planning": {
+          "sample_count": 50,
+          "mean_scope": "all accepted samples in measurement interval",
+          "mean_ms": 0.064574,
+          "percentile_scope": "most recent samples",
+          "percentile_capacity": 2048,
+          "percentile_sample_count": 50,
+          "percentile_index": "ceil(p*(N-1)) on ascending samples",
+          "p50_ms": 0.055,
+          "p95_ms": 0.1191
+        },
+        "selected_serialization": {
+          "sample_count": 50,
+          "mean_scope": "all accepted samples in measurement interval",
+          "mean_ms": 0.232718,
+          "percentile_scope": "most recent samples",
+          "percentile_capacity": 2048,
+          "percentile_sample_count": 50,
+          "percentile_index": "ceil(p*(N-1)) on ascending samples",
+          "p50_ms": 0.1766,
+          "p95_ms": 0.4058
+        },
+        "terminal_write": null,
+        "compared_full_serialization": {
+          "sample_count": 50,
+          "mean_scope": "all accepted samples in measurement interval",
+          "mean_ms": 2.148528,
+          "percentile_scope": "most recent samples",
+          "percentile_capacity": 2048,
+          "percentile_sample_count": 50,
+          "percentile_index": "ceil(p*(N-1)) on ascending samples",
+          "p50_ms": 1.9743,
+          "p95_ms": 3.7173
+        },
+        "compared_differential_serialization": {
+          "sample_count": 50,
+          "mean_scope": "all accepted samples in measurement interval",
+          "mean_ms": 0.232718,
+          "percentile_scope": "most recent samples",
+          "percentile_capacity": 2048,
+          "percentile_sample_count": 50,
+          "percentile_index": "ceil(p*(N-1)) on ascending samples",
+          "p50_ms": 0.1766,
+          "p95_ms": 0.4058
+        }
+      },
+      "process": {
+        "scope": "ASCIIomium browser process only; excludes CEF child processes",
+        "start": {
+          "working_set_bytes": 54591488,
+          "private_bytes": 20574208,
+          "lifetime_peak_working_set_bytes": 54591488,
+          "logical_processors": 4
+        },
+        "end": {
+          "working_set_bytes": 85794816,
+          "private_bytes": 35287040,
+          "lifetime_peak_working_set_bytes": 90263552,
+          "logical_processors": 4
+        },
+        "cpu_time_ms": 1046.875,
+        "cpu_interval_seconds": 3.002058,
+        "cpu_sampling_uncertainty_seconds": 6e-06,
+        "cpu_interval_source": "steady-clock midpoints around GetProcessTimes",
+        "cpu_percent_one_core": 34.871906,
+        "cpu_percent_machine": 8.717976
+      },
+      "report_sha256": "f9d536e27f3c623b9609fb21cffc0e99f2df757f1cb10e6f0b7dfd39d72cdcaa"
+    },
+    {
+      "case": "motion-timers-on",
+      "measurement": {
+        "benchmark_mode": true,
+        "requested_duration_ms": 3000,
+        "wall_seconds": 3.000345,
+        "scope": "render loop; excludes CEF initialization and shutdown",
+        "completed_normally": true,
+        "exit_reason": "duration"
+      },
+      "output": {
+        "rendered_frames": 52,
+        "emitted_frames": 52,
+        "empty_payload_frames": 0,
+        "frame_accounting_consistent": true,
+        "full_reconstructions": 1,
+        "bytes_serialized": 193727,
+        "bytes_written_to_terminal": null,
+        "terminal_write_scope": "completed successful payloads; partial failed write byte counts unavailable",
+        "changed_cells": 22736,
+        "changed_runs": 2135,
+        "written_cells": 23095,
+        "emitted_runs": 1915,
+        "rendered_fps": 17.331338,
+        "emitted_fps": 17.331338,
+        "bytes_per_rendered_frame": 3725.519231,
+        "bytes_per_second": 64568.234863,
+        "same_frame_full_bytes": null,
+        "same_frame_differential_bytes": null,
+        "same_frame_differential_to_full_ratio": null
+      },
+      "source": {
+        "view_paints_start": 0,
+        "view_paints_end": 174,
+        "popup_paints_start": 0,
+        "popup_paints_end": 0,
+        "presentation_generation_start": 0,
+        "presentation_generation_end": 174,
+        "last_rendered_generation": 172,
+        "distinct_generations_rendered": 52,
+        "coalesced_generations": 120,
+        "unrendered_tail_generations": 2,
+        "view_paints_per_second": 57.993325
+      },
+      "timing": {
+        "conversion": {
+          "sample_count": 52,
+          "mean_scope": "all accepted samples in measurement interval",
+          "mean_ms": 4.471813,
+          "percentile_scope": "most recent samples",
+          "percentile_capacity": 2048,
+          "percentile_sample_count": 52,
+          "percentile_index": "ceil(p*(N-1)) on ascending samples",
+          "p50_ms": 4.3049,
+          "p95_ms": 5.1724
+        },
+        "diff_planning": {
+          "sample_count": 52,
+          "mean_scope": "all accepted samples in measurement interval",
+          "mean_ms": 0.061585,
+          "percentile_scope": "most recent samples",
+          "percentile_capacity": 2048,
+          "percentile_sample_count": 52,
+          "percentile_index": "ceil(p*(N-1)) on ascending samples",
+          "p50_ms": 0.0569,
+          "p95_ms": 0.0889
+        },
+        "selected_serialization": {
+          "sample_count": 52,
+          "mean_scope": "all accepted samples in measurement interval",
+          "mean_ms": 0.221065,
+          "percentile_scope": "most recent samples",
+          "percentile_capacity": 2048,
+          "percentile_sample_count": 52,
+          "percentile_index": "ceil(p*(N-1)) on ascending samples",
+          "p50_ms": 0.151,
+          "p95_ms": 0.4466
+        },
+        "terminal_write": null,
+        "compared_full_serialization": null,
+        "compared_differential_serialization": null
+      },
+      "process": {
+        "scope": "ASCIIomium browser process only; excludes CEF child processes",
+        "start": {
+          "working_set_bytes": 54312960,
+          "private_bytes": 20332544,
+          "lifetime_peak_working_set_bytes": 54448128,
+          "logical_processors": 4
+        },
+        "end": {
+          "working_set_bytes": 86036480,
+          "private_bytes": 35561472,
+          "lifetime_peak_working_set_bytes": 89755648,
+          "logical_processors": 4
+        },
+        "cpu_time_ms": 812.5,
+        "cpu_interval_seconds": 3.000358,
+        "cpu_sampling_uncertainty_seconds": 5e-06,
+        "cpu_interval_source": "steady-clock midpoints around GetProcessTimes",
+        "cpu_percent_one_core": 27.080102,
+        "cpu_percent_machine": 6.770026
+      },
+      "report_sha256": "781e27ac222334073472dee526ee142909e2575f6b2f351e9b31f24a0b2ab66d"
+    },
+    {
+      "case": "motion-timers-off",
+      "measurement": {
+        "benchmark_mode": true,
+        "requested_duration_ms": 3000,
+        "wall_seconds": 3.000025,
+        "scope": "render loop; excludes CEF initialization and shutdown",
+        "completed_normally": true,
+        "exit_reason": "duration"
+      },
+      "output": {
+        "rendered_frames": 52,
+        "emitted_frames": 52,
+        "empty_payload_frames": 0,
+        "frame_accounting_consistent": true,
+        "full_reconstructions": 1,
+        "bytes_serialized": 195663,
+        "bytes_written_to_terminal": null,
+        "terminal_write_scope": "completed successful payloads; partial failed write byte counts unavailable",
+        "changed_cells": 22719,
+        "changed_runs": 2133,
+        "written_cells": 23079,
+        "emitted_runs": 1918,
+        "rendered_fps": 17.333189,
+        "emitted_fps": 17.333189,
+        "bytes_per_rendered_frame": 3762.75,
+        "bytes_per_second": 65220.456496,
+        "same_frame_full_bytes": null,
+        "same_frame_differential_bytes": null,
+        "same_frame_differential_to_full_ratio": null
+      },
+      "source": {
+        "view_paints_start": 0,
+        "view_paints_end": 343,
+        "popup_paints_start": 0,
+        "popup_paints_end": 0,
+        "presentation_generation_start": 0,
+        "presentation_generation_end": 343,
+        "last_rendered_generation": 341,
+        "distinct_generations_rendered": 52,
+        "coalesced_generations": 289,
+        "unrendered_tail_generations": 2,
+        "view_paints_per_second": 114.332381
+      },
+      "timing": {
+        "conversion": null,
+        "diff_planning": null,
+        "selected_serialization": null,
+        "terminal_write": null,
+        "compared_full_serialization": null,
+        "compared_differential_serialization": null
+      },
+      "process": null,
+      "report_sha256": "7ee19683d3eed34cac80ae071177fa8550323c2657597306b6e83c4220470c4e"
+    }
+  ]
+}

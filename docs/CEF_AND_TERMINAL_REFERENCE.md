@@ -2,6 +2,44 @@
 
 This document is a compact implementation reference, not a substitute for upstream documentation. Re-check upstream APIs when pinning a concrete CEF release.
 
+## Pinned P0 candidate API notes, 3 November 2026
+
+The current P0 work retains CEF
+`151.3.17+gf059e67+chromium-151.0.7922.138`, Windows x64. The following notes
+describe the unmerged [runtime PR #40](https://github.com/techrote/ASCIIomium/pull/40)
+and [packaging PR #43](https://github.com/techrote/ASCIIomium/pull/43), not new
+accepted-main functionality. Exact qualification states and source revisions
+are recorded in [the P0 checkpoint](P0_CHECKPOINT_2026-11-03.md).
+
+- The pinned `WindowOpenDisposition` spelling is `CEF_WOD_CURRENT_TAB`.
+  Browser callbacks and overrides are compiled against the pinned headers;
+  examples from older generated documentation are conceptual references only.
+- Persistent mode selects an absolute `root_cache_path`/`cache_path` outside
+  the executable and checkout and explicitly requests session-cookie
+  persistence. Private mode leaves `cache_path` empty but still owns a unique
+  root. An empty browser cache path is not evidence that Chromium creates no
+  installation/profile files. The private supervisor retains ownership until
+  its ordinary OSR worker and descendants exit, then verifies root deletion.
+- `CefSettings.log_severity = LOGSEVERITY_DISABLE` alone does not disable the
+  pinned Chromium file destination. The app supplies `disable-logging` in
+  `OnBeforeCommandLineProcessing` at browser and child entry points, and the
+  qualification checks for diagnostic log files independently of private-root
+  deletion. See the pinned [CEF logging patch](https://github.com/chromiumembedded/cef/blob/f059e67/patch/patches/chrome_common_logging.patch)
+  and [Chromium logging initialization](https://github.com/chromium/chromium/blob/151.0.7922.138/chrome/common/logging_chrome.cc).
+- Media testing uses fake devices only in the qualification executable. It
+  does not pass `enable-media-stream` or a fake permission UI switch: permission
+  denial must reach the host and be observed by the page. Production browsing
+  uses neither test device nor permission-grant switches.
+- Download policy uses host callbacks and application-chosen unique paths.
+  A remote filename is not a destination. Qualification checks exact bytes and
+  the bounded fallback directory, rather than accepting a callback counter as
+  proof that nothing was written.
+
+The direct executable bootstrap remains unsandboxed. These explicit browser
+policies and private-root cleanup do not establish a security sandbox or
+forensic erasure. No Chrome headless-mode workaround is used to change process
+lifetime; the CPU OSR path and normal Chromium lifecycle remain the basis.
+
 ## CEF off-screen rendering
 
 CEF explicitly supports windowless/off-screen rendering. In this mode no native browser window is created; the host supplies a `CefRenderHandler`, receives painted content, and sends input back to the browser.
@@ -149,8 +187,24 @@ Microsoft DirectWrite supports Unicode shaping broadly, including Braille when a
 ## Compatibility rule
 
 Repository documentation records concepts and tested behaviour; the pinned dependency versions in the source tree are authoritative for exact API signatures. When an upstream CEF or Terminal behaviour differs from these notes, update this document alongside the implementation.
+
 ## Windows Terminal keyboard stream
 
-Issue #11's live browser mode enables `ENABLE_VIRTUAL_TERMINAL_INPUT`, switches the console from line/echo/processed input into an immediate byte stream, and reads available bytes with `ReadFile` only after the input handle is signalled. The original input mode/code page is restored by `TerminalSession`.
+Accepted main and the #13/#17 candidates retain issue #11's input transport:
+`ENABLE_VIRTUAL_TERMINAL_INPUT`, `CP_UTF8`, and main-thread `ReadFile` after an
+input-handle readiness check. Line/echo/processed input are disabled in browser
+mode. A signalled handle does not guarantee a character: a retained non-character
+record can be consumed by a high-level read that then waits. See Microsoft's
+[high-level console input documentation](https://learn.microsoft.com/en-us/windows/console/high-level-console-input-and-output-functions).
+
+The unmerged #16 candidate replaces that readiness/read sequence with one native
+`ReadFile` worker and a fixed 4 KiB mailbox. The main loop drains published bytes;
+normal teardown cancels and proves reader completion before restoring input
+mode/code page. No low-level event reads or flush are mixed into the UTF-8 stream.
+The pinned [Terminal input-buffer implementation](https://github.com/microsoft/terminal/blob/385c0c75f7f42a33c43f2508ecc8b7eb5d4f6a0d/src/host/inputBuffer.cpp)
+explains why switching read modes can discard cached conversion bytes. Exact-head
+native Windows results and physical terminal acceptance are recorded separately
+in the [P0 checkpoint](P0_CHECKPOINT_2026-11-03.md); neither is inferred from the
+source repair or the portable Win32 shim tests.
 
 Disabling `ENABLE_PROCESSED_INPUT` is intentional in browser mode: Ctrl+C must be available to web content. Browser-mode application quit is Ctrl+Alt+Q. Non-browser diagnostics retain processed-input Ctrl+C handling.
