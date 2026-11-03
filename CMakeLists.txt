@@ -476,6 +476,7 @@ add_test(NAME callback_boundary COMMAND "$<TARGET_FILE:callback_boundary_tests>"
 
 add_executable(osr_callback_tests tests/osr_callback_test.cpp)
 target_link_libraries(osr_callback_tests PRIVATE asciiomium_browser)
+target_compile_definitions(osr_callback_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
 set_target_properties(osr_callback_tests PROPERTIES
   FOLDER "Tests"
   MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")

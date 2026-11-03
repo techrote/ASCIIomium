@@ -64,7 +64,7 @@ void DiagnosticBoundary() {
   const std::u16string huge_text(1024 * 1024, u'x');
   const CefString huge(huge_text);
   const CefString empty;
-  const CefString small(std::string(kFixtureObservationPrefix) + "ignored");
+  const CefString fixture_message(std::string(kFixtureObservationPrefix) + "ignored");
   auto store = std::make_shared<SourceFrameStore>();
   CefRefPtr<OsrClient> client(new OsrClient(store, 4, 4));
   bool consumed = false;
@@ -82,7 +82,7 @@ void DiagnosticBoundary() {
   {
     allocation_test::Scope allocation(0);
     fixture_client->OnConsoleMessage(nullptr, LOGSEVERITY_INFO, huge, empty, 0);
-    fixture_client->OnConsoleMessage(nullptr, LOGSEVERITY_INFO, small, empty, 0);
+    fixture_client->OnConsoleMessage(nullptr, LOGSEVERITY_INFO, fixture_message, empty, 0);
   }
   Require(!allocation_test::rejected && !fixture_client->callback_failed() &&
           fixture_client->LatestFixtureObservation().empty(),
