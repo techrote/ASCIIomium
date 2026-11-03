@@ -167,8 +167,14 @@ int Probe(int argc, char** argv, const CefMainArgs& main_args, CefRefPtr<CefApp>
       navigate("open " + origin + "/redirect"); wait_page("PAGE:a:");
       navigate("open " + origin + "/network-error");
       Require(PumpUntil([&] { return client->load_error_code() != 0; }), "network failure not reported");
-      navigate("open " + origin + "/b"); wait_page("PAGE:b:");
-      Require(client->load_error_code() == 0, "new navigation retained stale error");
+      // A distinct page marker proves recovery did not accept retained title
+      // state from an earlier visit to /b while Chromium schedules navigation.
+      navigate("open " + origin + "/recovered"); wait_page("PAGE:recovered:");
+      Require(client->Status().url == origin + "/recovered" &&
+              client->http_status_code() == 200,
+              "recovery did not commit the expected successful page");
+      Require(client->load_error_code() == 0 && client->load_error_text().empty() &&
+              client->failed_url().empty(), "new navigation retained stale error");
     } else if (scenario == "policies") {
       wait_page("READY:policies");
       Require(PumpUntil([&] { return frames->SnapshotState().view_generation > 0; }), "policy page has no paint");

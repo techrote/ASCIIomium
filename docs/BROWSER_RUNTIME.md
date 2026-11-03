@@ -63,7 +63,16 @@ Normal page text and Ctrl shortcuts continue through the shared VT parser.
 | `quit` | Close CEF and restore the terminal |
 
 Interactive network errors leave command navigation available. Bounded
-headless runs still fail on a requested load error. Host status text is bounded
+headless runs still fail on a requested load error. The previous navigation's
+completion/HTTP/error fields are reset at an
+accepted main-frame navigation and again when its document commits. This does
+not rely only on aggregate loading-state edges: recovery can replace a failed
+request while the browser is still loading. Subframe/denied navigations do not
+clear the main error, and `OnLoadEnd` never clears a failure because CEF can
+deliver it after a post-commit `OnLoadError`. The real recovery probe requires
+a distinct new page marker, matching URL, HTTP 200 and cleared error fields.
+
+Host status text is bounded
 and stripped to printable ASCII before becoming terminal cells, so a page
 title cannot inject terminal escape sequences. Non-ASCII URL/title characters
 are shown as `?` in the small status surface; page rendering is unchanged.

@@ -21,6 +21,7 @@
 #include <thread>
 
 #include "browser/osr_client.h"
+#include "browser/runtime_app.h"
 #include "browser/source_frame.h"
 #include "include/cef_app.h"
 #include "include/cef_browser.h"
@@ -366,7 +367,8 @@ bool PumpUntil(CefRefPtr<asciiomium::browser::OsrClient> client,
   return predicate();
 }
 
-int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
+int BrowserProcessMain(const Options& options, const CefMainArgs& main_args,
+                       CefRefPtr<CefApp> app) {
   CefSettings settings;
   settings.windowless_rendering_enabled = true;
   settings.multi_threaded_message_loop = false;
@@ -378,9 +380,9 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
   // and the matching runtime setting is required here. This is a documented
   // milestone exception, not the intended long-term security posture.
   settings.no_sandbox = true;
-  settings.log_severity = LOGSEVERITY_WARNING;
+  settings.log_severity = LOGSEVERITY_DISABLE;
 
-  if (!CefInitialize(main_args, settings, nullptr, nullptr)) {
+  if (!CefInitialize(main_args, settings, app, nullptr)) {
     std::cerr << "CefInitialize failed with exit code " << CefGetExitCode() << '\n';
     return 3;
   }
@@ -536,9 +538,10 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
 
 int main(int argc, char** argv) {
   CefMainArgs main_args(GetModuleHandle(nullptr));
+  CefRefPtr<CefApp> app(new asciiomium::browser::RuntimeApp);
 
   // The same executable services Chromium renderer/GPU/utility subprocesses.
-  const int subprocess_exit = CefExecuteProcess(main_args, nullptr, nullptr);
+  const int subprocess_exit = CefExecuteProcess(main_args, app, nullptr);
   if (subprocess_exit >= 0) {
     return subprocess_exit;
   }
@@ -550,7 +553,7 @@ int main(int argc, char** argv) {
   }
 
   try {
-    return BrowserProcessMain(options, main_args);
+    return BrowserProcessMain(options, main_args, app);
   } catch (const std::exception& error) {
     std::cerr << "CEF capture failed: " << error.what() << '\n';
     return 1;

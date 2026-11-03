@@ -91,6 +91,26 @@ void OsrClient::OnBeforeClose(CefRefPtr<CefBrowser>) {
   closed_.store(true, std::memory_order_release);
 }
 
+void OsrClient::ResetMainNavigationState() {
+  load_complete_.store(false, std::memory_order_release);
+  load_error_code_.store(0, std::memory_order_release);
+  http_status_code_.store(0, std::memory_order_release);
+  {
+    std::lock_guard lock(load_error_mutex_);
+    load_error_text_.clear();
+    failed_url_.clear();
+  }
+  std::lock_guard lock(display_mutex_);
+  status_.notice.clear();
+  ++status_.revision;
+}
+
+void OsrClient::OnLoadStart(CefRefPtr<CefBrowser>,
+                            CefRefPtr<CefFrame> frame,
+                            cef_transition_type_t) {
+  if (frame->IsMain()) ResetMainNavigationState();
+}
+
 void OsrClient::OnLoadEnd(CefRefPtr<CefBrowser>,
                           CefRefPtr<CefFrame> frame,
                           int http_status_code) {
@@ -307,16 +327,7 @@ void OsrClient::OnLoadingStateChange(CefRefPtr<CefBrowser>, bool loading,
     status_.loading = loading;
     status_.can_go_back = back;
     status_.can_go_forward = forward;
-    if (loading) status_.notice.clear();
     ++status_.revision;
-  }
-  if (loading) {
-    load_complete_.store(false, std::memory_order_release);
-    load_error_code_.store(0, std::memory_order_release);
-    http_status_code_.store(0, std::memory_order_release);
-    std::lock_guard lock(load_error_mutex_);
-    load_error_text_.clear();
-    failed_url_.clear();
   }
 }
 
@@ -339,6 +350,13 @@ bool OsrClient::OnBeforeBrowse(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame> frame,
     Notice("Unsupported navigation/protocol blocked; external applications are never launched.");
     return true;
   }
+  // Loading-state notifications describe the aggregate browser load. A new
+  // main navigation may replace an already loading/failed request without a
+  // new false-to-true edge. Reset at accepted navigation and commit boundaries
+  // as well, so its predecessor's failure cannot survive a successful page.
+  // Never reset on a denied/subframe request or OnLoadEnd: a failed committed
+  // navigation can legitimately deliver OnLoadError followed by OnLoadEnd.
+  if (frame->IsMain()) ResetMainNavigationState();
   return false;
 }
 
