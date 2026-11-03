@@ -104,6 +104,7 @@ struct LiveEvidence {
   unsigned profile_cleanup_attempts = 0;
   int profile_cleanup_error = 0;
   asciiomium::browser::BrowserStatus browser_status;
+  asciiomium::browser::CallbackStatus callback_status;
   double duration_seconds = 0.0;
   int terminal_columns = 0;
   int terminal_rows = 0;
@@ -536,16 +537,21 @@ void WriteReport(const std::filesystem::path& path,
       << "  \"cef_compile\":\"" << JsonEscape(CEF_VERSION) << "\",\n"
       << "  \"cef_runtime\":\"" << CefRuntimeVersion() << "\",\n"
       << "  \"chromium_runtime\":\"" << ChromiumRuntimeVersion() << "\",\n"
-      << "  \"url\":\"" << JsonEscape(asciiomium::browser::DiagnosticOrigin(evidence.url)) << "\",\n"
+      << "  \"callbacks\":";
+  asciiomium::browser::WriteCallbackStatusJson(out, evidence.callback_status);
+  out << ",\n  \"url\":\"" << JsonEscape(asciiomium::browser::DiagnosticOrigin(evidence.url)) << "\",\n"
       << "  \"browser\":{\"profile_mode\":\"" << (evidence.private_mode ? "private" : "persistent")
       << "\",\"profile_cleanup\":" << (evidence.profile_cleanup ? "true" : "false")
       << ",\"profile_cleanup_deferred\":" << (evidence.profile_cleanup_deferred ? "true" : "false")
       << ",\"profile_cleanup_attempts\":" << evidence.profile_cleanup_attempts
       << ",\"profile_cleanup_error\":" << evidence.profile_cleanup_error
-      << ",\"current_origin\":\"" << JsonEscape(asciiomium::browser::DiagnosticOrigin(evidence.browser_status.url))
+      << ",\"current_origin\":\"" << JsonEscape(asciiomium::browser::DiagnosticOrigin(
+           evidence.browser_status.url, !evidence.browser_status.url_truncated))
       << "\",\"loading\":" << (evidence.browser_status.loading ? "true" : "false")
       << ",\"can_go_back\":" << (evidence.browser_status.can_go_back ? "true" : "false")
       << ",\"can_go_forward\":" << (evidence.browser_status.can_go_forward ? "true" : "false")
+      << ",\"url_truncated\":" << (evidence.browser_status.url_truncated ? "true" : "false")
+      << ",\"title_truncated\":" << (evidence.browser_status.title_truncated ? "true" : "false")
       << ",\"denied_popups\":" << evidence.browser_status.denied_popups
       << ",\"denied_permissions\":" << evidence.browser_status.denied_permissions
       << ",\"denied_media\":" << evidence.browser_status.denied_media
@@ -1021,6 +1027,11 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args,
     while (true) {
       ++evidence.loop_iterations;
       CefDoMessageLoopWork();
+      if (client->callback_failed()) {
+        evidence.exit_reason = "callback_error";
+        result = 6;
+        break;
+      }
       const auto now = Clock::now();
 
       if (terminal_session && terminal_session->stop_requested()) {
@@ -1331,6 +1342,11 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args,
     std::this_thread::sleep_for(std::chrono::milliseconds(5));
   }
   evidence.closed_cleanly = client->closed();
+  evidence.callback_status = client->callback_status();
+  if (evidence.callback_status.failed() && result == 0) {
+    evidence.exit_reason = "callback_error";
+    result = 6;
+  }
   if (!evidence.closed_cleanly && result == 0) {
     deferred_error = "CEF browser did not close before shutdown deadline";
     result = 7;
@@ -1363,11 +1379,15 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args,
   evidence.scheduler = scheduler.stats();
 
   client = nullptr;
-  if (!cef_session.Shutdown()) {
+  if (!cef_session.Shutdown(&evidence.callback_status)) {
     std::cerr << "CEF shutdown timed out; terminal restoration "
               << (evidence.terminal_restored ? "completed" : "incomplete")
               << ", active private data retained.\n";
     std::_Exit(7);
+  }
+  if (evidence.callback_status.failed() && result == 0) {
+    evidence.exit_reason = "callback_error";
+    result = 6;
   }
   evidence.profile_cleanup = profile.Finish();
   evidence.profile_cleanup_deferred = profile.cleanup_deferred();
@@ -1380,6 +1400,12 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args,
     if (result == 0) result = 10;
   }
   if (!deferred_error.empty()) std::cerr << deferred_error << '\n';
+  if (evidence.callback_status.failed()) {
+    std::cerr << "CEF callback failed: "
+              << asciiomium::browser::CallbackFailureName(evidence.callback_status.first_failure)
+              << "; rejected paints=" << evidence.callback_status.paint_failures
+              << ", suppressed paints=" << evidence.callback_status.suppressed_paints << '\n';
+  }
 
   if (!have_terminal_frame && result == 0) {
     std::cerr << "No terminal frame was produced\n";

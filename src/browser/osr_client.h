@@ -12,6 +12,7 @@
 
 #include "browser/source_frame.h"
 #include "browser/browser_commands.h"
+#include "browser/callback_state.h"
 #include "include/cef_client.h"
 #include "include/cef_dialog_handler.h"
 #include "include/cef_display_handler.h"
@@ -39,6 +40,8 @@ struct BrowserStatus {
   bool loading = false;
   bool can_go_back = false;
   bool can_go_forward = false;
+  bool url_truncated = false;
+  bool title_truncated = false;
   std::uint64_t revision = 0;
   std::uint64_t denied_popups = 0;
   std::uint64_t denied_permissions = 0;
@@ -51,9 +54,11 @@ struct BrowserStatus {
 };
 
 // Minimal single-browser CEF client used by the CPU OSR correctness path.
-// All CEF callbacks are invoked on CEF's UI thread. The diagnostic executable
-// uses CefDoMessageLoopWork on its main thread, so Resize/Close are also called
-// from that same thread.
+// Browser/render callbacks use CEF's UI thread. Resource/authentication callbacks
+// may use CEF's IO thread and retain only synchronized state. The executables
+// pump UI work on their main thread; Resize/Close use that same thread. CEF may
+// retain resource-request callbacks after OnBeforeClose, so the client continues
+// owning shared frame/diagnostic state until its final reference is released.
 class OsrClient final : public CefClient,
                         public CefRenderHandler,
                         public CefLifeSpanHandler,
@@ -128,7 +133,7 @@ class OsrClient final : public CefClient,
       CefRefPtr<CefFileDialogCallback>) override;
 
   [[nodiscard]] BrowserStatus Status() const;
-  void Notice(std::string_view message);
+  void Notice(std::string_view message) noexcept;
   [[nodiscard]] bool Navigate(const BrowserCommand& command);
 
   void GetViewRect(CefRefPtr<CefBrowser> browser, CefRect& rect) override;
@@ -201,10 +206,21 @@ class OsrClient final : public CefClient,
   }
   [[nodiscard]] std::string load_error_text() const;
   [[nodiscard]] std::string failed_url() const;
+  [[nodiscard]] bool callback_failed() const noexcept {
+    return callback_state_->failed();
+  }
+  [[nodiscard]] CallbackStatus callback_status() const noexcept {
+    return callback_state_->Snapshot();
+  }
+  // Retain only scalar failure state through CefShutdown, not a CEF object.
+  [[nodiscard]] std::shared_ptr<const CallbackState> callback_state() const noexcept {
+    return callback_state_;
+  }
 
  private:
   void ResetMainNavigationState();
-  std::vector<DirtyRect> ConvertDirtyRects(const RectList& rects) const;
+  std::vector<DirtyRect> ConvertDirtyRects(const RectList& rects,
+                                         int width, int height) const;
 
   std::shared_ptr<SourceFrameStore> frame_store_;
   std::atomic_int width_;
@@ -219,12 +235,12 @@ class OsrClient final : public CefClient,
   std::string load_error_text_;
   std::string failed_url_;
   mutable std::mutex display_mutex_;
-  std::string main_title_;
   bool pointer_click_center_observed_ = false;
   bool pointer_scroll_observed_ = false;
   std::string latest_fixture_observation_;
   BrowserRuntimeOptions runtime_;
   BrowserStatus status_;
+  std::shared_ptr<CallbackState> callback_state_;
   bool closing_ = false;
   struct Download {
     std::filesystem::path path;

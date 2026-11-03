@@ -25,19 +25,25 @@ class CefRuntimeSession {
     return initialized_;
   }
   void BrowserCreationStarted(CefRefPtr<OsrClient> client) { client_ = client; }
-  bool Shutdown() {
+  bool Shutdown(CallbackStatus* callback_status = nullptr) {
     if (!initialized_) return true;
+    std::shared_ptr<const CallbackState> callbacks;
     if (client_) {
+      callbacks = client_->callback_state();
       client_->CloseBrowser();
       const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
       while (!client_->closed() && std::chrono::steady_clock::now() < deadline) {
         CefDoMessageLoopWork();
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
       }
+      if (callback_status) *callback_status = client_->callback_status();
       if (!client_->closed()) return false;
       client_ = nullptr;
     }
     CefShutdown();
+    // Resource-request callbacks may run on IO after OnBeforeClose. Keep only
+    // the small observer alive, and take final counters after CEF stops them.
+    if (callback_status && callbacks) *callback_status = callbacks->Snapshot();
     initialized_ = false;
     profile_.SetCefActive(false);
     return true;

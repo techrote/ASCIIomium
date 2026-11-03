@@ -169,3 +169,24 @@ be removed and cleanup reported successful. The pipe/environment protocol carrie
 only a root created by that supervisor, never an arbitrary deletion target.
 Startup `--disable-logging` complements the severity setting because this CEF
 pin otherwise creates a fatal-level diagnostic file. See `BROWSER_RUNTIME.md`.
+
+## D-022 — Publish complete frames and retain callback failure evidence
+
+**Status:** implemented in the issue #16 branch; exact-head Windows tests and
+physical lifecycle acceptance are recorded separately.
+
+Source pixels and metadata become visible as one logical generation only after
+all required capacity is available. The newest-frame model remains in place;
+damage lists above 1,024 rectangles become one full-frame rectangle because the
+pixel copy is already complete. This bounds metadata without changing the image.
+
+Allocation/validation failures inside `OnPaint` are fatal run state, retained
+without allocating and observed by the owning main loop. Later paints cannot
+silently restore a successful result. Live, capture and probe reports expose
+the cause and rejected/suppressed counts; normal browser close and terminal
+cleanup still run. No executable may call `CefShutdown` with a live browser.
+
+Display/diagnostic strings are bounded before UTF-16 to UTF-8 conversion.
+Navigation validation requires the complete URL within its limit, and fixture
+console evidence requires the complete trusted address. See
+`LIFECYCLE_HARDENING.md` for scope, failure semantics and reproducible tests.

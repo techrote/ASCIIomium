@@ -162,8 +162,11 @@ set_target_properties(asciiomium_source_frame PROPERTIES
   MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
 add_library(asciiomium_browser STATIC
+  src/browser/bounded_text.cpp
+  src/browser/bounded_text.h
   src/browser/browser_commands.cpp
   src/browser/browser_commands.h
+  src/browser/callback_state.h
   src/browser/profile_session.cpp
   src/browser/profile_session.h
   src/browser/private_process.cpp
@@ -435,6 +438,21 @@ set_target_properties(source_frame_tests PROPERTIES
   FOLDER "Tests"
   MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 add_test(NAME source_frame COMMAND "$<TARGET_FILE:source_frame_tests>")
+
+add_executable(callback_boundary_tests tests/callback_boundary_test.cpp)
+target_link_libraries(callback_boundary_tests PRIVATE asciiomium_browser)
+set_target_properties(callback_boundary_tests PROPERTIES
+  FOLDER "Tests"
+  MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+add_test(NAME callback_boundary COMMAND "$<TARGET_FILE:callback_boundary_tests>")
+
+add_executable(osr_callback_tests tests/osr_callback_test.cpp)
+target_link_libraries(osr_callback_tests PRIVATE asciiomium_browser)
+set_target_properties(osr_callback_tests PROPERTIES
+  FOLDER "Tests"
+  MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+asciiomium_stage_cef_runtime(osr_callback_tests)
+add_test(NAME osr_callback COMMAND "$<TARGET_FILE:osr_callback_tests>")
 
 add_executable(live_runtime_tests tests/live_runtime_test.cpp)
 target_link_libraries(live_runtime_tests PRIVATE

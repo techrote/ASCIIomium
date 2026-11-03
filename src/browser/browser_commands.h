@@ -37,7 +37,11 @@ class BrowserCommands {
 // URL credentials/path/query/fragment or page titles. UI text is ASCII-only so
 // untrusted titles/URLs cannot inject VT, bidi controls or wide glyphs.
 [[nodiscard]] bool IsAllowedNavigation(std::string_view url);
-[[nodiscard]] std::string DiagnosticOrigin(std::string_view url);
+// CEF-native inputs are bounded before conversion and are never accepted by
+// validating a truncated prefix.
+[[nodiscard]] bool IsAllowedNavigationUtf16(std::u16string_view url);
+[[nodiscard]] std::string DiagnosticOrigin(std::string_view url,
+                                           bool complete = true);
 [[nodiscard]] std::string TerminalSafeText(std::string_view text,
                                          std::size_t maximum = 2048);
 

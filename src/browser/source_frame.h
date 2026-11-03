@@ -7,6 +7,10 @@
 
 namespace asciiomium::browser {
 
+// Pixel buffers are copied in full. Excess damage metadata can therefore be
+// represented by one whole-frame rectangle without changing the image.
+inline constexpr std::size_t kMaxSourceDirtyRects = 1024;
+
 struct DirtyRect {
   int x = 0;
   int y = 0;
@@ -85,7 +89,10 @@ struct SourcePresentationSnapshot {
 // the previous view image in-place (resizing only when dimensions change), and a
 // PET_POPUP paint does the same for one separately tracked popup image. This
 // preserves interactive newest-frame semantics without allowing paint callbacks
-// to build an unbounded backlog.
+// to build an unbounded backlog. Damage lists contain at most
+// kMaxSourceDirtyRects entries; larger inputs collapse to whole-frame damage.
+// Failed allocation leaves logical pixels/metadata/generations unchanged,
+// although a successfully reserved capacity may remain available for reuse.
 class SourceFrameStore {
  public:
   void UpdateView(const void* bgra,

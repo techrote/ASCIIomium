@@ -55,10 +55,12 @@ void Require(bool condition, const std::string& message) {
   if (!condition) throw std::runtime_error(message);
 }
 
-bool PumpUntil(const std::function<bool()>& condition, int milliseconds = 12000) {
+bool PumpUntil(CefRefPtr<OsrClient> client, const std::function<bool()>& condition,
+               int milliseconds = 12000) {
   const auto deadline = Clock::now() + std::chrono::milliseconds(milliseconds);
   while (Clock::now() < deadline) {
     CefDoMessageLoopWork();
+    if (client->callback_failed()) return false;
     if (condition()) return true;
     std::this_thread::sleep_for(std::chrono::milliseconds(2));
   }
@@ -77,7 +79,7 @@ void Click(CefRefPtr<OsrClient> client) {
   event.mouse_up = false;
   Require(client->SendPointerEvent(event), "pointer down failed");
   // Separate the gesture edges across real browser pump iterations.
-  PumpUntil([] { return false; }, 60);
+  PumpUntil(client, [] { return false; }, 60);
   event.mouse_up = true;
   Require(client->SendPointerEvent(event), "pointer up failed");
 }
@@ -131,7 +133,7 @@ int Probe(int argc, char** argv, const CefMainArgs& main_args, CefRefPtr<CefApp>
   int verified_transitions = 0;
   try {
     auto wait_page = [&](std::string_view prefix, std::string_view previous = {}) {
-      Require(PumpUntil([&] {
+      Require(PumpUntil(client, [&] {
         const auto title = client->MainTitle();
         return client->load_complete() && !client->Status().loading &&
                title.starts_with(prefix) && (previous.empty() || title != previous);
@@ -143,7 +145,7 @@ int Probe(int argc, char** argv, const CefMainArgs& main_args, CefRefPtr<CefApp>
       Require(command.error.empty() && client->Navigate(command), "navigation command rejected");
     };
     if (scenario.starts_with("storage-")) {
-      Require(PumpUntil([&] {
+      Require(PumpUntil(client, [&] {
         return client->MainTitle().starts_with("PASS:") || client->MainTitle().starts_with("FAIL:");
       }), "storage page did not complete asynchronous IndexedDB transaction");
       Require(client->MainTitle() == "PASS:" + scenario, "storage fixture failed");
@@ -159,14 +161,14 @@ int Probe(int argc, char** argv, const CefMainArgs& main_args, CefRefPtr<CefApp>
       before = client->MainTitle();
       navigate("hard-reload"); wait_page("PAGE:b:", before);
       navigate("open " + origin + "/slow");
-      Require(PumpUntil([&] { return client->Status().loading; }), "slow load never started");
-      PumpUntil([] { return false; }, 150);
+      Require(PumpUntil(client, [&] { return client->Status().loading; }), "slow load never started");
+      PumpUntil(client, [] { return false; }, 150);
       navigate("stop");
-      Require(PumpUntil([&] { return !client->Status().loading; }), "stop did not end loading");
+      Require(PumpUntil(client, [&] { return !client->Status().loading; }), "stop did not end loading");
       Require(client->load_error_code() == 0, "StopLoad incorrectly treated ERR_ABORTED as fatal");
       navigate("open " + origin + "/redirect"); wait_page("PAGE:a:");
       navigate("open " + origin + "/network-error");
-      Require(PumpUntil([&] { return client->load_error_code() != 0; }), "network failure not reported");
+      Require(PumpUntil(client, [&] { return client->load_error_code() != 0; }), "network failure not reported");
       // A distinct page marker proves recovery did not accept retained title
       // state from an earlier visit to /b while Chromium schedules navigation.
       navigate("open " + origin + "/recovered"); wait_page("PAGE:recovered:");
@@ -177,9 +179,9 @@ int Probe(int argc, char** argv, const CefMainArgs& main_args, CefRefPtr<CefApp>
               client->failed_url().empty(), "new navigation retained stale error");
     } else if (scenario == "policies") {
       wait_page("READY:policies");
-      Require(PumpUntil([&] { return frames->SnapshotState().view_generation > 0; }), "policy page has no paint");
+      Require(PumpUntil(client, [&] { return frames->SnapshotState().view_generation > 0; }), "policy page has no paint");
       Click(client);
-      Require(PumpUntil([&] {
+      Require(PumpUntil(client, [&] {
         return client->MainTitle().starts_with("PASS:") || client->MainTitle().starts_with("FAIL:");
       }), "policy JS promises did not settle");
       Require(client->MainTitle() == "PASS:policies", "page observed a policy grant or popup");
@@ -197,32 +199,34 @@ int Probe(int argc, char** argv, const CefMainArgs& main_args, CefRefPtr<CefApp>
         Require(CefRequestContext::GetGlobalContext()->SetPreference(
             "download.default_directory", value, error), "cannot bound default download directory");
       }
-      Require(PumpUntil([&] { return frames->SnapshotState().view_generation > 0; }), "download page has no paint");
+      Require(PumpUntil(client, [&] { return frames->SnapshotState().view_generation > 0; }), "download page has no paint");
       Click(client);
       const bool allowed = scenario == "download-allow";
-      Require(PumpUntil([&] { const auto state = client->Status();
+      Require(PumpUntil(client, [&] { const auto state = client->Status();
         return allowed ? state.completed_downloads > 0 : state.denied_downloads > 0;
       }), "download policy result missing");
       if (!allowed) {
-        PumpUntil([] { return false; }, 300);
+        PumpUntil(client, [] { return false; }, 300);
         Require(client->Status().completed_downloads == 0, "denied download completed");
       }
       // Python additionally checks actual file contents and no writes on denial.
     } else if (scenario == "tls") {
-      Require(PumpUntil([&] { return client->load_error_code() != 0; }), "invalid TLS certificate was not rejected");
+      Require(PumpUntil(client, [&] { return client->load_error_code() != 0; }), "invalid TLS certificate was not rejected");
       Require(!client->MainTitle().starts_with("PAGE:"), "untrusted HTTPS page executed");
       Require(client->Status().denied_certificates > 0, "certificate policy callback not exercised");
     } else if (scenario == "hold") {
       wait_page("PAGE:a:");
       // A bounded helper process lets Python verify real process ownership.
       std::ofstream(report.string() + ".ready") << "ready";
-      PumpUntil([] { return false; }, 6000);
+      PumpUntil(client, [] { return false; }, 6000);
     } else throw std::runtime_error("unknown scenario");
-    passed = true;
+    passed = !client->callback_failed();
   } catch (const std::exception& error) { failure = error.what(); }
   const auto status = client->Status();
   client = nullptr;
-  Require(session.Shutdown(), "browser failed to close");
+  CallbackStatus callbacks;
+  Require(session.Shutdown(&callbacks), "browser failed to close");
+  passed = passed && !callbacks.failed();
   const bool cleaned = profile.Finish();
   Require(cleaned, "profile cleanup failed");
   if (report.has_parent_path()) std::filesystem::create_directories(report.parent_path());
@@ -241,10 +245,15 @@ int Probe(int argc, char** argv, const CefMainArgs& main_args, CefRefPtr<CefApp>
       << ",\"denied_media\":" << status.denied_media
       << ",\"denied_downloads\":" << status.denied_downloads
       << ",\"completed_downloads\":" << status.completed_downloads
-      << ",\"denied_certificates\":" << status.denied_certificates << "}\n";
+      << ",\"denied_certificates\":" << status.denied_certificates
+      << ",\"callbacks\":";
+  WriteCallbackStatusJson(out, callbacks);
+  out << "}\n";
   out.close();
   Require(static_cast<bool>(out), "cannot finish probe report");
   if (!failure.empty()) std::cerr << "runtime probe: " << failure << '\n';
+  if (callbacks.failed()) std::cerr << "runtime probe callback failure: "
+      << CallbackFailureName(callbacks.first_failure) << '\n';
   return passed ? 0 : 1;
 }
 }  // namespace

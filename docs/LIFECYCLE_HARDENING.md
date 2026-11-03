@@ -1,8 +1,9 @@
 # Lifecycle hardening: bounded issue #16 slice
 
 This change addresses terminal callback lifetime, write/restore ordering,
-truthful cleanup evidence, and two small input/render boundary defects on top
-of the issue #13 runtime. It does **not** complete issue #16 or its V7 physical
+truthful cleanup evidence, transactional frame publication, bounded browser
+diagnostics, and two small input/render boundary defects on top of the issue
+#13 runtime. It does **not** complete issue #16 or its V7 physical
 acceptance gates. It does not merge the issue #14 differential writer or issue
 #15 telemetry work.
 
@@ -96,6 +97,86 @@ exit code and their separate restoration result. Other code relying only on
 the RAII destructor still receives best-effort cleanup; code needing evidence
 must explicitly inspect `Restore()`.
 
+## Frame publication and callback failures
+
+A source frame is committed only after all required pixel and damage-list
+capacity is available. If either reserve fails, pixels, dimensions, damage,
+colour/alpha extrema, paint counts and generations retain the previous frame.
+A successfully reserved capacity may remain for reuse after a later reserve
+fails; this does not publish a new logical frame. Same-size, warmed updates
+continue to reuse their existing buffers.
+
+Both CEF damage conversion and retained frame metadata have a limit of 1,024
+rectangles. A larger input list becomes one rectangle covering the full frame.
+Every update still copies the complete CEF pixel buffer, so this conservative
+damage representation preserves the image. It does not discard changed pixels
+or create a queue. Each view/popup snapshot retains at most 1,024 rectangles.
+
+`OnPaint` catches allocation, validation and unexpected exceptions inside the
+application callback. `CallbackState` records a fatal cause using atomics and
+scalar counters; recording an allocation failure requires no allocation. Later
+paints are suppressed while the owning main loop starts ordinary browser close,
+terminal restoration and profile cleanup. Title, address, load-error,
+navigation validation, download completion and shared notice updates use the
+same failure boundary. This is a scoped
+boundary, not a claim that every CEF callback or operating-system failure is
+recoverable.
+
+All three JSON reports (live, capture, runtime probe) add `callbacks`:
+
+| Field | Meaning |
+| --- | --- |
+| `failed` | A guarded callback failed at least once |
+| `first_failure` | `none`, `paint_allocation`, `paint_invalid_input`, `paint_exception`, `diagnostic_allocation`, or `diagnostic_exception` |
+| `paint_failures` | Paint operations that threw before publication completed |
+| `suppressed_paints` | Later paint callbacks skipped because a fatal cause was already latched |
+| `diagnostic_failures` | Guarded diagnostic/navigation updates that threw |
+
+Accepted-frame generations and paint counts exclude rejected and suppressed
+paints. A nonzero callback failure cannot pass qualification using a previously
+rendered frame: live exits with its existing render-failure code 6, capture
+returns a nonzero capture/callback failure, and the probe reports `passed=false`.
+Failures observed during close and late IO work are included as well: reports
+retain a small callback-state observer independently of the CEF client and take
+their final snapshot after `CefShutdown` returns. The callback cause never
+stores page data or exception text. Normal network/TLS failures remain ordinary
+browser state; they do not set this internal callback-failure latch.
+
+The capture tool also avoids `CefShutdown` when its browser misses the close
+deadline. It attempts to write `closed_cleanly=false` evidence, reports any
+write failure, then terminates with code 7 without destroying active CEF state.
+This is failure containment, not successful graceful shutdown.
+
+CEF's resource-request callbacks can outlive `OnBeforeClose`; shared state
+remains owned by the client until its last reference is released, and the scalar
+failure observer additionally remains owned by the shutdown/reporting path. No assertion
+assumes that all CEF callbacks stop at the first close notification. The precise
+thread/lifetime contract is described in the pinned
+[CEF life-span handler](https://github.com/chromiumembedded/cef/blob/f059e67/include/cef_life_span_handler.h).
+
+## Bounded text before conversion
+
+Native CEF UTF-16 input is read through a bounded view rather than first copied
+and converted in full. UTF-8 limits are 4,096 bytes for titles, 8,192 for displayed
+addresses and failed URLs, and 2,048 for load-error descriptions. Conversion
+stops at a complete Unicode scalar; isolated UTF-16 surrogates become U+FFFD.
+The live report identifies title/address truncation with
+`browser.title_truncated` and `browser.url_truncated`.
+Overlong failed URLs are omitted from retained diagnostics, and a truncated
+display address produces a fully redacted report origin. Parsing a clipped
+authority could otherwise miss a later credential delimiter and expose its
+prefix as if it were a host name.
+
+Navigation accepts only a complete allowed URL within 8,192 encoded bytes.
+It rejects overlong native or encoded input, so an allowed prefix cannot hide
+a truncated suffix. Existing scheme/control-character checks still apply.
+
+Ordinary console messages are consumed before conversion when fixture
+observations are disabled. The fixture path additionally requires a complete,
+exact trusted fixture address, the observation prefix, and both native/encoded
+lengths within 16,384. Oversized and untrusted messages are discarded before
+conversion; a truncated status address cannot become trusted fixture evidence.
+
 ## Focused regression coverage
 
 `terminal_lifecycle_tests` injects console operations rather than sending a
@@ -114,10 +195,10 @@ and code pages over ten session lifetimes.
 Run the Windows tests in both supported configurations:
 
 ```powershell
-cmake --build build --config Debug --target terminal_lifecycle_tests terminal_console_smoke input_parser_tests live_runtime_tests
-ctest --test-dir build -C Debug --output-on-failure -R "terminal_lifecycle|terminal_console_smoke|input_parser|live_runtime"
-cmake --build build --config Release --target terminal_lifecycle_tests terminal_console_smoke input_parser_tests live_runtime_tests
-ctest --test-dir build -C Release --output-on-failure -R "terminal_lifecycle|terminal_console_smoke|input_parser|live_runtime"
+cmake --build build --config Debug --target terminal_lifecycle_tests terminal_console_smoke input_parser_tests live_runtime_tests callback_boundary_tests osr_callback_tests
+ctest --test-dir build -C Debug --output-on-failure -R "terminal_lifecycle|terminal_console_smoke|input_parser|live_runtime|callback_boundary|osr_callback"
+cmake --build build --config Release --target terminal_lifecycle_tests terminal_console_smoke input_parser_tests live_runtime_tests callback_boundary_tests osr_callback_tests
+ctest --test-dir build -C Release --output-on-failure -R "terminal_lifecycle|terminal_console_smoke|input_parser|live_runtime|callback_boundary|osr_callback"
 ```
 
 Two portable regressions are included:
@@ -131,6 +212,27 @@ Two portable regressions are included:
   dimension. `INT_MAX + 1` could overflow. Positive dimensions now determine
   a safe maximum coordinate by subtraction; tests cover both signed extrema,
   oversized popups and one-pixel views.
+
+`callback_boundary_tests` deliberately fails the first and second frame-store
+allocations and checks the entire previously committed view/popup state. It
+also covers the same-byte-count dimension-change regression, later successful
+publication, allocation-free warmed updates, invalid arguments, and damage
+lists immediately at/above their bound. Callback failure-latch and Unicode
+conversion tests cover unknown exceptions, zero-byte budgets, all UTF-8 scalar
+widths, malformed UTF-16, and oversized navigation without prefix acceptance.
+An allocation-size ceiling rejects any attempt to convert a one-million-unit
+diagnostic in full.
+
+`osr_callback_tests` invokes the production CEF callbacks directly, without
+initializing a browser. Allocation rejection targets damage conversion, pixel
+reserve and damage reserve inside `OnPaint`; the test verifies both failure
+accounting and suppression of later publication. It also proves that excess
+CEF damage collapses before allocating its full list, disabled/untrusted/huge
+console input allocates nothing, and large titles remain bounded. A separate
+thread invokes a late protocol callback after the close notification with
+allocations disabled, verifying that shared notice failures remain observable
+after the client is released. These are
+callback-boundary tests, distinct from real Chromium runtime qualification.
 
 ## Remaining issue #16 work
 
@@ -147,10 +249,6 @@ recorded separately. Full acceptance still requires:
 - shutdown during pending navigation/resize and process-tree checks on the
   integrated runtime.
 
-Separate source audit findings remain tracked for follow-up: allocation failure
-can escape `OnPaint`, and frame publication can change pixels/dimensions before
-a dirty-rectangle allocation fails, leaving the prior generation; console,
-title and URL callbacks currently convert whole strings before their retained
-bounds apply. Those require focused callback/publication changes, not a claim
-that this terminal fix resolves them. The current console byte reader also
-lacks a hard cancellable/nonblocking-read contract.
+The current console byte reader still lacks a hard cancellable/nonblocking-read
+contract. The scoped callback guards do not claim to contain every allocation
+in every CEF callback, nor to survive sustained process-wide memory exhaustion.
