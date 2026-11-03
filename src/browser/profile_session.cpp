@@ -4,6 +4,7 @@
 #include <windows.h>
 
 #include "browser/profile_session.h"
+#include "browser/private_process.h"
 
 #include <algorithm>
 #include <atomic>
@@ -56,7 +57,9 @@ ProfileSession::ProfileSession(const std::filesystem::path& requested,
   if (private_ && !requested.empty()) throw std::invalid_argument("--private and --profile cannot be combined");
   try {
     if (private_) {
-      root_ = UniqueDirectory(std::filesystem::temp_directory_path() / L"ASCIIomium", L"private-");
+      worker_owned_ = !PrivateWorkerRoot().empty();
+      root_ = worker_owned_ ? PrivateWorkerRoot() :
+          UniqueDirectory(std::filesystem::temp_directory_path() / L"ASCIIomium", L"private-");
     } else if (!requested.empty()) {
       root_ = std::filesystem::absolute(requested);
     } else {
@@ -70,6 +73,9 @@ ProfileSession::ProfileSession(const std::filesystem::path& requested,
       throw std::runtime_error("profile must be outside the source and application directories");
     }
     std::filesystem::create_directories(root_);
+    // The supervisor owns the exclusive lock until this process and all CEF
+    // descendants exit. The worker may use the root, but never remove it.
+    if (worker_owned_) return;
     const auto lock_file = root_ / L".asciiomium.lock";
     const auto handle = CreateFileW(lock_file.c_str(), GENERIC_READ | GENERIC_WRITE,
         0, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_HIDDEN, nullptr);
@@ -91,6 +97,7 @@ ProfileSession::~ProfileSession() { (void)Finish(); }
 bool ProfileSession::Finish(int retry_budget_ms) noexcept {
   if (finished_) return true;
   if (cef_active_) return false;  // Never delete a root still owned by Chromium.
+  if (worker_owned_) { finished_ = true; return true; }
   if (lock_ != nullptr) { CloseHandle(static_cast<HANDLE>(lock_)); lock_ = nullptr; }
   if (private_ && !root_.empty()) {
     // Windows can release Chromium child-process file/mapping handles shortly

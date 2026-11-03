@@ -79,6 +79,7 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     exe, output = args.exe.resolve(), args.output.resolve()
+    assert not any((exe.parent / name).exists() for name in ("chrome_debug.log", "debug.log")), "qualification requires an executable directory without stale diagnostic browser logs"
     output.parent.mkdir(parents=True, exist_ok=True)
     reports = output.parent / "runtime-probes"
     reports.mkdir(exist_ok=True)
@@ -113,6 +114,10 @@ def main() -> None:
         if expected == 0:
             assert record["probe"]["schema"] == "asciiomium-runtime-probe-v1" and record["probe"]["scenario"] == scenario
             assert record["probe"]["passed"] and record["probe"]["closed_cleanly"] and record["probe"]["profile_cleanup"]
+            if "--private" in extra:
+                supervisor = record["probe"]["private_supervisor"]
+                assert supervisor["worker_exit"] == 0 and supervisor["process_tree_reaped"] and supervisor["profile_removed"]
+                assert not supervisor["forced_descendants"] and not record["probe"]["profile_cleanup_deferred"]
         print(f"PASS {name}", flush=True)
         return process
     try:
@@ -125,6 +130,10 @@ def main() -> None:
             run("private-write", "storage-write", ["--private"])
             run("private-restart", "storage-empty", ["--private"])
             run("persistent-still-intact", "storage-read", ["--profile", a])
+            for profile_root in (a, b):
+                assert not list(profile_root.rglob("chrome_debug.log")) and not list(profile_root.rglob("debug.log")), "runtime created a diagnostic browser log despite explicit disabled destination"
+            assert not any((exe.parent / name).exists() for name in ("chrome_debug.log", "debug.log")), "runtime created a diagnostic browser log beside the executable"
+            results.append({"name": "diagnostic-file-logging-disabled", "passed": True})
             ready_report = reports / "ownership-holder.json"
             ready = Path(str(ready_report) + ".ready")
             ready.unlink(missing_ok=True)

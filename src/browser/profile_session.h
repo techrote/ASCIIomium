@@ -20,6 +20,7 @@ class ProfileSession {
   [[nodiscard]] bool Finish(int retry_budget_ms = 2000) noexcept;
   [[nodiscard]] int cleanup_error_code() const noexcept { return cleanup_error_; }
   [[nodiscard]] unsigned cleanup_attempts() const noexcept { return cleanup_attempts_; }
+  [[nodiscard]] bool cleanup_deferred() const noexcept { return worker_owned_; }
   void SetCefActive(bool active) noexcept { cef_active_ = active; }
 
  private:
@@ -28,6 +29,7 @@ class ProfileSession {
   bool private_ = false;
   bool finished_ = false;
   bool cef_active_ = false;
+  bool worker_owned_ = false;
   int cleanup_error_ = 0;
   unsigned cleanup_attempts_ = 0;
 };

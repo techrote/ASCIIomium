@@ -27,6 +27,8 @@
 #include "browser/browser_commands.h"
 #include "browser/cef_profile.h"
 #include "browser/cef_runtime_session.h"
+#include "browser/private_process.h"
+#include "browser/runtime_app.h"
 #include "browser/fixture_observation.h"
 #include "browser/osr_client.h"
 #include "browser/popup_compositor.h"
@@ -95,6 +97,7 @@ struct LiveEvidence {
   std::string failed_url;
   bool private_mode = false;
   bool profile_cleanup = false;
+  bool profile_cleanup_deferred = false;
   unsigned profile_cleanup_attempts = 0;
   int profile_cleanup_error = 0;
   asciiomium::browser::BrowserStatus browser_status;
@@ -533,6 +536,7 @@ void WriteReport(const std::filesystem::path& path,
       << "  \"url\":\"" << JsonEscape(asciiomium::browser::DiagnosticOrigin(evidence.url)) << "\",\n"
       << "  \"browser\":{\"profile_mode\":\"" << (evidence.private_mode ? "private" : "persistent")
       << "\",\"profile_cleanup\":" << (evidence.profile_cleanup ? "true" : "false")
+      << ",\"profile_cleanup_deferred\":" << (evidence.profile_cleanup_deferred ? "true" : "false")
       << ",\"profile_cleanup_attempts\":" << evidence.profile_cleanup_attempts
       << ",\"profile_cleanup_error\":" << evidence.profile_cleanup_error
       << ",\"current_origin\":\"" << JsonEscape(asciiomium::browser::DiagnosticOrigin(evidence.browser_status.url))
@@ -826,7 +830,8 @@ void LogGeometry(const asciiomium::geometry::ViewportSnapshot& snapshot,
             << '\n';
 }
 
-int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
+int BrowserProcessMain(const Options& options, const CefMainArgs& main_args,
+                       CefRefPtr<CefApp> app) {
   // Resolve/validate all filesystem and URL options before CEF owns resources.
   const auto initial_url = ResolveUrl(options);
   asciiomium::browser::ProfileSession profile(options.profile, options.private_mode,
@@ -846,7 +851,7 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
   asciiomium::browser::ConfigureProfile(profile, settings);
 
   asciiomium::browser::CefRuntimeSession cef_session(profile);
-  if (!cef_session.Initialize(main_args, settings)) {
+  if (!cef_session.Initialize(main_args, settings, app)) {
     std::cerr << "CefInitialize failed with exit code " << CefGetExitCode() << '\n';
     return 3;
   }
@@ -1336,9 +1341,11 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
     std::_Exit(7);
   }
   evidence.profile_cleanup = profile.Finish();
+  evidence.profile_cleanup_deferred = profile.cleanup_deferred();
+  if (evidence.profile_cleanup_deferred) evidence.profile_cleanup = false;
   evidence.profile_cleanup_attempts = profile.cleanup_attempts();
   evidence.profile_cleanup_error = profile.cleanup_error_code();
-  if (!evidence.profile_cleanup) {
+  if (!evidence.profile_cleanup && !evidence.profile_cleanup_deferred) {
     std::cerr << "Private browser data cleanup failed (OS error " << profile.cleanup_error_code()
               << "); temporary data remains at " << CefString(profile.root().wstring()).ToString() << '\n';
     if (result == 0) result = 10;
@@ -1384,12 +1391,19 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
 
 int main(int argc, char** argv) {
   CefMainArgs main_args(GetModuleHandle(nullptr));
+  CefRefPtr<CefApp> app(new asciiomium::browser::RuntimeApp);
 
   // This executable also services Chromium renderer/GPU/utility subprocesses.
   // Subprocesses must exit before terminal ownership or CLI validation occurs.
-  const int subprocess_exit = CefExecuteProcess(main_args, nullptr, nullptr);
+  const int subprocess_exit = CefExecuteProcess(main_args, app, nullptr);
   if (subprocess_exit >= 0) {
     return subprocess_exit;
+  }
+
+  try { asciiomium::browser::InitializePrivateWorker(); }
+  catch (const std::exception& error) {
+    std::cerr << "Private worker initialization failed: " << error.what() << '\n';
+    return 1;
   }
 
   Options options;
@@ -1399,7 +1413,11 @@ int main(int argc, char** argv) {
   }
 
   try {
-    return BrowserProcessMain(options, main_args);
+    if (options.private_mode && asciiomium::browser::PrivateWorkerRoot().empty())
+      return asciiomium::browser::RunPrivateProcess(options.report, asciiomium::browser::ProcessArguments());
+    if (!asciiomium::browser::PrivateWorkerRoot().empty())
+      options.report = asciiomium::browser::PrivateWorkerRoot() / asciiomium::browser::kPrivateWorkerReportFilename;
+    return BrowserProcessMain(options, main_args, app);
   } catch (const std::exception& error) {
     std::cerr << "ASCIIomium live failed: " << error.what() << '\n';
     return 1;

@@ -8,16 +8,37 @@ canonicalized, must be outside the source/application directories, and is
 locked exclusively until CEF has shut down. A second owner fails clearly;
 a stale lock filename after a crash does not prevent the next launch.
 
-`--private` uses a unique temporary root and CEF's empty-cache incognito mode.
-It cannot be combined with `--profile`. Its browser data is removed after
-successful CEF shutdown, including installation data that CEF writes even
-with an empty cache path. Normal exits verify cleanup; failures are reported.
-On Windows, cleanup has a fixed two-second retry budget for child-process/file
-handles released just after shutdown. Reports preserve attempt count and any
-remaining OS error; a held-file negative test prevents false cleanup success.
-Hard process termination can leave the temporary root behind. A shutdown
-timeout restores the terminal and terminates without deleting data still in
-use by CEF. This is not a promise of forensic erasure.
+`--private` uses a unique temporary root with an empty CEF cache setting and
+session-cookie persistence disabled. It cannot be combined with `--profile`.
+The ordinary OSR browser runs in a worker process in the same console. A small
+supervisor owns the root and exclusive lock, waits for worker/CEF descendant
+process exit, and then removes the entire root, including installation/default
+profile data Chromium may create despite the empty cache setting. No headless
+Chrome mode or metrics/permission workaround is enabled.
+
+This process boundary is necessary because CEF shutdown is not process exit:
+pinned Chromium creates process-lifetime objects, and Windows CI demonstrated
+sharing violations after completed CEF shutdown. Increasing an in-process wait
+did not resolve them. A synthetic Windows unit deliberately retains a writable
+file mapping until process exit and verifies real root removal afterward.
+The observed residue also exposed `chrome_debug.log`; the startup logging policy
+below disables that destination independently rather than relying on deletion.
+
+The worker receives the supervisor-created root through a restricted inherited
+pipe using a one-use environment entry. There is no arbitrary-path deletion
+argument, and user arguments are not rewritten. Only standard handles and the
+pipe are inherited. Assignment to a kill-on-close Windows job precedes worker
+execution. Normal CEF shutdown remains mandatory, followed by proof that the
+job has no live processes before deletion. A remaining descendant is terminated
+and treated as an error. The parent consumes Ctrl+C/Break while the worker's
+existing control handler performs teardown, then reaps and cleans.
+
+Only the supervisor finalizes private cleanup evidence after actual deletion;
+intermediate worker reports mark cleanup deferred. Cleanup retries have a fixed
+two-second budget and preserve attempt count/OS error. Unicode temporary paths,
+literal `--report` input values, retained mappings, failed workers and report-write
+errors have Windows controls. Hard termination of the supervisor, system shutdown
+or power loss can still leave its temporary root; this is not forensic erasure.
 
 The pinned CEF 151 settings use the same absolute directory for persistent
 `root_cache_path` and `cache_path`; Chromium owns its `Default` child. Session
@@ -68,7 +89,11 @@ leave incomplete files in that destination. To inspect a downloaded file,
 first identify its content and rename it deliberately; filenames/extensions
 from a remote server are not trusted.
 
-CEF's default file logging is disabled. Reports include origins and numerical
+CEF's startup app adds `--disable-logging` for browser and child processes before
+Chromium selects a log destination. `LOGSEVERITY_DISABLE` alone maps to a fatal
+minimum in this pin and did not prevent a startup `chrome_debug.log`; the live
+qualification now checks absence of diagnostic files in persistent test roots.
+Reports include origins and numerical
 error/policy state, never URL credentials/path/query/fragment or page titles.
 Arbitrary page console messages are consumed. Existing raw `--input-debug`
 is limited to the explicitly selected bundled fixture and stops recording
@@ -83,10 +108,15 @@ is made by this implementation.
 
 ## Reproducible automated qualification
 
-Build `browser_commands_tests`, `profile_session_tests`, and
+Build `browser_commands_tests`, `profile_session_tests`, `private_process_tests`, and
 `asciiomium_runtime_probe` as well as `asciiomium_live`. CTest covers command
 interception through real VT bytes, bounds, URL/log sanitization, exclusive
 profile ownership, restart, private cleanup and failure paths.
+
+Pinned lifecycle/logging references: [CEF Chrome delegate](https://github.com/chromiumembedded/cef/blob/f059e67/libcef/common/chrome/chrome_main_delegate_cef.cc),
+[CEF Chrome logging patch](https://github.com/chromiumembedded/cef/blob/f059e67/patch/patches/chrome_common_logging.patch),
+[Chromium startup](https://github.com/chromium/chromium/blob/151.0.7922.138/chrome/app/chrome_main_delegate.cc),
+[global histogram allocator lifetime](https://github.com/chromium/chromium/blob/151.0.7922.138/base/metrics/persistent_histogram_allocator.cc).
 
 Run from the repository on Windows:
 

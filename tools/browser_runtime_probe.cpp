@@ -16,6 +16,8 @@
 #include "browser/browser_commands.h"
 #include "browser/cef_pointer_translator.h"
 #include "browser/cef_runtime_session.h"
+#include "browser/private_process.h"
+#include "browser/runtime_app.h"
 #include "include/cef_request_context.h"
 #include "include/cef_values.h"
 
@@ -30,6 +32,7 @@ class ProbeApp final : public CefApp {
  public:
   void OnBeforeCommandLineProcessing(const CefString&,
       CefRefPtr<CefCommandLine> command_line) override {
+    ApplyRuntimeCommandLinePolicy(command_line);
     command_line->AppendSwitch("use-fake-device-for-media-stream");
   }
  private:
@@ -96,6 +99,7 @@ int Probe(int argc, char** argv, const CefMainArgs& main_args, CefRefPtr<CefApp>
     else if (arg == "--report") report = value;
     else throw std::runtime_error("unknown probe argument");
   }
+  if (!PrivateWorkerRoot().empty()) report = PrivateWorkerRoot() / kPrivateWorkerReportFilename;
   Require(LoopbackOrigin(origin),
           "qualification probe is restricted to loopback fixtures");
   Require(!scenario.empty() && !report.empty(), "scenario and report required");
@@ -220,7 +224,10 @@ int Probe(int argc, char** argv, const CefMainArgs& main_args, CefRefPtr<CefApp>
   Require(static_cast<bool>(out), "cannot open probe report");
   out << "{\"schema\":\"asciiomium-runtime-probe-v1\",\"scenario\":\"" << scenario
       << "\",\"passed\":" << (passed ? "true" : "false")
-      << ",\"closed_cleanly\":true,\"profile_cleanup\":true,\"private\":" << (private_mode ? "true" : "false")
+      << ",\"closed_cleanly\":true,\"profile_cleanup\":" << (profile.cleanup_deferred() ? "false" : "true")
+      << ",\"profile_cleanup_deferred\":" << (profile.cleanup_deferred() ? "true" : "false")
+      << ",\"profile_cleanup_error\":" << profile.cleanup_error_code()
+      << ",\"private\":" << (private_mode ? "true" : "false")
       << ",\"profile_cleanup_attempts\":" << profile.cleanup_attempts()
       << ",\"verified_page_transitions\":" << verified_transitions
       << ",\"denied_popups\":" << status.denied_popups
@@ -241,6 +248,16 @@ int main(int argc, char** argv) {
   CefRefPtr<CefApp> app(new ProbeApp);
   const int child = CefExecuteProcess(args, app, nullptr);
   if (child >= 0) return child;
-  try { return Probe(argc, argv, args, app); }
+  try {
+    InitializePrivateWorker();
+    bool private_mode = false;
+    std::filesystem::path report;
+    for (int i = 1; i < argc; ++i) {
+      if (std::string_view(argv[i]) == "--private") private_mode = true;
+      if (std::string_view(argv[i]) == "--report" && i + 1 < argc) report = argv[++i];
+    }
+    if (private_mode && PrivateWorkerRoot().empty()) return RunPrivateProcess(report, ProcessArguments());
+    return Probe(argc, argv, args, app);
+  }
   catch (const std::exception& error) { std::cerr << "runtime probe: " << error.what() << '\n'; return 1; }
 }

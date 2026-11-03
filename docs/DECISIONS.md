@@ -161,3 +161,11 @@ the transient status can show the current URL, but diagnostics store origins
 only. Browser popup windows and unsupported sensitive capabilities are denied
 explicitly; downloads require an opted-in directory with application-selected
 unique paths. See `BROWSER_RUNTIME.md` for the pinned CEF API rationale and tests.
+
+Windows qualification found that completed CEF shutdown does not release every
+process-owned file handle. Private sessions therefore use an ordinary OSR worker
+and an owning supervisor: only after the complete worker job exits can the root
+be removed and cleanup reported successful. The pipe/environment protocol carries
+only a root created by that supervisor, never an arbitrary deletion target.
+Startup `--disable-logging` complements the severity setting because this CEF
+pin otherwise creates a fatal-level diagnostic file. See `BROWSER_RUNTIME.md`.

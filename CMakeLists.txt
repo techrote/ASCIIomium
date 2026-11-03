@@ -165,6 +165,9 @@ add_library(asciiomium_browser STATIC
   src/browser/browser_commands.h
   src/browser/profile_session.cpp
   src/browser/profile_session.h
+  src/browser/private_process.cpp
+  src/browser/private_process.h
+  src/browser/runtime_app.h
   src/browser/cef_profile.h
   src/browser/cef_runtime_session.h
   src/browser/cef_key_translator.cpp
@@ -184,6 +187,7 @@ target_link_libraries(asciiomium_browser PUBLIC
   asciiomium_source_frame
   libcef_dll_wrapper
   libcef_lib
+  Shell32
   ${CEF_STANDARD_LIBS})
 target_compile_features(asciiomium_browser PUBLIC cxx_std_20)
 target_compile_definitions(asciiomium_browser PRIVATE
@@ -384,6 +388,10 @@ add_test(NAME browser_commands COMMAND "$<TARGET_FILE:browser_commands_tests>")
 add_executable(profile_session_tests tests/profile_session_test.cpp)
 target_link_libraries(profile_session_tests PRIVATE asciiomium_browser)
 add_test(NAME profile_session COMMAND "$<TARGET_FILE:profile_session_tests>")
+
+add_executable(private_process_tests tests/private_process_test.cpp)
+target_link_libraries(private_process_tests PRIVATE asciiomium_browser)
+add_test(NAME private_process COMMAND "$<TARGET_FILE:private_process_tests>")
 
 add_executable(cef_key_translator_tests tests/cef_key_translator_test.cpp)
 target_link_libraries(cef_key_translator_tests PRIVATE asciiomium_browser)
