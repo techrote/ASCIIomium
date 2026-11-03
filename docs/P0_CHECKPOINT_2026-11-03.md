@@ -26,7 +26,7 @@ integrated browser have not inherited physical acceptance from those older runs.
 | #13 browser runtime | [PR #40](https://github.com/techrote/ASCIIomium/pull/40), `issue-13-browser-runtime`, head `88195b12f97ffb433aa57ae9afcc7949355ff36e` | Exact-head Windows Debug/Release, 18 tests per configuration, inherited live/input checks and complete real CEF runtime suite passed in run 41556184528. Independent review clear; physical gate open. |
 | #14 differential output | [PR #41](https://github.com/techrote/ASCIIomium/pull/41), `issue-14-differential-output`, head `1272351b03502e7600c1229da8a50bfa4d433bdb` | Exact-head Windows Debug/Release/live checks passed. Independent replay/UBSan review passed. Full output remains default; physical gate open. |
 | #15 structured telemetry | [PR #42](https://github.com/techrote/ASCIIomium/pull/42), `issue-15-structured-telemetry`, head `b041201ed6d06546eb93eda368d3d06284b6321c` | Stacked only on #41. Exact-head Windows Debug/Release and all six CEF telemetry benchmarks passed in [run 41552670081](https://github.com/techrote/ASCIIomium/actions/runs/41552670081). Source review clear. |
-| #16 lifecycle | [PR #44](https://github.com/techrote/ASCIIomium/pull/44), `issue-16-terminal-lifecycle`, head `ae578e5c2c27adc09a150220e0c1aec1bca86e89` | Reviewed terminal ownership/results, transactional bounded callbacks/frames, ten-phase CEF shutdown/provenance harness including pending resize, and bounded cancellable input with conservative rollback. First Windows build exposed test-header macro collisions, now repaired. Run 41559971458 passed Debug compilation but its test step is stalled; a focused fault-injection/diagnostic/deadline repair is under review. The runner cause awaits completed logs. Integrated telemetry/physical soak open. |
+| #16 lifecycle | [PR #44](https://github.com/techrote/ASCIIomium/pull/44), `issue-16-terminal-lifecycle`, head `f321cae8e18a2a791479e0f07b377d775fddd213` | [Run 41600126282](https://github.com/techrote/ASCIIomium/actions/runs/41600126282) completed Debug CTest in 14.52 seconds: 24/25 passed, including the repaired direct callback test in 0.03 seconds. Native Unicode/VT delivery still failed; retained diagnostics locate the byte mismatch before the mailbox. A bounded wide-console conversion repair and startup-exception coverage are in progress. Release, real CEF shutdown phases, integrated telemetry and physical soak remain unqualified. |
 | #17 portable package | [PR #43](https://github.com/techrote/ASCIIomium/pull/43), `issue-17-portable-windows`, head `36d11ec954fb86051a6240739c23a4a0e120ba38` | Stacked only on qualified #13. Builder/verifier/clean-extraction job independently reviewed; first Windows run passed 20 tests per configuration then inherited a runtime logging precondition failure. Updated exact-head run 41557252823 passed both build/test and separate clean-extraction jobs; all seven original artifact digests and sizes, complete payload inventory and custody verified. |
 | #18 acceptance | This document and issue #18 | Readiness reconciliation in progress; human and integrated-source gates remain open. |
 
@@ -36,6 +36,11 @@ matched pass for one component is not an integrated-browser acceptance pass.
 After the applicable component/human gates permit integration, rebuild and
 requalify the resulting exact source. Never relabel an older artifact with a
 newer SHA.
+
+The [candidate decision index](DECISIONS.md#unmerged-p0-candidate-decision-index--3-november-2026)
+records the architectural changes and their source authorities. The
+[command appendix](P0_CANDIDATE_COMMANDS.md) provides reproducible commands for
+each separate capability, including the failed #16 qualification state.
 
 ## Readiness matrix
 
@@ -50,7 +55,7 @@ newer SHA.
 | Browser policy | Explicit popup/new-window/protocol/permissions/TLS/dialog policy; opt-in controlled downloads. Real page outcomes and download bytes are tested. | Confirm policy notices are discoverable and do not disrupt input; document unsupported browser capabilities. |
 | Diagnostics/privacy | Origins-only reports, trusted-fixture raw input logging, explicit capture options; early Chromium file-log suppression and absence checks. | Do not enter credentials into raw input diagnostics. Explicit screenshots/VT/SVG capture visible page content and require deliberate operator selection. |
 | Telemetry/benchmark | #15 versioned bounded measurements, source/fixture identity, CPU interval semantics, null availability and six-run protocol. | Terminal writes remain unavailable in headless evidence. Collect actual terminal throughput only on a matching interactive host. |
-| Lifecycle/restoration | #13 guards private process ownership; #16 implements callback/write/restore ordering, truthful restoration results and bounded input cancellation; native Windows qualification is running. | Ten real launch/quit cycles; close/error recovery; prompt/cursor/mouse/input/alternate-screen restoration. |
+| Lifecycle/restoration | #13 guards private process ownership; #16 implements callback/write/restore ordering, truthful restoration results and bounded input cancellation. Debug callback tests pass at `f321cae`; native Unicode delivery fails and its repair is pending. | Ten real launch/quit cycles; close/error recovery; prompt/cursor/mouse/input/alternate-screen restoration. |
 | 30-minute soak | Not complete. A short headless benchmark is not a soak or a physical acceptance substitute. | At least 30 minutes with navigation, typing, clicking, scrolling, resizing and idle periods; preserve start/end/interval telemetry and observations. |
 | Real websites | No new real-site compatibility acceptance captured in this continuation. | At least four categories: text/document, image-heavy, responsive application, forms/controls; no site-specific workarounds. |
 | Portable package | #17 pinned-archive allowlist, source/dependency provenance, hash manifest, standalone verifier and clean Windows job without checkout/cache. | Exact package and clean smoke jobs passed; original ZIP, complete payload inventory and custody verified and preserved. Final candidate must be requalified after integration. |
@@ -221,19 +226,41 @@ reviewed repair reserves all required storage before publication, bounds damage
 metadata, and makes callback failure observable through final CEF shutdown in
 all three consumers. Diagnostic size/trust checks precede conversion. The source
 repairs and portable fault tests are complete. The reviewed input reader and
-mode-rollback follow-up are integrated; Windows qualification is running on
-PR #44. Its first Windows run failed during direct-callback test compilation:
+mode-rollback follow-up are integrated on PR #44. Its first Windows run failed
+during direct-callback test compilation:
 Windows `max` and `small` macros collided with CEF headers and a test variable.
 The target now defines `NOMINMAX`/`WIN32_LEAN_AND_MEAN`, the variable is renamed,
 and no assertions changed. The failed log is preserved. A reviewed follow-up
 replaces duplicate ready phases with pending-resize shutdown cases, keeping ten
-launches. The next run passed Debug compilation but its test step is stalled.
-A source review found that injecting allocation failure into MSVC Debug STL
-`noexcept` iterator-proxy construction can terminate before the intended callback
-boundary; a focused payload-injection, failure-diagnostic and deadline repair
-is under independent review. That source finding does not identify the current
-runner failure without its completed log. No native-console result is inferred
-from the local Win32 shim tests.
+launches. The completed [run 41559971458](https://github.com/techrote/ASCIIomium/actions/runs/41559971458)
+log shows successful Debug compilation, a five-second `terminal_input_console`
+Unicode/VT delivery failure, and a later `osr_callback` stall until cancellation.
+Its internal stall cause remains unproven. Primary STL source review identified
+a concrete injection hazard: MSVC Debug iterator proxies allocate inside
+`noexcept` container constructors, so fail-next allocation can terminate before
+the intended callback boundary. The reviewed repair targets fallible data
+buffers, preserves strict no-allocation assertions, adds failing noninteractive
+diagnostics and per-test deadlines, and retains CTest logs/JUnit on failure.
+
+The next [run 41600126282](https://github.com/techrote/ASCIIomium/actions/runs/41600126282),
+at `f321cae8e18a2a791479e0f07b377d775fddd213`, tree
+`ec8a87235dafd8eff1c0357f6e6324af37f52650`, completed all 25 Debug tests in
+14.52 seconds. Twenty-four passed, including `osr_callback` in 0.03 seconds;
+`terminal_input_console` remained the sole failure. The successful native
+`ReadFile` call returned 21 bytes where the controlled Unicode/VT fixture
+expected 26. Non-ASCII fixture code units became NUL bytes while ASCII/VT bytes
+remained intact, with input code page 65001 and mode `0x280`. The mismatch was
+already present before mailbox publication. This identifies the observed native
+read/conversion boundary, but not a specific host binary/window owner or physical
+Windows Terminal behavior.
+
+The [CTest evidence artifact](https://github.com/techrote/ASCIIomium/actions/runs/41600126282/artifacts/13213604632)
+is 7,808 bytes, SHA-256
+`5a8a2b6a07d9b43f9e88f43ca69ede59ae3515f3890beefb2cd9460a79de1e5a`.
+A bounded wide-console-read/UTF-8 conversion repair and explicit startup-exception
+coverage are in progress; neither is qualified by this failed run. Release and
+the real CEF shutdown matrix were not reached. No native-console result is
+inferred from the local Win32 shim tests.
 
 #15's first Windows run passed every benchmark assertion and wrote all reports,
 then failed because PowerShell retained exit code 2 from an intentionally invalid

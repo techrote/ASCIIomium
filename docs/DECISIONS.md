@@ -146,3 +146,25 @@ Pointer precision remains terminal-cell granular. Cells outside contained
 browser content are rejected rather than assigned synthetic sub-cell or
 letterbox coordinates. Mouse tracking is RAII-owned and must be disabled during
 terminal restoration.
+
+## Unmerged P0 candidate decision index — 3 November 2026
+
+The decisions below belong to separate candidate branches. This index preserves
+their exact source and rationale; accepted `main` remains
+`dbae54279129cbe0486cb8be2f7b0c101607301c`. Qualification and remaining gates are
+recorded in the [P0 checkpoint](P0_CHECKPOINT_2026-11-03.md), with
+[commands scoped to each candidate](P0_CANDIDATE_COMMANDS.md).
+
+| Decision | Candidate choice and reason | Source authority |
+| --- | --- | --- |
+| D-018 | Explicit profile ownership, temporary browser commands and supervised private cleanup. Actual process exit is required before deleting resources that Chromium can retain beyond CEF shutdown. | [#13 / `88195b12f97f`](https://github.com/techrote/ASCIIomium/blob/88195b12f97ffb433aa57ae9afcc7949355ff36e/docs/DECISIONS.md) |
+| D-019 | Opt-in differential output with explicit invalidation. The full-frame serializer remains the reference and default while physical equivalence is open. | [#14 / `1272351b0350`](https://github.com/techrote/ASCIIomium/blob/1272351b03502e7600c1229da8a50bfa4d433bdb/docs/DECISIONS.md) |
+| D-020 | Bounded telemetry with explicit measurement/source identity. Unavailable headless terminal-write measurements remain null. | [#15 / `b041201ed6d0`](https://github.com/techrote/ASCIIomium/blob/b041201ed6d06546eb93eda368d3d06284b6321c/docs/DECISIONS.md), stacked on #14 |
+| D-021 | Build the portable package from an exact source and verified dependency archive; retain manifest and external custody. | [#17 / `36d11ec954fb`](https://github.com/techrote/ASCIIomium/blob/36d11ec954fb86051a6240739c23a4a0e120ba38/docs/DECISIONS.md), stacked on #13 |
+| D-022 | Reserve before frame publication and retain fatal callback evidence through final CEF shutdown. This prevents mixed old/new frame state and missed late failures. | [#16 / `f321cae8e18a`](https://github.com/techrote/ASCIIomium/blob/f321cae8e18a2a791479e0f07b377d775fddd213/docs/DECISIONS.md), stacked on #13 |
+| D-024 | One bounded high-level console reader; cancellation and proven reader completion precede input-mode restoration. Native Unicode qualification is still failing at this source. | [#16 / `f321cae8e18a`](https://github.com/techrote/ASCIIomium/blob/f321cae8e18a2a791479e0f07b377d775fddd213/docs/DECISIONS.md) |
+
+These choices reconcile the implementation with the original frame-ownership,
+reference-renderer and terminal-restoration plan. A future combined candidate
+must reconcile the decisions and their interactions at its own exact source;
+the #17 package above does not contain #14, #15 or #16.

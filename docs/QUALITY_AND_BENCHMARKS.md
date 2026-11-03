@@ -120,7 +120,11 @@ Before calling milestone 1 usable:
 - click target mapping is accurate enough across all four corners and centre;
 - wheel scrolling works in both page and nested scroll regions where CEF supports it;
 - browser resize does not leave stale rows/columns;
-- Ctrl+C / normal quit restores terminal state;
+- normal browser quit with Ctrl+Alt+Q restores terminal state; Ctrl+C remains
+  available to Chromium for browser shortcuts;
+- the documented recoverable emergency path must be tested separately (Ctrl+Break
+  for the current candidate); non-browser terminal diagnostics retain Ctrl+C
+  handling, while console-close/hard-kill limitations remain explicit;
 - repeated launch/quit cycles do not corrupt the shell session.
 
 ## Benchmark command philosophy
@@ -134,3 +138,7 @@ asciiomium --fixture flat-ui --benchmark 10s --renderer halfblock --colors 1024 
 over ad-hoc stopwatch observations.
 
 The exact CLI can evolve, but benchmark data must include enough configuration to reproduce the run.
+
+Use the [source-pinned candidate command appendix](P0_CANDIDATE_COMMANDS.md)
+for concrete invocations. The live `--benchmark` option belongs to #15 and is
+not available in the currently qualified #17 package.

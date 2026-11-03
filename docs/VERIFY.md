@@ -2,6 +2,11 @@
 
 Verification is staged so a developer can prove each layer independently before blaming the browser, terminal, or renderer for another layer's failure.
 
+The [P0 candidate command appendix](P0_CANDIDATE_COMMANDS.md) gives concrete
+commands at exact unmerged source revisions. Use its capability boundaries and
+the [checkpoint's qualification states](P0_CHECKPOINT_2026-11-03.md) when
+reproducing component evidence; the physical requirements within V1–V7 still apply.
+
 ## V0 — Build and unit tests
 
 Required for every code change once the build exists:
