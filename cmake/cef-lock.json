@@ -1,0 +1,12 @@
+{
+  "schema": "asciiomium-cef-lock-v1",
+  "version": "151.3.17+gf059e67+chromium-151.0.7922.138",
+  "chromium": "151.0.7922.138",
+  "commit_prefix": "f059e67",
+  "platform": "windows64",
+  "archive_sha1": "f21afbaaeb82c02a9e13dbb012c6fd0b2f11f005",
+  "url_base": "https://cef-builds.spotifycdn.com",
+  "runtime_dlls": ["chrome_elf.dll", "d3dcompiler_47.dll", "libcef.dll", "libEGL.dll", "libGLESv2.dll", "vk_swiftshader.dll", "vulkan-1.dll", "dxil.dll", "dxcompiler.dll"],
+  "runtime_data": ["v8_context_snapshot.bin", "vk_swiftshader_icd.json"],
+  "resources": ["chrome_100_percent.pak", "chrome_200_percent.pak", "resources.pak", "icudtl.dat"]
+}

@@ -169,3 +169,19 @@ be removed and cleanup reported successful. The pipe/environment protocol carrie
 only a root created by that supervisor, never an arbitrary deletion target.
 Startup `--disable-logging` complements the severity setting because this CEF
 pin otherwise creates a fatal-level diagnostic file. See `BROWSER_RUNTIME.md`.
+
+## D-021 — Source-bound portable package from a verified dependency archive
+
+**Status:** implemented for development qualification; Windows extraction and
+human acceptance evidence are recorded in the #17 PR.
+
+Portable fixtures resolve beside the executable. The package builder uses a
+fixed application/fixture allowlist and fresh CEF bytes from the locked archive,
+including full locales and Chromium third-party credits. It rejects dirty source
+and mismatched binary/fixture identity. Shared build-time identity generation is
+the narrow prerequisite shared with #15; its telemetry feature is not included.
+Payload and external ZIP custody hashes are checked by a standalone verifier and
+a separate Windows job with no source checkout/cache. Deterministic ZIP metadata
+does not imply reproducible native builds. Packages remain unsigned development
+candidates under the existing sandbox exception until explicit release gates pass.
+See `WINDOWS_PACKAGE.md` for inventory, verification and failure evidence.

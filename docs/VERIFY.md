@@ -210,6 +210,16 @@ Acceptance:
 - normal quit restores prompt/cursor/input;
 - repeated 10x launch/quit cycle leaves terminal usable.
 
+## V8 — Portable Windows package
+
+Build only from clean exact source and matching Release/x64 binaries. Verify
+the locked CEF archive, complete runtime/locales/notices, executable-relative
+fixtures, payload manifest and external ZIP custody. A separate Windows job with
+no checkout/cache must pass extracted version, static/motion private browser,
+unchanged-inventory and missing-runtime negative controls. Preserve failure
+reports as well as success. See `WINDOWS_PACKAGE.md` for commands and boundaries;
+package CI does not satisfy V6/V7 or physical terminal acceptance.
+
 ## Visual regression evidence
 
 When changing the renderer:

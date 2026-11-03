@@ -23,6 +23,8 @@
 #include <vector>
 
 #include "browser/cef_key_translator.h"
+#include "app/build_info.h"
+#include "app/resource_paths.h"
 #include "browser/cef_pointer_translator.h"
 #include "browser/browser_commands.h"
 #include "browser/cef_profile.h"
@@ -405,8 +407,7 @@ std::string ResolveUrl(const Options& options) {
   if (file.empty()) {
     throw std::runtime_error("unknown bundled fixture: " + options.fixture);
   }
-  const std::filesystem::path path =
-      std::filesystem::path(ASCIIOMIUM_SOURCE_DIR) / "fixtures" / "web" / file;
+  const auto path = asciiomium::BundledFixture(file);
   std::string url = FileUrl(path);
   if (options.freeze) {
     url += "?freeze=1";
@@ -530,6 +531,7 @@ void WriteReport(const std::filesystem::path& path,
   out << std::fixed << std::setprecision(6)
       << "{\n"
       << "  \"schema\":\"asciiomium-live-v1\",\n"
+      << "  \"fixture_resolution\":\"" << (options.url.empty() ? "executable-relative" : "explicit-url") << "\",\n"
       << "  \"cef_compile\":\"" << JsonEscape(CEF_VERSION) << "\",\n"
       << "  \"cef_runtime\":\"" << CefRuntimeVersion() << "\",\n"
       << "  \"chromium_runtime\":\"" << ChromiumRuntimeVersion() << "\",\n"
@@ -835,7 +837,7 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args,
   // Resolve/validate all filesystem and URL options before CEF owns resources.
   const auto initial_url = ResolveUrl(options);
   asciiomium::browser::ProfileSession profile(options.profile, options.private_mode,
-                                               ASCIIOMIUM_SOURCE_DIR);
+                                               asciiomium::DevelopmentSourceDirectory());
   asciiomium::browser::BrowserRuntimeOptions runtime;
   if (!options.downloads.empty()) {
     runtime.downloads = std::filesystem::weakly_canonical(std::filesystem::absolute(options.downloads));
@@ -1398,6 +1400,11 @@ int main(int argc, char** argv) {
   const int subprocess_exit = CefExecuteProcess(main_args, app, nullptr);
   if (subprocess_exit >= 0) {
     return subprocess_exit;
+  }
+  if (argc == 2 && (std::string_view(argv[1]) == "--version" || std::string_view(argv[1]) == "-V")) {
+    const auto info = asciiomium::GetBuildInfo();
+    std::cout << asciiomium::FormatBuildInfo(info) << '\n';
+    return info.cef_runtime_matches_headers ? 0 : 2;
   }
 
   try { asciiomium::browser::InitializePrivateWorker(); }
