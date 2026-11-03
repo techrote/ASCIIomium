@@ -14,6 +14,7 @@
 #include <iomanip>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -22,6 +23,7 @@
 #include <utility>
 #include <vector>
 
+#include "app/build_info.h"
 #include "browser/cef_key_translator.h"
 #include "browser/cef_pointer_translator.h"
 #include "browser/fixture_observation.h"
@@ -39,6 +41,8 @@
 #include "render/render_types.h"
 #include "runtime/frame_scheduler.h"
 #include "runtime/timing_series.h"
+#include "runtime/telemetry.h"
+#include "runtime/process_metrics.h"
 #include "terminal/differential_frame_emitter.h"
 #include "terminal/full_frame_emitter.h"
 #include "terminal/terminal_sequences.h"
@@ -58,6 +62,8 @@ struct Options {
   int columns = 120;
   int rows = 40;
   int duration_ms = 0;
+  int benchmark_duration_ms = 0;
+  bool telemetry_enabled = true;
   int max_frames = 0;
   bool differential_output = false;
   bool compare_emitter = false;
@@ -93,6 +99,12 @@ struct LiveEvidence {
   std::string load_error_text;
   std::string failed_url;
   double duration_seconds = 0.0;
+  int runtime_result = 0;
+  asciiomium::BuildInfo build_info;
+  std::optional<asciiomium::runtime::ProcessMeasurement> process_measurement;
+  asciiomium::browser::SourceFrameState measurement_source_start{};
+  asciiomium::browser::SourceFrameState measurement_source_end{};
+  std::uint64_t distinct_generations_rendered = 0;
   int terminal_columns = 0;
   int terminal_rows = 0;
   std::uint64_t popup_composited_frames = 0;
@@ -221,6 +233,9 @@ void PrintUsage() {
       << "  --geometry-debug        log viewport generations and mappings to stderr\n"
       << "  --freeze                append ?freeze=1 to bundled fixture URL\n"
       << "  --duration-ms N         stop after N ms; 0 means until quit chord (default 0)\n"
+      << "  --benchmark DURATION    bounded run, e.g. 30s, 500ms, 2m (100ms..60m)\n"
+      << "                          writes --report, default benchmark.json; no --max-frames\n"
+      << "  --telemetry on|off      stage timers/process counters (default on)\n"
       << "  --max-frames N          stop after N nonempty emitted frames; 0 means unlimited\n"
       << "  --emitter MODE          full|differential (default full)\n"
       << "  --full-repaint-ms N     force screen reconstruction every N ms; 0 disables\n"
@@ -283,6 +298,17 @@ bool ParseArgs(int argc, char** argv, Options* options) {
       if (!take_int(1, 512, &options->rows)) return false;
     } else if (arg == "--duration-ms") {
       if (!take_int(0, 3'600'000, &options->duration_ms)) return false;
+    } else if (arg == "--benchmark") {
+      if (i + 1 >= argc) return false;
+      const auto duration = asciiomium::runtime::ParseBenchmarkDuration(argv[++i]);
+      if (!duration) return false;
+      options->benchmark_duration_ms = *duration;
+    } else if (arg == "--telemetry") {
+      if (i + 1 >= argc) return false;
+      const std::string_view value(argv[++i]);
+      if (value == "on") options->telemetry_enabled = true;
+      else if (value == "off") options->telemetry_enabled = false;
+      else return false;
     } else if (arg == "--emitter") {
       if (i + 1 >= argc) return false;
       const std::string_view mode(argv[++i]);
@@ -349,6 +375,15 @@ bool ParseArgs(int argc, char** argv, Options* options) {
     } else {
       return false;
     }
+  }
+
+  if (options->benchmark_duration_ms > 0) {
+    if (options->max_frames != 0 ||
+        (options->duration_ms != 0 && options->duration_ms != options->benchmark_duration_ms)) {
+      return false;
+    }
+    options->duration_ms = options->benchmark_duration_ms;
+    if (options->report.empty()) options->report = "benchmark.json";
   }
 
   // Headless/CI runs need a deterministic stop condition. Interactive terminal
@@ -516,6 +551,7 @@ void WriteTerminalFrameSvg(const std::filesystem::path& path,
 }
 
 std::string TimingJson(const asciiomium::runtime::TimingSeries& timing) {
+  if (timing.count() == 0) return "null";
   std::ostringstream out;
   out << std::fixed << std::setprecision(6)
       << "{\"average_ms\":" << timing.average_ms()
@@ -524,6 +560,86 @@ std::string TimingJson(const asciiomium::runtime::TimingSeries& timing) {
       << ",\"sample_count\":" << timing.count()
       << ",\"percentile_retained_samples\":" << timing.retained_count() << '}';
   return out.str();
+}
+
+std::string LegacyStageTiming(const asciiomium::runtime::TimingSeries& timing, bool enabled) {
+  if (!enabled || timing.count() == 0) {
+    return "{\"available\":false,\"average\":0,\"p95\":0,"
+           "\"scope\":\"legacy numeric placeholders; no measurement; use telemetry.timing for nullable values\"}";
+  }
+  std::ostringstream out;
+  out << std::fixed << std::setprecision(6)
+      << "{\"available\":true,\"average\":" << timing.average_ms()
+      << ",\"p95\":" << timing.percentile_ms(0.95) << '}';
+  return out.str();
+}
+
+asciiomium::runtime::TelemetryReport MakeTelemetryReport(
+    const Options& options, const LiveEvidence& evidence) {
+  using namespace asciiomium::runtime;
+  TelemetryReport report;
+  const auto& build = evidence.build_info;
+  report.identity = {build.asciiomium_version, build.source_revision, build.source_tree,
+      build.source_identity_available, build.source_dirty, build.build_type,
+      build.compiler, build.architecture, build.cef_compile_version,
+      build.cef_runtime_version, build.chromium_runtime_version,
+      build.cef_runtime_matches_headers, build.fixture_manifest_sha256};
+  auto& config = report.config;
+  if (options.url.empty()) config.fixture_id = options.fixture;
+  config.colors = asciiomium::render::ColorModeName(options.color_mode);
+  config.sampling = FilterName(options.filter);
+  config.fit = asciiomium::geometry::FitModeName(options.fit_mode);
+  config.emitter = options.differential_output ? "differential" : "full";
+  config.cell_aspect = options.cell_aspect;
+  config.source_width = options.width;
+  config.source_height = options.height;
+  config.columns = evidence.terminal_columns;
+  config.rows = evidence.terminal_rows;
+  config.frame_cap = options.fps;
+  config.cef_frame_cap = options.cef_fps;
+  config.requested_duration_ms = options.duration_ms;
+  config.full_repaint_ms = options.full_repaint_ms;
+  config.fixture_frozen = options.freeze;
+  config.benchmark_mode = options.benchmark_duration_ms > 0;
+  config.terminal_output = options.terminal_output;
+  config.comparison_enabled = options.compare_emitter;
+  config.timings_enabled = options.telemetry_enabled;
+  auto& counters = report.counters;
+  counters.source_view_paints_start = evidence.measurement_source_start.view_paint_count;
+  counters.source_view_paints_end = evidence.measurement_source_end.view_paint_count;
+  counters.source_popup_paints_start = evidence.measurement_source_start.popup_paint_count;
+  counters.source_popup_paints_end = evidence.measurement_source_end.popup_paint_count;
+  counters.source_generation_start = evidence.measurement_source_start.presentation_generation;
+  counters.source_generation_end = evidence.measurement_source_end.presentation_generation;
+  counters.last_rendered_generation = evidence.scheduler.last_rendered_source_generation;
+  counters.distinct_generations_rendered = evidence.distinct_generations_rendered;
+  counters.rendered_frames = evidence.scheduler.rendered_frames;
+  counters.emitted_frames = evidence.scheduler.emitted_frames;
+  counters.empty_payload_frames = evidence.empty_payload_frames;
+  counters.coalesced_generations = evidence.scheduler.coalesced_source_generations;
+  counters.full_reconstructions = evidence.full_reconstructions;
+  counters.bytes_serialized = evidence.total_vt_bytes;
+  counters.written_cells = evidence.written_cells;
+  counters.emitted_runs = evidence.emitted_runs;
+  if (options.differential_output || options.compare_emitter) {
+    counters.changed_cells = evidence.changed_cells;
+    counters.changed_runs = evidence.changed_runs;
+    report.timings.planning = &evidence.differential_planning_timing;
+  }
+  if (options.compare_emitter) {
+    counters.same_frame_full_bytes = evidence.reference_full_bytes;
+    counters.same_frame_differential_bytes = evidence.reference_differential_bytes;
+    report.timings.compared_full_serialization = &evidence.full_reference_timing;
+    report.timings.compared_differential_serialization = &evidence.differential_serialization_timing;
+  }
+  report.timings.conversion = &evidence.conversion_timing;
+  report.timings.serialization = &evidence.serialization_timing;
+  if (options.terminal_output) report.timings.terminal_write = &evidence.write_timing;
+  report.process = evidence.process_measurement;
+  report.wall_seconds = evidence.duration_seconds;
+  report.completed_normally = evidence.runtime_result == 0 && evidence.closed_cleanly;
+  report.exit_reason = evidence.exit_reason;
+  return report;
 }
 
 void WriteReport(const std::filesystem::path& path,
@@ -551,6 +667,7 @@ void WriteReport(const std::filesystem::path& path,
   out << std::fixed << std::setprecision(6)
       << "{\n"
       << "  \"schema\":\"asciiomium-live-v1\",\n"
+      << "  \"telemetry\":" << asciiomium::runtime::SerializeTelemetry(MakeTelemetryReport(options, evidence)) << ",\n"
       << "  \"cef_compile\":\"" << JsonEscape(CEF_VERSION) << "\",\n"
       << "  \"cef_runtime\":\"" << CefRuntimeVersion() << "\",\n"
       << "  \"chromium_runtime\":\"" << ChromiumRuntimeVersion() << "\",\n"
@@ -610,20 +727,19 @@ void WriteReport(const std::filesystem::path& path,
       << evidence.scheduler.coalesced_source_generations
       << ",\"forced_refreshes\":" << evidence.scheduler.forced_refreshes
       << ",\"observed_emitted_fps\":" << emitted_fps << "},\n"
-      << "  \"timing_ms\":{\"conversion\":{\"average\":"
-      << evidence.conversion_timing.average_ms() << ",\"p95\":"
-      << evidence.conversion_timing.percentile_ms(0.95)
-      << "},\"serialization\":{\"average\":"
-      << evidence.serialization_timing.average_ms() << ",\"p95\":"
-      << evidence.serialization_timing.percentile_ms(0.95)
-      << "},\"terminal_write\":{\"average\":"
-      << evidence.write_timing.average_ms() << ",\"p95\":"
-      << evidence.write_timing.percentile_ms(0.95) << "}},\n"
+      << "  \"timing_ms\":{\"conversion\":"
+      << LegacyStageTiming(evidence.conversion_timing, options.telemetry_enabled)
+      << ",\"serialization\":"
+      << LegacyStageTiming(evidence.serialization_timing, options.telemetry_enabled)
+      << ",\"terminal_write\":"
+      << LegacyStageTiming(evidence.write_timing, options.telemetry_enabled && options.terminal_output)
+      << "},\n"
       << "  \"emission\":{\"schema\":\"asciiomium-emission-v1\",\"mode\":\""
       << (options.differential_output ? "differential" : "full")
       << "\",\"bytes_serialized\":" << evidence.total_vt_bytes
       << ",\"bytes_written_to_terminal\":"
-      << (options.terminal_output ? std::to_string(evidence.total_vt_bytes) : std::string("null"))
+      << (options.terminal_output && evidence.runtime_result == 0 && evidence.closed_cleanly
+              ? std::to_string(evidence.total_vt_bytes) : std::string("null"))
       << ",\"bytes_per_rendered_frame\":" << evidence.total_vt_bytes / rendered
       << ",\"bytes_per_nonempty_payload\":" << evidence.total_vt_bytes / emitted
       << ",\"bytes_per_second\":" << evidence.total_vt_bytes / duration
@@ -635,16 +751,16 @@ void WriteReport(const std::filesystem::path& path,
       << ",\"written_cells\":" << evidence.written_cells
       << ",\"emitted_runs\":" << evidence.emitted_runs
       << ",\"differential_planning\":"
-      << (have_diff_metrics ? TimingJson(evidence.differential_planning_timing) : "null")
+      << (have_diff_metrics && options.telemetry_enabled ? TimingJson(evidence.differential_planning_timing) : "null")
       << ",\"differential_serialization\":"
-      << (have_diff_metrics ? TimingJson(evidence.differential_serialization_timing) : "null")
+      << (have_diff_metrics && options.telemetry_enabled ? TimingJson(evidence.differential_serialization_timing) : "null")
       << ",\"comparison_enabled\":" << (options.compare_emitter ? "true" : "false")
       << ",\"same_frame_full_bytes\":"
       << (options.compare_emitter ? std::to_string(evidence.reference_full_bytes) : "null")
       << ",\"same_frame_differential_bytes\":"
       << (options.compare_emitter ? std::to_string(evidence.reference_differential_bytes) : "null")
       << ",\"same_frame_full_reference_timing\":"
-      << (options.compare_emitter ? TimingJson(evidence.full_reference_timing) : "null")
+      << (options.compare_emitter && options.telemetry_enabled ? TimingJson(evidence.full_reference_timing) : "null")
       << ",\"timing_scope\":\"cumulative average; p50/p95 last 2048 samples; compare-emitter adds reference work\"},\n"
       << "  \"input\":{\"decoded_events\":" << evidence.input_decoded_events
       << ",\"unsupported_events\":" << evidence.input_unsupported_events
@@ -692,6 +808,8 @@ void WriteReport(const std::filesystem::path& path,
       << ",\"closed_cleanly\":"
       << (evidence.closed_cleanly ? "true" : "false") << "}\n"
       << "}\n";
+  out.flush();
+  if (!out) throw std::runtime_error("unable to finish live report output");
 }
 
 double Milliseconds(Clock::time_point start, Clock::time_point end) {
@@ -870,6 +988,7 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
 
   int result = 0;
   LiveEvidence evidence;
+  evidence.build_info = asciiomium::GetBuildInfo();
   evidence.url = ResolveUrl(options);
 
   auto frame_store = std::make_shared<asciiomium::browser::SourceFrameStore>();
@@ -933,6 +1052,8 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
   asciiomium::geometry::ViewportState viewport_state;
   int target_columns = options.columns;
   int target_rows = options.rows;
+  std::optional<Clock::time_point> measurement_started;
+  asciiomium::runtime::ProcessSnapshot process_start;
 
   try {
     if (options.terminal_output) {
@@ -960,7 +1081,10 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
       LogGeometry(viewport_snapshot, false);
     }
 
+    evidence.measurement_source_start = frame_store->SnapshotState();
+    if (options.telemetry_enabled) process_start = asciiomium::runtime::ReadProcessSnapshot();
     const auto started = Clock::now();
+    measurement_started = started;
     auto last_geometry_poll = started;
     auto next_full_repaint = started + std::chrono::milliseconds(options.full_repaint_ms);
 
@@ -1226,7 +1350,7 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
         continue;
       }
 
-      const auto conversion_started = Clock::now();
+      const auto conversion_started = options.telemetry_enabled ? Clock::now() : Clock::time_point{};
       const auto composed = asciiomium::browser::ComposeViewAndPopup(
           presentation.view, presentation.popup);
       if (composed.width != viewport_snapshot.transform->browser_width() ||
@@ -1243,23 +1367,23 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
           asciiomium::render::PixelFormat::BGRA8};
       auto terminal_frame = asciiomium::render::RenderHalfBlock(
           source_view, *viewport_snapshot.transform, render_config);
-      const auto conversion_finished = Clock::now();
+      const auto conversion_finished = options.telemetry_enabled ? Clock::now() : Clock::time_point{};
 
       // Comparison is opt-in: both paths consume the same immutable logical
       // frame, so CSS animation scheduling cannot confound the byte comparison.
       asciiomium::terminal::DifferentialPlan plan;
       asciiomium::terminal::DifferentialEmission delta;
-      const auto planning_started = Clock::now();
+      const auto planning_started = options.telemetry_enabled ? Clock::now() : Clock::time_point{};
       if (options.differential_output || options.compare_emitter) {
         plan = asciiomium::terminal::PlanDifferentialFrame(
             have_terminal_frame ? &last_terminal_frame : nullptr,
             terminal_frame, force_full_repaint);
       }
-      const auto planning_finished = Clock::now();
+      const auto planning_finished = options.telemetry_enabled ? Clock::now() : Clock::time_point{};
       if (options.differential_output || options.compare_emitter) {
         delta = asciiomium::terminal::SerializeDifferentialFrame(terminal_frame, plan);
       }
-      const auto differential_finished = Clock::now();
+      const auto differential_finished = options.telemetry_enabled ? Clock::now() : Clock::time_point{};
       std::string full_bytes;
       if (!options.differential_output || options.compare_emitter) {
         full_bytes = asciiomium::terminal::SerializeFullFrame(terminal_frame).bytes;
@@ -1268,17 +1392,19 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
                                   asciiomium::terminal::kClearScreen);
         }
       }
-      const auto full_finished = Clock::now();
+      const auto full_finished = options.telemetry_enabled ? Clock::now() : Clock::time_point{};
       if (options.compare_emitter) {
         evidence.reference_full_bytes += full_bytes.size();
         evidence.reference_differential_bytes += delta.bytes.size();
-        evidence.full_reference_timing.AddMilliseconds(
-            Milliseconds(differential_finished, full_finished));
+        if (options.telemetry_enabled) {
+          evidence.full_reference_timing.AddMilliseconds(
+              Milliseconds(differential_finished, full_finished));
+        }
       }
       const bool reconstructing = force_full_repaint;
       std::string payload = options.differential_output ? std::move(delta.bytes)
                                                        : std::move(full_bytes);
-      const auto write_started = Clock::now();
+      const auto write_started = options.telemetry_enabled ? Clock::now() : Clock::time_point{};
       if (terminal_session && !payload.empty()) {
         terminal_session->Write(payload);
       }
@@ -1296,23 +1422,31 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
       if (options.differential_output || options.compare_emitter) {
         evidence.changed_cells += plan.changed_cells;
         evidence.changed_runs += plan.changed_runs;
-        evidence.differential_planning_timing.AddMilliseconds(
-            Milliseconds(planning_started, planning_finished));
-        evidence.differential_serialization_timing.AddMilliseconds(
-            Milliseconds(planning_finished, differential_finished));
+        if (options.telemetry_enabled) {
+          evidence.differential_planning_timing.AddMilliseconds(
+              Milliseconds(planning_started, planning_finished));
+          evidence.differential_serialization_timing.AddMilliseconds(
+              Milliseconds(planning_finished, differential_finished));
+        }
       }
 
-      evidence.conversion_timing.AddMilliseconds(
-          Milliseconds(conversion_started, conversion_finished));
-      evidence.serialization_timing.AddMilliseconds(options.differential_output
-          ? Milliseconds(planning_finished, differential_finished)
-          : Milliseconds(differential_finished, full_finished));
-      evidence.write_timing.AddMilliseconds(
-          Milliseconds(write_started, write_finished));
+      if (options.telemetry_enabled) {
+        evidence.conversion_timing.AddMilliseconds(
+            Milliseconds(conversion_started, conversion_finished));
+        evidence.serialization_timing.AddMilliseconds(options.differential_output
+            ? Milliseconds(planning_finished, differential_finished)
+            : Milliseconds(differential_finished, full_finished));
+        if (terminal_session && !payload.empty()) {
+          evidence.write_timing.AddMilliseconds(Milliseconds(write_started, write_finished));
+        }
+      }
       if (composed.popup_composited) {
         ++evidence.popup_composited_frames;
       }
 
+      if (presentation.presentation_generation > scheduler.stats().last_rendered_source_generation) {
+        ++evidence.distinct_generations_rendered;
+      }
       scheduler.MarkRendered(write_finished,
                              presentation.presentation_generation);
       if (!payload.empty()) scheduler.MarkEmitted();
@@ -1320,12 +1454,21 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
       have_terminal_frame = true;
     }
 
-    evidence.duration_seconds =
-        std::chrono::duration<double>(Clock::now() - started).count();
   } catch (const std::exception& error) {
     std::cerr << "Live render loop failed: " << error.what() << '\n';
     evidence.exit_reason = "exception";
     result = 6;
+  }
+
+  // Finalize at the render-loop boundary, before closure can add more paints
+  // or process work. This also records a useful partial interval after errors.
+  if (measurement_started) {
+    evidence.duration_seconds = std::chrono::duration<double>(Clock::now() - *measurement_started).count();
+    evidence.measurement_source_end = frame_store->SnapshotState();
+    if (options.telemetry_enabled) {
+      evidence.process_measurement = asciiomium::runtime::MeasureProcess(
+          process_start, asciiomium::runtime::ReadProcessSnapshot(), evidence.duration_seconds);
+    }
   }
 
   evidence.load_complete = client->load_complete();
@@ -1380,6 +1523,7 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
       WriteBinaryFile(options.vt_output,
                       asciiomium::terminal::SerializeFullFrame(last_terminal_frame).bytes);
     }
+    evidence.runtime_result = result;
     WriteReport(options.report, options, evidence);
   } catch (const std::exception& error) {
     std::cerr << "Failed to write live evidence: " << error.what() << '\n';
@@ -1393,9 +1537,11 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
               << " coalesced="
               << evidence.scheduler.coalesced_source_generations
               << " conversion_avg_ms=" << std::fixed << std::setprecision(3)
-              << evidence.conversion_timing.average_ms()
+              << (options.telemetry_enabled && evidence.conversion_timing.count() > 0
+                      ? std::to_string(evidence.conversion_timing.average_ms()) : "unavailable")
               << " conversion_p95_ms="
-              << evidence.conversion_timing.percentile_ms(0.95)
+              << (options.telemetry_enabled && evidence.conversion_timing.count() > 0
+                      ? std::to_string(evidence.conversion_timing.percentile_ms(0.95)) : "unavailable")
               << " geometry_gen=" << evidence.geometry_generation
               << " exit=" << evidence.exit_reason << '\n';
   }

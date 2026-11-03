@@ -1,0 +1,31 @@
+{
+  "schema": "asciiomium-portable-telemetry-evidence-v1",
+  "scope": "Portable telemetry/report/arithmetic and real isolated incremental-build tests; Windows CEF qualification remains pending",
+  "base_commit": "1272351b03502e7600c1229da8a50bfa4d433bdb",
+  "base_dependency": "PR #41 / issue #14 differential output",
+  "measured_at_utc": "2026-11-03T00:08:17.937529+00:00",
+  "os": "Linux-6.18.57-x86_64-with-glibc2.39",
+  "compiler": "g++ (Ubuntu 13.3.0-6ubuntu2~24.04) 13.3.0",
+  "cmake": "3.31.6 workspace-local",
+  "source_file_sha256": {
+    "src/runtime/telemetry.cpp": "220bfb01f43e7cd4cabe7b0ad9cfb82d54c222f5f6b61ffc9474e18443c28efb",
+    "src/runtime/telemetry.h": "332f1f0e5e0fb8fe28eae4cded855ca940d1ce8a5527cc2040ac340df7a9bbcd",
+    "src/runtime/process_metrics.cpp": "4a827142350dcebe9e4096bbe30cfce10b8f4289ec8ca2b4142e089361dbb7e8",
+    "src/runtime/process_metrics.h": "101153d2d5e061c985dc81fadb58970e4cd46907fd3632bf37b86adfb11b17f7",
+    "src/runtime/timing_series.cpp": "be613aeeca76cb0906893774ee6249cc2001cc7476e7ec7a10699203e822d951",
+    "src/runtime/timing_series.h": "e821256ffb38ba57da3e34a8c92ef0a62cb4d41983cc0ab855a3f0c306aa434e",
+    "tests/runtime_telemetry_test.cpp": "6e0c15c5631e2e3c32490b7d61eeb87562bf98f384a6c45c982ece97d9931cef",
+    "tests/build_identity_test.cmake": "b189e16e2b432cd3063ce306eb64bf16dc74577ba35a836d5bcfffa8491047ad",
+    "cmake/BuildIdentity.cmake": "ad934086e415b6878866bfdf18cc924c0d2075bfab6244925b91795a29915ca2",
+    "cmake/WriteBuildIdentity.cmake": "fa554eb3a3aae4a125c12a0838f0c23aa2a2c671de18b9858beed4c0ef1d49cb",
+    "tools/telemetry_overhead.cpp": "57c909f87a1c675b1a688876a528a36cc32e540eadfd7de9f7a5322aa831e5dd"
+  },
+  "overhead_report_sha256": "4d98bccccd85ccc21973499968fdff97af1fbe0b78ce4c6855bdd92340e516d4",
+  "validation": [
+    "GCC -O2, -O0 -g and -O2 -fsanitize=undefined tests: passed with -Wall -Wextra -Wpedantic -Werror",
+    "Independent Python JSON parse/escaped-string/null/measured-zero checks: passed",
+    "CMake shared-helper incremental build: clean -> edit -> commit -> untracked -> clean; unchanged generated header timestamp retained",
+    "Workflow YAML parses and explicit Debug/Release target inventories include telemetry tests/overhead tool",
+    "Final independent source review: no remaining blockers; reviewer separately ran optimized strict-warning tests and Python JSON parsing"
+  ]
+}

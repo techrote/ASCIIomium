@@ -113,6 +113,20 @@ tests, 160x50 byte benchmarks, CEF qualification command, metric definitions and
 outstanding physical Windows Terminal gate.
 
 
+### Bounded runtime benchmarks
+
+`--benchmark 30s --report build/benchmark.json` runs for a bounded interval and
+adds versioned telemetry to the existing live report. Use `--no-terminal` for
+CEF/serialization benchmarks; real terminal-write measurements then remain
+null. `--telemetry off` disables stage timers and process probes while retaining
+normal frame scheduling and byte accounting.
+
+Reports include build/source/CEF/Chromium identity, reproducible render settings,
+whole-run means, explicitly bounded p50/p95 windows, source/render/output
+counters, differential bandwidth and Windows browser-process resource samples.
+See [`docs/RUNTIME_TELEMETRY.md`](docs/RUNTIME_TELEMETRY.md) for exact measurement
+scopes, the overhead benchmark and qualification commands.
+
 ## Earlier diagnostics
 
 Exercise the terminal layer from Windows Terminal:

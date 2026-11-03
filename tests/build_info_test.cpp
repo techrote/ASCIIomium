@@ -34,6 +34,13 @@ int main() {
   if (info.build_type != "Debug" && info.build_type != "Release") {
     return Fail("unexpected build type: " + info.build_type);
   }
+  if (info.compiler.empty() || info.fixture_manifest_sha256.size() != 64) {
+    return Fail("compiler or fixture provenance is missing");
+  }
+  if (info.source_identity_available &&
+      (info.source_revision.size() != 40 || info.source_tree.size() != 40)) {
+    return Fail("source identity has invalid Git object IDs");
+  }
   if (!info.cef_runtime_matches_headers) {
     return Fail("linked libcef.dll does not match the headers used at compile time");
   }

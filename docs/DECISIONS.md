@@ -166,3 +166,26 @@ reconstruction even without source paints. Paired comparison on the same frames
 is opt-in because it adds work. One-cell printable glyph semantics are retained;
 no arbitrary Unicode-width or style engine is introduced. Details and evidence:
 `docs/DIFFERENTIAL_OUTPUT.md`.
+
+## D-020 — Bounded, explicit runtime telemetry and benchmark identity
+
+**Status:** implemented; Windows qualification evidence is recorded separately.
+
+Issue #15 adds an `asciiomium-runtime-telemetry-v1` section without replacing the
+existing live/offline report schemas. Timing means cover all accepted samples;
+p50/p95 cover the last 2,048, with counts, scopes and index formula included.
+Unavailable measurements/rates in the new section are null, including actual
+writes in headless runs; old numeric timing fields retain explicitly unavailable
+compatibility placeholders. Empty deltas remain rendered opportunities without nonempty emissions.
+
+Source counters and process endpoints are taken at the render-loop boundary,
+before shutdown. Windows process metrics cover the browser process only; CPU
+percentages use counter-sample clock intervals, and lifetime peak memory is
+identified as such. Per-frame telemetry uses bounded histories; an explicit
+switch disables stage timers and process probes while preserving scheduler
+clocks and functional counters. JSON/percentile work occurs after measurement.
+
+Build identity is refreshed through a generated header before each BuildInfo
+build. This prevents edit/rebuild or commit/rebuild from retaining stale clean
+provenance. The same CMake helper is exercised by an isolated incremental-build
+regression. Details, CLI and schema: `docs/RUNTIME_TELEMETRY.md`.

@@ -1,4 +1,5 @@
 #include "app/build_info.h"
+#include "asciiomium_build_identity.h"
 
 #include <sstream>
 
@@ -45,6 +46,12 @@ BuildInfo GetBuildInfo() {
   info.build_type = ASCIIOMIUM_BUILD_TYPE;
   info.architecture = ASCIIOMIUM_ARCH;
   info.cef_runtime_matches_headers = RuntimeMatchesHeaders();
+  info.source_revision = ASCIIOMIUM_SOURCE_REVISION;
+  info.source_tree = ASCIIOMIUM_SOURCE_TREE;
+  info.source_identity_available = ASCIIOMIUM_SOURCE_IDENTITY_AVAILABLE != 0;
+  info.source_dirty = ASCIIOMIUM_SOURCE_DIRTY != 0;
+  info.compiler = ASCIIOMIUM_COMPILER;
+  info.fixture_manifest_sha256 = ASCIIOMIUM_FIXTURE_MANIFEST_SHA256;
   return info;
 }
 
@@ -56,6 +63,12 @@ std::string FormatBuildInfo(const BuildInfo& info) {
          << "Chromium runtime: " << info.chromium_runtime_version << '\n'
          << "Build: " << info.build_type << '\n'
          << "Architecture: " << info.architecture << '\n'
+         << "Source revision: " << info.source_revision << '\n'
+         << "Source tree: " << info.source_tree << '\n'
+         << "Source identity: " << (info.source_identity_available ? "available" : "unavailable") << '\n'
+         << "Source checkout dirty: " << (info.source_dirty ? "yes" : "no") << '\n'
+         << "Compiler: " << info.compiler << '\n'
+         << "Fixture manifest SHA-256: " << info.fixture_manifest_sha256 << '\n'
          << "CEF ABI/header match: "
          << (info.cef_runtime_matches_headers ? "yes" : "NO");
   return stream.str();
