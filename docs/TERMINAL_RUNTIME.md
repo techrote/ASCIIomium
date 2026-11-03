@@ -159,16 +159,20 @@ acquisition/restoration operations and pause real production callbacks and
 writes at defined barriers. It verifies partial startup rollback, partial and
 zero-progress output, allocation-free cleanup, stable failure results,
 write/restore ordering, callback/destructor lifetime, concurrent restoration,
-and handler removal while a callback runs. The callback is invoked directly by
+handler removal while a callback runs, and full visual cleanup before an outer
+catch handles an exception thrown after successful acquisition. The callback is invoked directly by
 the test; no OS close signal is sent. Both Windows build configurations include
 this target, and CTest gives it a 30-second deadline.
 
 `terminal_input_tests` injects blocked reads, mailbox backpressure, cancellation
 races and failures. `terminal_input_console` uses fresh hidden console children
-and genuine `ReadFile`/`WriteConsoleInputW`/`CancelSynchronousIo` calls. It checks
-retained non-character records, UTF-8 at actual one-to-three-byte native read
-boundaries, pre-acquisition typeahead, idle/full-mailbox shutdown, conservative
-mode rollback, and deferred emergency input restoration. A separate child
+and genuine `ReadConsoleW`/`WriteConsoleInputW`/`CancelSynchronousIo` calls. It checks
+retained non-character records, UTF-16 at actual one-to-three-unit native read
+boundaries with exact UTF-8 byte delivery, pre-acquisition typeahead,
+idle/full-mailbox shutdown, conservative mode rollback, and deferred emergency
+input restoration. A successful-acquisition startup exception must unwind the
+native reader/console before its outer catch, followed by reacquisition and
+retained Unicode input on the same console. A separate child
 checks the fatal drain path. The parent bounds child lifetime and retains
 failure diagnostics. See [test scope and commands](TERMINAL_INPUT.md).
 
@@ -193,16 +197,19 @@ CI can validate Win32 console state and VT construction, but it does not render 
 `TerminalSessionOptions::raw_keyboard_input` is an issue-#11 opt-in. It
 requires VT input, disables cooked line/echo/processed input plus unused
 mouse/window console records, and exposes `ReadInputAvailable()`. One dedicated
-reader calls `ReadFile` directly and publishes into a fixed 4 KiB mailbox. The
+reader calls `ReadConsoleW` directly, converts a bounded UTF-16 chunk to UTF-8
+with at most one carried high surrogate, and publishes into a fixed 4 KiB mailbox. The
 main-loop method only drains already-published bytes; it never reads or waits
 on the console handle. Backpressure pauses the producer until the mailbox is
 empty, without growing a queue or discarding active-session bytes.
 
-A signalled input handle can contain only non-character records that
-`ReadFile` discards before waiting for a character. Conversely, the console can
-retain converted UTF-8 suffix bytes without a new key. The single high-level
-reader handles both cases without mixing in low-level event reads or flushing
-typeahead. [Microsoft documents the high-level read behavior](https://learn.microsoft.com/en-us/windows/console/high-level-console-input-and-output-functions).
+A signalled input handle can contain only non-character records that a
+high-level read discards before waiting for a character. Older console hosts
+can also lose valid non-ASCII input in a narrow read despite CP65001, as the
+hosted native transcript in `TERMINAL_INPUT.md` demonstrated. Explicit Unicode
+reads and bounded application conversion avoid that path without mixing in
+low-level event reads or flushing typeahead.
+[Microsoft documents the high-level read behavior](https://learn.microsoft.com/en-us/windows/console/high-level-console-input-and-output-functions).
 Cancellation and reader completion precede normal input mode/code-page
 restoration; [the focused input design](TERMINAL_INPUT.md) describes the entry
 race, fatal failure contract and qualification limits.

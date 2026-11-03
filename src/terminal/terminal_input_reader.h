@@ -15,12 +15,13 @@ struct InputDrainResult {
   DWORD error = ERROR_SUCCESS;
 };
 
-// The sole console byte consumer. A fixed mailbox applies backpressure instead
-// of dropping or growing input. No console-event API or UTF conversion occurs
-// here: ReadFile + CP_UTF8 remains the exact VT transport used by the parser.
+// The sole console character consumer. ReadConsoleW avoids lossy conversion in
+// older console hosts; bounded incremental UTF-16 conversion preserves the
+// parser's UTF-8/VT byte transport. A fixed mailbox applies backpressure.
 class TerminalInputReader {
  public:
   static constexpr std::size_t kCapacity = 4096;
+  static constexpr std::size_t kReadUnits = 1024;
   static constexpr int kFatalDrainExitCode = 12;
 
   TerminalInputReader(HANDLE input, const TerminalConsoleApi& api);

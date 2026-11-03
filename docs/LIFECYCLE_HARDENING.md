@@ -188,10 +188,24 @@ handler removal; bounded waits detect deadlocks instead of hanging CTest.
 
 The suite covers all acquisition calls, each cleanup operation, partial
 visual/mouse acquisition, short/failed/zero-progress output, preserved rollback
-failure evidence, repeat acquisition after an exception, stable concurrent
+failure evidence, repeat acquisition after an exception, successful-acquisition
+stack unwinding before an outer catch, stable concurrent
 results, callback/destructor ordering, and callback dispatch while removal is
 paused. The existing real-console smoke test still checks actual Win32 modes
 and code pages over ten session lifetimes.
+
+The genuine `terminal_input_console` child separately acquires all live
+terminal options, starts its native reader, then throws a startup sentinel.
+The outer catch checks exact mode/code-page restoration, read completion and
+handler removal before fixture fallback cleanup; a new session then reads
+retained Unicode on the same console. This fills the successful-constructor
+unwind gap left by constructor-rollback and normal-exit tests. The injected
+counterpart checks exact visual/mouse cleanup bytes before error handling.
+These are terminal component tests. Live startup validates its URL/profile
+before CEF initialization, requests browser creation before terminal acquisition,
+and defers an acquired-terminal error until restoration. A full-application
+fault injection at those boundaries and physical prompt recovery remain
+separate acceptance evidence; the component tests do not claim them.
 
 Run the Windows tests in both supported configurations:
 

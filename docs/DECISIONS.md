@@ -196,11 +196,15 @@ console evidence requires the complete trusted address. See
 **Status:** implemented; exact-revision Windows and physical qualification are
 recorded separately.
 
-Raw console input retains `ReadFile` plus `CP_UTF8` as its only transport. A
-dedicated reader publishes into a fixed 4 KiB mailbox; the main loop drains
-published bytes without performing an OS input read. No low-level event read
-or flush is interleaved with this transport, preserving cached UTF-8 conversion
-bytes and pre-acquisition typeahead.
+Raw console input uses explicit `ReadConsoleW` and bounded incremental UTF-16
+to UTF-8 conversion. The hosted `f321cae` diagnostic proved that `ReadFile`
+with CP65001 returned NULs for valid non-ASCII input before mailbox publication.
+One dedicated reader owns a 1,024-unit staging buffer, one pending high
+surrogate and a fixed 4 KiB byte mailbox; even the largest encoded read fits in
+3,075 bytes. The main loop drains published bytes without performing an OS
+input read. No low-level event read, A/W fallback or flush is interleaved with
+this transport. Pre-acquisition typeahead, exact VT/control bytes and split
+surrogate pairs remain covered by strict native assertions.
 
 Normal restoration requests stop, repeatedly cancels a pending read across its
 entry race, and proves native thread completion before joining and restoring

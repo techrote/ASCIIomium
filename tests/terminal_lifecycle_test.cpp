@@ -208,7 +208,7 @@ struct FakeConsole {
       [](void* context) noexcept -> DWORD {
         return static_cast<FakeConsole*>(context)->error.load();
       },
-      [](void*, HANDLE, void*, DWORD, DWORD* read) noexcept -> BOOL {
+      [](void*, HANDLE, wchar_t*, DWORD, DWORD* read) noexcept -> BOOL {
         *read = 0;  // Transport errors are exercised by terminal_input_tests.
         return TRUE;
       },
@@ -402,6 +402,33 @@ void TestWriteFailureRollback() {
   }
 }
 
+void TestSuccessfulAcquisitionUnwind() {
+  struct StartupFailure {};
+  FakeConsole console;
+  bool acquired = false;
+  bool caught = false;
+  PHANDLER_ROUTINE callback = nullptr;
+  try {
+    TerminalSession session(FullOptions(), console.Input(), console.Output(), console.api);
+    acquired = true;
+    callback = console.handler;
+    console.ResetLog();
+    throw StartupFailure{};
+  } catch (const StartupFailure&) {
+    caught = true;
+    Require(console.Baseline() && console.handler == nullptr,
+            "outer startup-error handler observes restored modes/pages and no handler");
+    Require(console.Bytes() == CleanupBytes(),
+            "successful session unwinds visual/mouse state before the startup error is handled");
+  }
+  Require(acquired && caught, "startup exception occurs only after successful acquisition");
+  Require(callback && callback(CTRL_CLOSE_EVENT) == FALSE,
+          "callback cannot access the unwound terminal session");
+  TerminalSession next(FullOptions(), console.Input(), console.Output(), console.api);
+  Require(next.Restore().succeeded() && console.Baseline(),
+          "a new terminal session can acquire after successful-session unwinding");
+}
+
 void TestWriteVersusRestore() {
   FakeConsole console;
   TerminalSession session(FullOptions(), console.Input(), console.Output(), console.api);
@@ -506,6 +533,7 @@ int main() {
   TestRollbackAndRetryAcquisition();
   TestRestoreFailuresAndNoAllocation();
   TestWriteFailureRollback();
+  TestSuccessfulAcquisitionUnwind();
   TestWriteVersusRestore();
   TestConcurrentRestore();
   TestCallbackPinsLifetime();

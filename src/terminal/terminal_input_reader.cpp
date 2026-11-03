@@ -10,6 +10,8 @@
 #include <stdexcept>
 #include <system_error>
 
+#include "terminal/utf16_input_encoder.h"
+
 namespace asciiomium::terminal {
 
 struct TerminalInputReader::State {
@@ -41,7 +43,7 @@ void TerminalInputReader::Start() {
   std::unique_lock lock(state_->mutex);
   if (worker_.joinable()) throw std::logic_error("terminal reader already started");
   if (state_->stop) throw std::logic_error("terminal reader is stopping");
-  if (!state_->api.read || !state_->api.cancel_synchronous_io) {
+  if (!state_->api.read_utf16 || !state_->api.cancel_synchronous_io) {
     throw std::invalid_argument("terminal reader requires read/cancel operations");
   }
   state_->finished.store(false, std::memory_order_release);
@@ -73,7 +75,7 @@ std::string TerminalInputReader::TakeAvailable(std::size_t max_bytes) {
   if (state_->stop || max_bytes == 0) return {};
   if (state_->read_error != ERROR_SUCCESS) {
     throw std::system_error(static_cast<int>(state_->read_error),
-                            std::system_category(), "ReadFile(terminal input)");
+                            std::system_category(), "ReadConsoleW(terminal input)");
   }
   const auto count = std::min(max_bytes, state_->available);
   std::string result(state_->bytes.data() + state_->offset, count);
@@ -88,25 +90,34 @@ std::string TerminalInputReader::TakeAvailable(std::size_t max_bytes) {
 }
 
 void TerminalInputReader::Run(const std::shared_ptr<State>& state) noexcept {
+  std::array<wchar_t, kReadUnits> units{};
+  Utf16InputEncoder encoder;
+  // Each new UTF-16 unit needs at most three bytes, plus at most three for an
+  // unmatched high surrogate carried from the previous read. Valid pairs use
+  // fewer bytes. The final Append also has its full six-byte span available.
+  static_assert(3 * (kReadUnits + 1) <= kCapacity);
+  static_assert(3 * kReadUnits + Utf16InputEncoder::kMaxUnitBytes <= kCapacity);
   std::unique_lock lock(state->mutex);
   for (;;) {
     state->changed.wait(lock, [&] { return state->stop || state->available == 0; });
     if (state->stop) break;
     lock.unlock();
 
-    // Read directly, without Wait/Peek gates. The console can hold a cached
-    // UTF-8 suffix even when no new input record signals its handle.
+    // Never mix high-level reads with event reads/readiness gates or flush
+    // retained typeahead. Explicit W input avoids the host's ANSI conversion.
+    // Initialize the count: some console cancellation paths return TRUE
+    // without writing it. Stop is checked before any result is published.
     DWORD read = 0;
-    const BOOL ok = state->api.read(state->api.context, state->input,
-                                    state->bytes.data(),
-                                    static_cast<DWORD>(state->bytes.size()), &read);
+    const BOOL ok = state->api.read_utf16(state->api.context, state->input,
+                                         units.data(),
+                                         static_cast<DWORD>(units.size()), &read);
     DWORD error = ERROR_SUCCESS;
     if (!ok) {
       error = state->api.last_error(state->api.context);
       if (error == ERROR_SUCCESS) error = ERROR_GEN_FAILURE;
     } else if (read == 0) {
       error = ERROR_HANDLE_EOF;
-    } else if (read > state->bytes.size()) {
+    } else if (read > units.size()) {
       error = ERROR_INVALID_DATA;
     }
 
@@ -116,8 +127,16 @@ void TerminalInputReader::Run(const std::shared_ptr<State>& state) noexcept {
       state->read_error = error;
       break;
     }
+    std::size_t size = 0;
+    for (DWORD i = 0; i < read; ++i) {
+      size += encoder.Append(static_cast<std::uint16_t>(units[i]),
+          std::span<char, Utf16InputEncoder::kMaxUnitBytes>(
+              state->bytes.data() + size, Utf16InputEncoder::kMaxUnitBytes));
+    }
     state->offset = 0;
-    state->available = read;
+    state->available = size;
+    // A read containing only a high surrogate has no encoded bytes yet. It
+    // still made native progress; read again for its partner without a gate.
   }
   state->finished.store(true, std::memory_order_release);
   lock.unlock();
@@ -134,7 +153,7 @@ InputDrainResult TerminalInputReader::StopAndJoin(
   DWORD cancellation_error = ERROR_SUCCESS;
   while (!finished()) {
     // CancelSynchronousIo only requests cancellation. ERROR_NOT_FOUND can be
-    // the interval after stop was observed by the caller but before ReadFile
+    // the interval after stop was observed by the caller but before ReadConsoleW
     // entered the kernel, so repeat until actual completion or the deadline.
     if (!state_->api.cancel_synchronous_io(
             state_->api.context, reinterpret_cast<HANDLE>(worker_.native_handle()))) {
@@ -156,7 +175,7 @@ InputDrainResult TerminalInputReader::StopAndJoin(
   }
   // The completion flag is published after the final read and before the
   // thread returns. Bound the remaining native thread lifetime before join;
-  // completion of ReadFile alone does not prove thread exit.
+  // completion of ReadConsoleW alone does not prove thread exit.
   const auto remaining = std::max(std::chrono::milliseconds(0),
       std::chrono::duration_cast<std::chrono::milliseconds>(
           deadline - std::chrono::steady_clock::now()));

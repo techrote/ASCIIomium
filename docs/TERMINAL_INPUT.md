@@ -25,27 +25,48 @@ and [stream.cpp, `GetChar` and `ReadCharacterInput`](https://github.com/microsof
 ## One reader and a fixed mailbox
 
 Raw keyboard mode starts one `TerminalInputReader` as the last acquisition
-step. The worker calls `ReadFile` directly with `CP_UTF8` active. It never uses
-input readiness gates, low-level event reads or an input flush. Text retained
-before acquisition remains available through the same transport.
+step. The worker calls explicit `ReadConsoleW` with a 1,024-unit UTF-16 buffer,
+then converts into its fixed 4,096-byte mailbox. This avoids the console-side
+UTF-8 loss observed in the hosted narrow-read transcript below. The native
+capacity and returned count are **UTF-16 units**, while the mailbox and public
+read limit remain **bytes**. Microsoft documents the W interface, console-only
+handle requirement and shared raw-mode behavior in
+[ReadConsole](https://learn.microsoft.com/en-us/windows/console/readconsole).
+The session already requires genuine console handles. Existing mode/code-page
+ownership remains unchanged; wide input does not depend on the active input
+code page. No fallback, A/W switching, readiness gate, low-level event read or
+flush is used.
 
-The worker owns a fixed 4,096-byte mailbox. It publishes a completed read and
-waits until the consumer drains all published bytes before issuing another
-read. This provides backpressure without an application input queue that grows
-with typing or mouse traffic. `ReadInputAvailable(max_bytes)` only takes the
-mailbox mutex and copies at most the lesser of its requested limit and the
-available bytes. It never calls a console input read or waits for a key.
-UTF-8 scalars and VT sequences may span both native reads and consumer drains;
-the existing incremental parser retains that responsibility.
+The allocation-free encoder retains at most one high surrogate between native
+reads. A matching low surrogate emits the four-byte UTF-8 scalar. An isolated
+low surrogate becomes U+FFFD; an unmatched high surrogate becomes U+FFFD and
+the following unit is processed again, preserving a following key or ESC.
+A trailing high surrogate waits for the next read without a timer flush. A
+read that supplies only that high surrogate made native progress and produces
+no mailbox bytes yet; it is not EOF. ASCII, NUL and all VT/control bytes retain
+their exact values. The worst output from one native read is
+`3 * 1024 + 3 = 3075` bytes, including replacement of a carried high surrogate.
+Compile-time bounds keep every per-unit write inside the mailbox.
 
-The read buffer and synchronization state belong to a shared worker state, not
-to a raw `TerminalSession` pointer. The session owns the worker thread and
-borrows its input handle; injected operation contexts and the handle must
-outlive the joined worker. Reader-state allocation happens before any terminal
-mutation. A read error or zero-byte EOF stops the producer and is reported to
-the caller; it does not create a busy retry loop. During active operation the
+The worker waits until the consumer drains all published bytes before issuing
+another native read. This provides backpressure without an application input
+queue that grows with typing or mouse traffic. `ReadInputAvailable(max_bytes)`
+only takes the mailbox mutex and copies at most the lesser of its requested
+limit and the available bytes. It never calls a console input read or waits for
+a key. UTF-8 scalars and VT sequences can span consumer drains; the existing
+incremental parser remains unchanged.
+
+The mailbox and synchronization state belong to a shared worker state, not to
+a raw `TerminalSession` pointer. UTF-16 staging and encoder state live on the
+worker's stack. The session owns the worker thread and borrows its input handle;
+injected operation contexts and the handle must outlive the joined worker.
+Shared-state allocation happens before any terminal mutation. A read error,
+zero-unit completion or out-of-range returned count stops the producer and is
+reported to the caller; it does not create a busy retry loop. During active operation the
 transport preserves the byte order. Once teardown requests stop, unread
-application bytes may be discarded; they are not replayed into a later shell.
+application bytes and an incomplete surrogate may be discarded; they are not
+replayed into a later shell. A transport error remains an error rather than
+being turned into invented replacement input for an incomplete surrogate.
 
 ## Stop, cancellation and restoration
 
@@ -56,13 +77,23 @@ worker's native thread handle and checks for actual completion. None of these
 waits holds the terminal callback registry or output gate.
 
 Cancellation success is only a request. `ERROR_NOT_FOUND` can race with entry
-into `ReadFile`, so cancellation is retried with completion waits of at most
+into `ReadConsoleW`, so cancellation is retried with completion waits of at most
 10 ms. The loop and subsequent native thread-exit wait share a two-second
 deadline. Joining occurs only after the native thread handle signals. A failed
 cancellation request does not make cleanup fail if the worker nevertheless
 finishes. Microsoft explicitly distinguishes cancellation requests from
 completion in [CancelSynchronousIo](https://learn.microsoft.com/en-us/windows/win32/api/ioapiset/nf-ioapiset-cancelsynchronousio)
 and [Canceling Pending I/O Operations](https://learn.microsoft.com/en-us/windows/win32/fileio/canceling-pending-i-o-operations).
+
+Each native count starts at zero. A reported console cancellation behavior is
+`ReadConsoleW` returning `TRUE` without updating that count
+([Microsoft Terminal issue 17791](https://github.com/microsoft/terminal/issues/17791)).
+After the call the worker checks requested stop before processing or publishing
+the result. Actual read/thread completion still determines a successful drain;
+it does not require one particular BOOL/error combination. The real-console
+suite also checks cancellation followed by retained typeahead and a new session
+on the same console, since cancellation's effect on subsequent reads needs
+native qualification.
 
 After the join, normal restoration performs visual cleanup, restores original
 code pages and modes, removes the handler and drains callback use. A close,
@@ -107,6 +138,12 @@ operation into a successful result.
 operations and explicit synchronization barriers. It checks:
 
 - main-loop polls complete while the input operation is blocked;
+- UTF-8 scalar boundaries, ASCII including NUL, and malformed-surrogate
+  recovery preserve a following key or VT sequence;
+- one-, two- and three-unit native reads and a pair split at the 1,024-unit
+  boundary produce the same exact UTF-8 bytes;
+- a high-only read waits for its partner without a false EOF;
+- the 3,075-byte maximum expansion and per-unit canaries verify buffer bounds;
 - fragmented UTF-8/VT bytes retain their order across repeated mailbox fills;
 - the producer cannot overwrite or grow an unread mailbox;
 - stop wakes a producer held by backpressure;
@@ -114,19 +151,33 @@ operations and explicit synchronization barriers. It checks:
 - successful cancellation alone is not accepted as completion;
 - failed cancellation followed by actual completion can still join;
 - a timed-out worker retains usable state until a later explicit release;
-- read failure and EOF stop further reads.
+- TRUE cancellation with an untouched count still drains after requested stop;
+- read failure, EOF and invalid counts stop further reads without hiding an
+  incomplete surrogate or creating a hot retry loop.
 
 `terminal_input_console` starts fresh hidden Windows console children. The
 normal child establishes a known cooked-mode/CP437 baseline, then uses genuine
-`WriteConsoleInputW`, `ReadFile`, `CancelSynchronousIo` and console mode APIs.
+`WriteConsoleInputW`, `ReadConsoleW`, `CancelSynchronousIo` and console mode APIs.
 It verifies retained non-character records cannot block main-loop polling;
 BMP and surrogate-pair text, literal VT sequences and pre-acquisition typeahead
-survive unchanged; actual native reads limited to one, two and three bytes
-drain UTF-8 suffixes without another key; and idle/nonempty-mailbox teardown
+survive unchanged; actual native reads limited to one, two and three UTF-16
+units preserve pair boundaries without another key while consumer drains
+split UTF-8 bytes; and idle/nonempty-mailbox teardown
 restores the baseline. It injects setter failure only after a genuine mode
 change and directly calls the captured production close handler to verify
 deferred input restoration. This direct callback call is not an OS close-event
 delivery test.
+
+The normal child also successfully acquires a session with the live visual,
+mouse and raw-input options, waits for an active native read, then throws a
+distinct startup sentinel. Its outer catch requires exact original modes/code
+pages, completed read cancellation and handler removal **before** the fixture's
+fallback cleanup can run. It reacquires on the same console and reads retained
+Unicode typeahead. The injected lifecycle counterpart verifies the full
+mouse/SGR/cursor/alternate-screen cleanup sequence before its outer catch.
+These exercise successful-constructor stack unwinding, separately from the
+existing failed-constructor rollback tests; no CEF or physical screen behavior
+is claimed by these component fixtures.
 
 A separate child has a deliberately non-completing injected read on a real
 console. The parent requires an armed marker immediately before explicit
@@ -134,7 +185,7 @@ console. The parent requires an armed marker immediately before explicit
 code-page setter during the failed drain. An unexpected return exits with a
 distinct code without stack unwinding, so a later destructor cannot make the
 death test pass. This checks the fatal contract; it does not claim that a real
-console `ReadFile` was observed refusing cancellation.
+console `ReadConsoleW` was observed refusing cancellation.
 
 The parent gives the normal child 30 seconds and the fatal child 10 seconds,
 then attempts termination and checks its wait outcome. Failures retain the
@@ -159,23 +210,37 @@ case failed after 5.06 seconds waiting for its expected byte count. That log
 did not contain the returned bytes, so it does not establish whether the
 console conversion or application transport caused the failure.
 
-The follow-up keeps every original input string, exact byte assertion, native
-read limit and five-second wait deadline. A wrong received prefix now reports
-a mismatch immediately instead of becoming a misleading incomplete-read
-timeout. Failure evidence records the case, configured read limit, input/output
-modes and code pages, injected UTF-16 units, expected/received hex, and matching
-prefix length. A fixed test-only trace retains the first 16 native completions
-with requested/returned byte counts, OS errors and at most 32 raw bytes each,
-before the mailbox sees them. Expected/received displays are capped at 96 bytes.
-The console window's owner image is recorded when query access is available.
-No input-event reads, flushes, fallback transport or skip condition are added.
+The diagnostic follow-up at `f321cae8e18a2a791479e0f07b377d775fddd213`
+([run 41600126282](https://github.com/techrote/ASCIIomium/actions/runs/41600126282))
+kept every original input string, exact byte assertion, native byte limit and
+five-second deadline. It failed immediately on the wrong prefix and captured
+this native result **before mailbox publication**:
 
-Older console input conversion is a plausible lead: Microsoft's
-[Terminal PR 14745](https://github.com/microsoft/terminal/pull/14745) fixed
-incorrect UTF-8 byte sizing in the old conversion path. This is not a diagnosis
-of the hosted failure; the next native transcript must identify the bytes and
-host actually observed. The production reader is unchanged, and native UTF-8
-qualification remains open until the genuine Windows assertions pass.
+```text
+injected UTF-16 units: 21; all 21 written
+input mode: 0x280; input code page: 65001
+ReadFile: requested=4096, ok=1, returned=21, error=0
+native:   78000000001B5B411B4F501B5B3C303B333B344D03
+expected: 78C2A3E282ACF09F98801B5B411B4F501B5B3C303B333B344D03
+```
+
+The expected stream has 26 bytes. The four UTF-16 units for `£`, `€` and the
+surrogate pair became four NUL bytes in the native narrow read; the following
+VT/control bytes remained intact. This establishes conversion loss before the
+application mailbox. It does not identify the exact console-host binary: the
+window-owner query in this run named the test executable itself. Microsoft's
+[Terminal PR 14745](https://github.com/microsoft/terminal/pull/14745) documents
+a related historical narrow-conversion sizing defect; no specific host patch
+level is inferred from it.
+
+The repair keeps those exact fixtures and byte assertions and the five-second
+deadline. The native limits are now one, two and three **UTF-16 units**, and UI
+drains still split at one, two and three bytes. Failure evidence separates the
+units returned by `ReadConsoleW` from the encoded expected/received bytes. A
+fixed test-only trace retains the first 16 completions, each with at most 32
+raw UTF-16 units; byte displays remain capped at 96. Native qualification stays
+open until exact-revision Windows assertions pass. No input-event reads,
+flushes, fallback transport, skipped fixture or extended deadline are added.
 
 Linux runs using a mutex-backed Win32 type shim exercise the injected tests and
 portable concurrency logic only. They do not qualify real console behavior,

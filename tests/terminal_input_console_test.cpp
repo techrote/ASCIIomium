@@ -163,7 +163,7 @@ struct NativeReads {
     unsigned call = 0;
     DWORD requested = 0, count = 0, error = ERROR_SUCCESS;
     BOOL succeeded = FALSE;
-    std::array<char, 32> prefix{};
+    std::array<wchar_t, 32> prefix{};
     std::size_t prefix_size = 0;
   };
 
@@ -178,22 +178,23 @@ struct NativeReads {
   // test-only, fixed-capacity, and never performs an input-event read or flush.
   std::mutex evidence_mutex;
   std::array<CompletedRead, 16> completed_reads{};
-  std::size_t completed_count = 0, native_bytes = 0;
+  std::size_t completed_count = 0, native_units = 0;
 
-  explicit NativeReads(const char* name, DWORD limit = TerminalInputReader::kCapacity)
+  explicit NativeReads(const char* name, DWORD limit = TerminalInputReader::kReadUnits)
       : case_name(name), read_limit(limit) {
-    std::fprintf(stderr, "INPUT CASE: %s native_read_limit=%lu\n", case_name,
+    std::fprintf(stderr, "INPUT CASE: %s native_read_limit_units=%lu\n", case_name,
                  static_cast<unsigned long>(read_limit));
     std::fflush(stderr);
     api.context = this;
-    api.read = [](void* context, HANDLE input, void* bytes, DWORD size,
-                  DWORD* count) noexcept -> BOOL {
+    api.read_utf16 = [](void* context, HANDLE input, wchar_t* units, DWORD size,
+                        DWORD* count) noexcept -> BOOL {
       auto& self = *static_cast<NativeReads*>(context);
       const unsigned call = self.calls.fetch_add(1) + 1;
       self.active.store(true);
       const DWORD requested = std::min(size, self.read_limit);
-      const BOOL ok = ReadFile(input, bytes, requested, count, nullptr);
-      const DWORD error = ok ? ERROR_SUCCESS : GetLastError();
+      SetLastError(ERROR_SUCCESS);
+      const BOOL ok = ReadConsoleW(input, units, requested, count, nullptr);
+      const DWORD error = GetLastError();
       {
         std::lock_guard lock(self.evidence_mutex);
         if (self.completed_count < self.completed_reads.size()) {
@@ -203,11 +204,12 @@ struct NativeReads {
           sample.count = ok ? *count : 0;
           sample.error = error;
           sample.succeeded = ok;
-          sample.prefix_size = std::min<std::size_t>(sample.count, sample.prefix.size());
-          std::copy_n(static_cast<const char*>(bytes), sample.prefix_size, sample.prefix.data());
+          sample.prefix_size = std::min<std::size_t>(
+              std::min(sample.count, requested), sample.prefix.size());
+          std::copy_n(units, sample.prefix_size, sample.prefix.data());
         }
         ++self.completed_count;
-        if (ok) self.native_bytes += *count;
+        if (ok) self.native_units += *count;
       }
       self.active.store(false);
       self.last_count.store(ok ? *count : 0);
@@ -231,12 +233,12 @@ struct NativeReads {
   void Describe(const Console& console, std::string_view expected,
                 std::string_view received) noexcept {
     std::array<CompletedRead, 16> samples{};
-    std::size_t count = 0, byte_count = 0;
+    std::size_t count = 0, unit_count = 0;
     {
       std::lock_guard lock(evidence_mutex);
       samples = completed_reads;
       count = completed_count;
-      byte_count = native_bytes;
+      unit_count = native_units;
     }
     DWORD input_mode = 0, output_mode = 0;
     const BOOL input_ok = GetConsoleMode(console.input.get(), &input_mode);
@@ -244,10 +246,10 @@ struct NativeReads {
     const BOOL output_ok = GetConsoleMode(console.output.get(), &output_mode);
     const DWORD output_error = output_ok ? ERROR_SUCCESS : GetLastError();
     std::fprintf(stderr,
-        "INPUT FAILURE: case=%s native_read_limit=%lu calls=%u completed=%zu "
-        "native_bytes=%zu active=%d cancels=%u\n",
+        "INPUT FAILURE: case=%s native_read_limit_units=%lu calls=%u completed=%zu "
+        "native_utf16_units=%zu active=%d cancels=%u\n",
         case_name, static_cast<unsigned long>(read_limit), calls.load(), count,
-        byte_count, static_cast<int>(active.load()), cancels.load());
+        unit_count, static_cast<int>(active.load()), cancels.load());
     std::fprintf(stderr,
         "console_input_mode=0x%08lX input_mode_error=%lu console_input_cp=%u "
         "console_output_mode=0x%08lX output_mode_error=%lu console_output_cp=%u\n",
@@ -263,10 +265,15 @@ struct NativeReads {
     std::fprintf(stderr, "matching_prefix_bytes=%zu\n", prefix);
     for (std::size_t i = 0; i < std::min(count, samples.size()); ++i) {
       const auto& sample = samples[i];
-      std::fprintf(stderr, "native_call=%u requested=%lu ok=%d returned=%lu error=%lu ",
+      std::fprintf(stderr, "native_call=%u requested_units=%lu ok=%d returned_units=%lu error=%lu ",
           sample.call, static_cast<unsigned long>(sample.requested), static_cast<int>(sample.succeeded),
           static_cast<unsigned long>(sample.count), static_cast<unsigned long>(sample.error));
-      PrintBytes("native_prefix", std::string_view(sample.prefix.data(), sample.prefix_size));
+      std::fprintf(stderr, "native_prefix_units=%zu native_prefix_utf16=", sample.prefix_size);
+      for (std::size_t unit = 0; unit < sample.prefix_size; ++unit) {
+        std::fprintf(stderr, "%04X", static_cast<unsigned int>(sample.prefix[unit]));
+      }
+      if (sample.count > sample.prefix_size) std::fputs("[truncated]", stderr);
+      std::fputc('\n', stderr);
     }
     if (count > samples.size()) std::fprintf(stderr, "native_samples_omitted=%zu\n", count - samples.size());
     std::fflush(stderr);
@@ -300,7 +307,7 @@ void ReadExactBytes(TerminalSession& session, const Console& console, NativeRead
 
 void TestRetainedRecordsAndUtf8(Console& console) {
   // These records predate raw/VT acquisition. A signalled input handle does
-  // not guarantee ReadFile can produce a byte after it discards such records.
+  // not guarantee ReadConsoleW can produce text after discarding such records.
   std::array<INPUT_RECORD, 3> records{};
   records[0].EventType = FOCUS_EVENT;
   records[0].Event.FocusEvent.bSetFocus = TRUE;
@@ -319,7 +326,7 @@ void TestRetainedRecordsAndUtf8(Console& console) {
 
   NativeReads trace("retained-records/mixed-utf8-vt");
   TerminalSession session(Options(), console.input.get(), console.output.get(), trace.api);
-  Until([&] { return trace.active.load(); }, "native ReadFile starts");
+  Until([&] { return trace.active.load(); }, "native ReadConsoleW starts");
   unsigned heartbeat = 0;
   for (; heartbeat < 100; ++heartbeat) {
     Require(session.ReadInputAvailable(3).empty(), "non-character records produced bytes");
@@ -327,8 +334,8 @@ void TestRetainedRecordsAndUtf8(Console& console) {
   Require(heartbeat == 100, "main loop keeps progressing without an injected key");
 
   // Retained text, BMP, surrogate-pair Unicode and literal VT sequences must
-  // all pass through ReadFile+CP_UTF8; no low-level event read may clear its
-  // internal converted-byte cache. UI drains intentionally split UTF-8/CSI.
+  // all pass through ReadConsoleW plus the bounded UTF-8 encoder. No low-level
+  // event read or flush may discard retained input. UI drains split UTF-8/CSI.
   QueueText(console.input.get(), u"x\u00A3\u20AC\U0001F600\x1b[A\x1bOP\x1b[<0;3;4M\x03");
   const std::string expected = "x\xC2\xA3\xE2\x82\xAC\xF0\x9F\x98\x80"
                                "\x1b[A\x1bOP\x1b[<0;3;4M\x03";
@@ -376,19 +383,58 @@ void TestPreAcquisitionTypeahead(Console& console) {
   Require(session.Restore().succeeded() && console.Restored(), "typeahead session restore");
 }
 
-void TestNativeUtf8ReadBoundaries(Console& console) {
+void TestNativeUtf16ReadBoundaries(Console& console) {
   for (DWORD limit : {1u, 2u, 3u}) {
-    NativeReads trace("native-utf8-read-boundary", limit);
+    NativeReads trace("native-utf16-read-boundary", limit);
     TerminalSession session(Options(), console.input.get(), console.output.get(), trace.api);
     Until([&] { return trace.active.load(); }, "native short read starts");
-    QueueText(console.input.get(), u"\u00A3\u20AC\U0001F600");
+    constexpr std::u16string_view input = u"\u00A3\u20AC\U0001F600";
+    QueueText(console.input.get(), input);
     const std::string expected = "\xC2\xA3\xE2\x82\xAC\xF0\x9F\x98\x80";
     ReadExactBytes(session, console, trace, expected, 3);
-    Require(trace.calls.load() >= (expected.size() + limit - 1) / limit,
-            "actual short ReadFile calls lost or changed converted UTF-8 suffixes");
+    Require(trace.calls.load() >= (input.size() + limit - 1) / limit,
+            "actual short ReadConsoleW calls lost or changed UTF-16 units");
     Require(session.Restore().succeeded() && console.Restored(),
             "native short-read session restoration");
   }
+}
+
+void TestSuccessfulAcquisitionUnwind(Console& console) {
+  struct StartupFailure {};
+  NativeReads trace("successful-acquisition/startup-exception");
+  bool acquired = false;
+  bool caught = false;
+  PHANDLER_ROUTINE callback = nullptr;
+  try {
+    auto options = Options();
+    options.use_alternate_screen = true;
+    options.hide_cursor = true;
+    options.mouse_tracking = MouseTrackingMode::AnyEvent;
+    TerminalSession session(options, console.input.get(), console.output.get(), trace.api);
+    acquired = true;
+    callback = trace.handler.load();
+    Until([&] { return trace.active.load(); }, "native read active before startup exception");
+    throw StartupFailure{};
+  } catch (const StartupFailure&) {
+    caught = true;
+    // Observe restoration here, before the Console fixture's fallback cleanup
+    // or another session can hide a failed destructor/unwind path.
+    Require(console.Restored() && !trace.active.load() && trace.cancels.load() > 0 &&
+                trace.handler.load() == nullptr,
+            "startup exception reaches the outer catch only after native input and console restoration");
+  }
+  Require(acquired && caught && callback && callback(CTRL_CLOSE_EVENT) == FALSE,
+          "only a successfully acquired then unwound session satisfies the startup fixture");
+
+  // Cancellation must leave this same console usable for retained typeahead
+  // and a new session, without a flush or an extra key to unblock conversion.
+  QueueText(console.input.get(), u"unwound:\u00A3\u20AC\U0001F600");
+  NativeReads next_trace("post-startup-exception/typeahead");
+  TerminalSession next(Options(), console.input.get(), console.output.get(), next_trace.api);
+  ReadExactBytes(next, console, next_trace,
+                 "unwound:\xC2\xA3\xE2\x82\xAC\xF0\x9F\x98\x80", 2);
+  Require(next.Restore().succeeded() && console.Restored(),
+          "same console reacquires and reads retained Unicode after startup unwinding");
 }
 
 void TestEmergencyDefersInputRestore(Console& console) {
@@ -454,7 +500,7 @@ void FatalDrainChild(Console& console) {
   Require(state.entered && state.never, "fatal fixture events");
   auto api = Win32TerminalConsoleApi();
   api.context = &state;
-  api.read = [](void* context, HANDLE, void*, DWORD, DWORD*) noexcept -> BOOL {
+  api.read_utf16 = [](void* context, HANDLE, wchar_t*, DWORD, DWORD*) noexcept -> BOOL {
     auto& value = *static_cast<Uncancellable*>(context);
     SetEvent(value.entered);
     WaitForSingleObject(value.never, INFINITE);
@@ -499,7 +545,8 @@ int Child(bool fatal) {
   if (fatal) FatalDrainChild(console);
   TestRetainedRecordsAndUtf8(console);
   TestPreAcquisitionTypeahead(console);
-  TestNativeUtf8ReadBoundaries(console);
+  TestNativeUtf16ReadBoundaries(console);
+  TestSuccessfulAcquisitionUnwind(console);
   TestMutatingSetterFailure(console);
   TestEmergencyDefersInputRestore(console);
   TestRestoreFailureAfterMutation(console);

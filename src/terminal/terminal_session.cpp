@@ -69,8 +69,8 @@ const TerminalConsoleApi& Win32TerminalConsoleApi() noexcept {
         return WriteFile(handle, bytes, size, written, nullptr);
       },
       [](void*) noexcept { return GetLastError(); },
-      [](void*, HANDLE handle, void* bytes, DWORD size, DWORD* read) noexcept {
-        return ReadFile(handle, bytes, size, read, nullptr);
+      [](void*, HANDLE handle, wchar_t* units, DWORD size, DWORD* read) noexcept {
+        return ReadConsoleW(handle, units, size, read, nullptr);
       },
       [](void*, HANDLE thread) noexcept { return CancelSynchronousIo(thread); }};
   return api;
@@ -317,7 +317,7 @@ void TerminalSession::RestoreTerminalStateLocked(bool input_drained) noexcept {
     }
   }
 
-  // Never change input conversion/mode while ReadFile can still be active.
+  // Never change input code page/mode while ReadConsoleW can still be active.
   // Emergency callbacks can finish output cleanup and defer these two steps.
   if (input_drained && !input_cleanup_completed_ && input_code_page_changed_ &&
       !console_api_.set_input_code_page(console_api_.context,
