@@ -3,7 +3,7 @@
 These PowerShell commands are scoped to the exact unmerged sources below.
 They match the candidate CMake targets, CLI parsers and qualification scripts;
 execution results belong to the [checkpoint](P0_CHECKPOINT_2026-11-03.md).
-The #16 revision has a confirmed native Unicode test failure. Its commands are
+The #16 revision has a confirmed console-reuse failure after startup unwinding. Its commands are
 reproduction instructions, not a passing qualification claim.
 
 | Capability | Branch and exact source | Scope |
@@ -11,7 +11,7 @@ reproduction instructions, not a passing qualification claim.
 | #13 browser runtime | `issue-13-browser-runtime` / `88195b12f97ffb433aa57ae9afcc7949355ff36e` | Profiles, commands and browser policy; no #14/#15/#16 additions |
 | #14 differential output | `issue-14-differential-output` / `1272351b03502e7600c1229da8a50bfa4d433bdb` | Opt-in emitter and paired serialization; no #13 profile/command options |
 | #15 structured telemetry | `issue-15-structured-telemetry` / `b041201ed6d06546eb93eda368d3d06284b6321c` | Stacked on #14; adds live `--benchmark` and telemetry, not #13/#16 |
-| #16 lifecycle | `issue-16-terminal-lifecycle` / `f321cae8e18a2a791479e0f07b377d775fddd213` | Stacked on #13; native/input/callback/shutdown tests; no #14/#15 |
+| #16 lifecycle | `issue-16-terminal-lifecycle` / `1290b627a52905683d21be9d12fa0c812ab53727` | Stacked on #13; native/input/callback/shutdown tests; no #14/#15 |
 | #17 portable package | `issue-17-portable-windows` / `36d11ec954fb86051a6240739c23a4a0e120ba38` | Qualified #13 package; no #14/#15/#16 additions |
 
 ## Clean source and configuration
@@ -102,8 +102,10 @@ or the current #17 package.
 
 ## #16 — Native console, callback and real CEF shutdown qualification
 
-At `f321cae8e18a2a791479e0f07b377d775fddd213`, the recorded Debug run failed
-`terminal_input_console`; all 24 other tests completed successfully. Preserve
+At `1290b627a52905683d21be9d12fa0c812ab53727`, the recorded Debug run passed the original
+Unicode/VT and one/two/three-unit native reads, then failed
+`terminal_input_console` during same-console typeahead after startup unwinding.
+All 24 other tests completed successfully. Preserve
 failure output and stop on a failed configuration. A later repair must receive
 its own source identity and results.
 
@@ -121,8 +123,8 @@ if ($LASTEXITCODE -ne 0) { throw 'Real CEF lifecycle qualification failed' }
 The final command also reruns browser-runtime cases. Its ten extra private
 launches cover ready, before-created, queued navigation, held response and pending
 resize twice. Preserve the summary, `build/runtime-probes/`, CTest logs and JUnit.
-See [the source-pinned phase contract](https://github.com/techrote/ASCIIomium/blob/f321cae8e18a2a791479e0f07b377d775fddd213/docs/LIFECYCLE_PROBES.md)
-and [native test scope](https://github.com/techrote/ASCIIomium/blob/f321cae8e18a2a791479e0f07b377d775fddd213/docs/TERMINAL_INPUT.md).
+See [the source-pinned phase contract](https://github.com/techrote/ASCIIomium/blob/1290b627a52905683d21be9d12fa0c812ab53727/docs/LIFECYCLE_PROBES.md)
+and [native test scope](https://github.com/techrote/ASCIIomium/blob/1290b627a52905683d21be9d12fa0c812ab53727/docs/TERMINAL_INPUT.md).
 Neither this process matrix nor isolated native console tests prove parent-shell
 usability or a physical 30-minute soak.
 

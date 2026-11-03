@@ -26,7 +26,7 @@ integrated browser have not inherited physical acceptance from those older runs.
 | #13 browser runtime | [PR #40](https://github.com/techrote/ASCIIomium/pull/40), `issue-13-browser-runtime`, head `88195b12f97ffb433aa57ae9afcc7949355ff36e` | Exact-head Windows Debug/Release, 18 tests per configuration, inherited live/input checks and complete real CEF runtime suite passed in run 41556184528. Independent review clear; physical gate open. |
 | #14 differential output | [PR #41](https://github.com/techrote/ASCIIomium/pull/41), `issue-14-differential-output`, head `1272351b03502e7600c1229da8a50bfa4d433bdb` | Exact-head Windows Debug/Release/live checks passed. Independent replay/UBSan review passed. Full output remains default; physical gate open. |
 | #15 structured telemetry | [PR #42](https://github.com/techrote/ASCIIomium/pull/42), `issue-15-structured-telemetry`, head `b041201ed6d06546eb93eda368d3d06284b6321c` | Stacked only on #41. Exact-head Windows Debug/Release and all six CEF telemetry benchmarks passed in [run 41552670081](https://github.com/techrote/ASCIIomium/actions/runs/41552670081). Source review clear. |
-| #16 lifecycle | [PR #44](https://github.com/techrote/ASCIIomium/pull/44), `issue-16-terminal-lifecycle`, head `f321cae8e18a2a791479e0f07b377d775fddd213` | [Run 41600126282](https://github.com/techrote/ASCIIomium/actions/runs/41600126282) completed Debug CTest in 14.52 seconds: 24/25 passed, including the repaired direct callback test in 0.03 seconds. Native Unicode/VT delivery still failed; retained diagnostics locate the byte mismatch before the mailbox. A bounded wide-console conversion repair and startup-exception coverage are in progress. Release, real CEF shutdown phases, integrated telemetry and physical soak remain unqualified. |
+| #16 lifecycle | [PR #44](https://github.com/techrote/ASCIIomium/pull/44), `issue-16-terminal-lifecycle`, head `1290b627a52905683d21be9d12fa0c812ab53727` | Reviewed terminal/input/callback/frame/shutdown changes. Run 41602982890 passed Debug24/25: original native Unicode/VT and short-unit reads now pass, but same-console typeahead after startup unwinding failed. Reader-owned console-handle follow-up is under investigation. Release, real CEF shutdown, integrated telemetry and physical soak remain open. |
 | #17 portable package | [PR #43](https://github.com/techrote/ASCIIomium/pull/43), `issue-17-portable-windows`, head `36d11ec954fb86051a6240739c23a4a0e120ba38` | Stacked only on qualified #13. Builder/verifier/clean-extraction job independently reviewed; first Windows run passed 20 tests per configuration then inherited a runtime logging precondition failure. Updated exact-head run 41557252823 passed both build/test and separate clean-extraction jobs; all seven original artifact digests and sizes, complete payload inventory and custody verified. |
 | #18 acceptance | This document and issue #18 | Readiness reconciliation in progress; human and integrated-source gates remain open. |
 
@@ -257,10 +257,31 @@ Windows Terminal behavior.
 The [CTest evidence artifact](https://github.com/techrote/ASCIIomium/actions/runs/41600126282/artifacts/13213604632)
 is 7,808 bytes, SHA-256
 `5a8a2b6a07d9b43f9e88f43ca69ede59ae3515f3890beefb2cd9460a79de1e5a`.
-A bounded wide-console-read/UTF-8 conversion repair and explicit startup-exception
-coverage are in progress; neither is qualified by this failed run. Release and
-the real CEF shutdown matrix were not reached. No native-console result is
-inferred from the local Win32 shim tests.
+This failed run did not qualify the subsequent wide-console repair or startup-
+exception coverage. Release and the real CEF shutdown matrix were not reached.
+No native-console result is inferred from the local Win32 shim tests.
+
+The reviewed wide-console repair was then published at
+`1290b627a52905683d21be9d12fa0c812ab53727`, tree
+`de30c362ae10ebb009d325479f2359ed846c4695`.
+[Run 41602982890](https://github.com/techrote/ASCIIomium/actions/runs/41602982890)
+passed Debug compilation and 24/25 tests. The native child passed its original
+mixed Unicode/VT, retained typeahead and one/two/three-unit read cases. Its new
+startup-exception outer catch also observed restored modes/code pages, a joined
+reader and removed handler. The subsequent same-console typeahead read remained
+active without any native completion: 12 UTF-16 units were written, but 0 of
+17 expected UTF-8 bytes arrived within the unchanged five-second deadline.
+The later native mutation/emergency/mailbox/fatal-child cases, Release and
+real CEF shutdown matrix were not reached. Callback tests continued to pass.
+
+The original CTest artifact `13215327500` is 8,097 bytes, SHA-256
+`faf3215c2a56acd3dc69f8fd72dae97c4f727d72c9e00902756ae3adee00764b`.
+Both diagnostic artifacts, full failed logs and per-file custody are preserved;
+their custody records accompany this checkpoint. A separate reader-owned
+`CONIN$` handle, closed after the joined thread and before input restoration,
+is the next bounded candidate. Historical host source supports a surviving
+per-handle waiter as a hypothesis; the exact runner cause remains unproven.
+The original caller handle, reuse assertion and deadlines are retained.
 
 #15's first Windows run passed every benchmark assertion and wrote all reports,
 then failed because PowerShell retained exit code 2 from an intentionally invalid

@@ -1,0 +1,204 @@
+{
+  "schema": "asciiomium-lifecycle-diagnostic-custody-v1",
+  "recorded_utc": "2026-11-03T08:35:16.680360+00:00",
+  "source_revision": "1290b627a52905683d21be9d12fa0c812ab53727",
+  "source_tree": "de30c362ae10ebb009d325479f2359ed846c4695",
+  "run_id": 41602982890,
+  "job_id": 125805897745,
+  "run_result": "failure",
+  "artifact_id": 13215327500,
+  "artifact_file": "ASCIIomium-lifecycle-1290b62-ctest-failure.zip",
+  "artifact_bytes": 8097,
+  "artifact_sha256": "faf3215c2a56acd3dc69f8fd72dae97c4f727d72c9e00902756ae3adee00764b",
+  "artifact_files": [
+    {
+      "path": "Testing/Temporary/CTestCostData.txt",
+      "bytes": 772,
+      "sha256": "98a9716ab5e0d2cbdd012e5c9660bb943860aff6d38eb087508426d3939afa94"
+    },
+    {
+      "path": "ctest-debug.log",
+      "bytes": 4842,
+      "sha256": "6d413d516088d618d0b78270e810e2f40afba24fc54b0b99db85221c07b679c1"
+    },
+    {
+      "path": "ctest-debug.xml",
+      "bytes": 8327,
+      "sha256": "a83c0609432f190b68d9b284f90e538438735efe65b211e2674f2da74a7a476f"
+    },
+    {
+      "path": "Testing/Temporary/LastTest.log",
+      "bytes": 20188,
+      "sha256": "b62fdcafe4a87f07ab11c7549749ae32769afaf29337a714c09feba52a984d09"
+    },
+    {
+      "path": "Testing/Temporary/LastTestsFailed.log",
+      "bytes": 26,
+      "sha256": "38b15a8c04f0755d572f7c520451743b1807b3ae0b4895ffa2c5a6e0b3835431"
+    }
+  ],
+  "debug_tests": [
+    {
+      "name": "runtime_process_evidence",
+      "time": 2.17791,
+      "failed": false
+    },
+    {
+      "name": "build_identity_refresh",
+      "time": 11.2768,
+      "failed": false
+    },
+    {
+      "name": "build_info",
+      "time": 0.0582766,
+      "failed": false
+    },
+    {
+      "name": "terminal_logic",
+      "time": 0.0099376,
+      "failed": false
+    },
+    {
+      "name": "terminal_console_smoke",
+      "time": 0.019919,
+      "failed": false
+    },
+    {
+      "name": "terminal_lifecycle",
+      "time": 0.130449,
+      "failed": false
+    },
+    {
+      "name": "terminal_input",
+      "time": 0.061655,
+      "failed": false
+    },
+    {
+      "name": "terminal_input_console",
+      "time": 5.76171,
+      "failed": true
+    },
+    {
+      "name": "full_frame_emitter",
+      "time": 0.0142151,
+      "failed": false
+    },
+    {
+      "name": "vt_console_smoke",
+      "time": 0.0127717,
+      "failed": false
+    },
+    {
+      "name": "render_golden",
+      "time": 0.0084662,
+      "failed": false
+    },
+    {
+      "name": "color_quantizer",
+      "time": 0.012563,
+      "failed": false
+    },
+    {
+      "name": "benchmark_result",
+      "time": 0.0091511,
+      "failed": false
+    },
+    {
+      "name": "input_parser",
+      "time": 0.009188,
+      "failed": false
+    },
+    {
+      "name": "browser_commands",
+      "time": 0.0398703,
+      "failed": false
+    },
+    {
+      "name": "profile_session",
+      "time": 0.208984,
+      "failed": false
+    },
+    {
+      "name": "private_process",
+      "time": 0.0817477,
+      "failed": false
+    },
+    {
+      "name": "cef_key_translator",
+      "time": 0.0110457,
+      "failed": false
+    },
+    {
+      "name": "cef_pointer_translator",
+      "time": 0.0084583,
+      "failed": false
+    },
+    {
+      "name": "fixture_observation",
+      "time": 0.0080857,
+      "failed": false
+    },
+    {
+      "name": "source_frame",
+      "time": 0.0090251,
+      "failed": false
+    },
+    {
+      "name": "callback_boundary",
+      "time": 0.0133292,
+      "failed": false
+    },
+    {
+      "name": "osr_callback",
+      "time": 0.0284468,
+      "failed": false
+    },
+    {
+      "name": "live_runtime",
+      "time": 0.0083156,
+      "failed": false
+    },
+    {
+      "name": "viewport_transform",
+      "time": 0.0084944,
+      "failed": false
+    }
+  ],
+  "debug_total": 25,
+  "debug_passed": 24,
+  "debug_failed": [
+    "terminal_input_console"
+  ],
+  "native_cases_reached": [
+    "retained-records/mixed-utf8-vt",
+    "pre-acquisition-typeahead",
+    "native-utf16-read-boundary/1",
+    "native-utf16-read-boundary/2",
+    "native-utf16-read-boundary/3",
+    "successful-acquisition/startup-exception",
+    "post-startup-exception/typeahead"
+  ],
+  "finding": "Original Unicode/VT and short native read cases passed. Startup exception outer catch observed restoration; following same-console typeahead read did not complete within unchanged5-second deadline. No cancellation or alternate-screen cause established yet.",
+  "failed_case": {
+    "name": "post-startup-exception/typeahead",
+    "queued_utf16_units": 12,
+    "written_utf16_units": 12,
+    "write_error": 0,
+    "expected_utf8_bytes": 17,
+    "received_utf8_bytes": 0,
+    "native_read_calls": 1,
+    "native_read_completions": 0,
+    "native_read_active": true,
+    "input_mode": "0x00000280",
+    "input_code_page": 65001
+  },
+  "release_executed": false,
+  "real_cef_shutdown_phases_executed": false,
+  "physical_windows_terminal": false,
+  "full_job_log": {
+    "file": "lifecycle-41602982890.log",
+    "normalization": "CRLF converted to LF",
+    "bytes": 81541,
+    "sha256": "3f51688a4c2f726460b538b253bccc95aa56f3fa89e3b1f2fe8de8b5aa3e386c"
+  }
+}
