@@ -95,7 +95,8 @@ add_library(asciiomium_terminal STATIC
   src/terminal/terminal_sequences.cpp
   src/terminal/terminal_sequences.h
   src/terminal/terminal_session.cpp
-  src/terminal/terminal_session.h)
+  src/terminal/terminal_session.h
+  src/terminal/terminal_console_api.h)
 target_include_directories(asciiomium_terminal PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_compile_features(asciiomium_terminal PUBLIC cxx_std_20)
 target_compile_definitions(asciiomium_terminal PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
@@ -342,6 +343,13 @@ target_link_libraries(terminal_console_smoke PRIVATE asciiomium_terminal)
 target_compile_features(terminal_console_smoke PRIVATE cxx_std_20)
 set_target_properties(terminal_console_smoke PROPERTIES FOLDER "Tests")
 add_test(NAME terminal_console_smoke COMMAND "$<TARGET_FILE:terminal_console_smoke>")
+
+add_executable(terminal_lifecycle_tests tests/terminal_lifecycle_test.cpp)
+target_link_libraries(terminal_lifecycle_tests PRIVATE asciiomium_terminal)
+target_compile_features(terminal_lifecycle_tests PRIVATE cxx_std_20)
+set_target_properties(terminal_lifecycle_tests PROPERTIES FOLDER "Tests")
+add_test(NAME terminal_lifecycle COMMAND "$<TARGET_FILE:terminal_lifecycle_tests>")
+set_tests_properties(terminal_lifecycle PROPERTIES TIMEOUT 30)
 
 add_executable(full_frame_emitter_tests tests/full_frame_emitter_test.cpp)
 target_link_libraries(full_frame_emitter_tests PRIVATE asciiomium_terminal)

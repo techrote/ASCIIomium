@@ -38,15 +38,10 @@ DirtyRect FitPopupBoundsToView(DirtyRect requested,
     return DirtyRect{};
   }
 
-  int x = requested.x;
-  int y = requested.y;
-
-  if (x < 0) x = 0;
-  if (y < 0) y = 0;
-  if (x + popup_width > view_width) x = view_width - popup_width;
-  if (y + popup_height > view_height) y = view_height - popup_height;
-  if (x < 0) x = 0;
-  if (y < 0) y = 0;
+  // Both dimensions are positive, so subtraction cannot overflow. Avoid
+  // requested coordinate + dimension, which can exceed INT_MAX.
+  const int x = std::clamp(requested.x, 0, std::max(0, view_width - popup_width));
+  const int y = std::clamp(requested.y, 0, std::max(0, view_height - popup_height));
 
   return DirtyRect{x, y, popup_width, popup_height};
 }

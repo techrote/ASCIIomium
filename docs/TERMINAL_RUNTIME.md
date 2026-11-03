@@ -24,7 +24,10 @@ Issue #12 adds opt-in VT mouse ownership for the live browser. Interactive mode 
 
 ## Teardown order
 
-Restoration is idempotent. Normal teardown occurs in this order:
+Restoration is idempotent. A write already accepted by `TerminalSession` drains
+its entire payload, including short `WriteFile` iterations, before cleanup can
+start. Restoration closes the output gate to later payloads. Normal teardown
+then attempts these operations in order:
 
 1. disable SGR/all-motion mouse tracking when ASCIIomium enabled it;
 2. reset SGR while VT processing is still active;
@@ -34,7 +37,20 @@ Restoration is idempotent. Normal teardown occurs in this order:
 6. restore original input/output console modes;
 7. remove the console control handler.
 
-The destructor calls the same restoration path, so exceptions after successful acquisition do not require call-site cleanup.
+The destructor calls the same restoration path, so exceptions after successful
+acquisition do not require call-site cleanup. Concurrent `Restore()` calls wait
+for the first call to finish handler removal and callback draining; they return
+the same `TerminalRestoreResult`. A failure is retained instead of being turned
+into success by a later destructor call. Cleanup continues after each failed
+operation and does not allocate memory. It does not retry terminal sequences
+after the original console output mode has been restored.
+
+`TerminalRestoreResult::completed` means the cleanup path and callback drain
+finished. `succeeded()` additionally requires that every attempted operation
+succeeded. `failed_steps` and the immediately captured `first_error` identify
+incomplete cleanup. A constructor that changes console state and then fails
+throws `TerminalSessionAcquisitionError`, which retains its rollback result.
+See [the issue #16 scope and result contract](LIFECYCLE_HARDENING.md).
 
 ## Console-control handling
 
@@ -42,7 +58,19 @@ In the terminal diagnostic/default cooked-input mode, `Ctrl+C` and `Ctrl+Break` 
 
 Live browser keyboard mode is different: it disables `ENABLE_PROCESSED_INPUT` so Ctrl+C is delivered to the VT parser and forwarded to CEF. That mode uses **Ctrl+Alt+Q** as the application quit chord.
 
-`CTRL_CLOSE_EVENT`, logoff and shutdown are different: Windows may terminate the process shortly after invoking the handler. ASCIIomium therefore performs synchronous best-effort restoration from the handler before returning. This is a fallback, not a guarantee against forced process termination.
+`CTRL_CLOSE_EVENT`, logoff and shutdown are different: Windows may terminate the
+process shortly after invoking the handler. ASCIIomium therefore attempts
+synchronous terminal-state cleanup from the handler before returning. The
+handler pins the session's lifetime while using it and shares the output gate
+with normal cleanup. It never unregisters itself or waits for the CEF/main
+loop. Normal teardown removes the handler outside these gates, then waits for
+any dispatched callback to finish using the object.
+
+This is a best-effort fallback. Microsoft documents a system-controlled close
+timeout (normally five seconds), unreliable console APIs during close/logoff/
+shutdown, and circumstances where logoff/shutdown callbacks are not delivered.
+See [HandlerRoutine](https://learn.microsoft.com/en-us/windows/console/handlerroutine)
+and [SetConsoleCtrlHandler](https://learn.microsoft.com/en-us/windows/console/setconsolectrlhandler).
 
 No application can repair terminal state after hard termination such as `TerminateProcess`, host failure, power loss, or comparable destruction that prevents cleanup code from running.
 
@@ -117,6 +145,19 @@ The one-shot path leaves the cursor visible and returns immediately after writin
 
 The first cycle additionally calls `Restore()` twice to prove idempotence; subsequent cycles rely on destructor-driven cleanup. The final cycle enables raw keyboard mode and verifies that line, echo and processed-input flags are disabled while owned and then restored exactly. Another cycle enables 1003+1006 mouse tracking so the RAII path exercises mouse-mode acquire/disable together with exact Win32 mode/code-page restoration.
 
+`terminal_lifecycle_tests` uses an injected console API table to fail individual
+acquisition/restoration operations and pause real production callbacks and
+writes at defined barriers. It verifies partial startup rollback, partial and
+zero-progress output, allocation-free cleanup, stable failure results,
+write/restore ordering, callback/destructor lifetime, concurrent restoration,
+and handler removal while a callback runs. The callback is invoked directly by
+the test; no OS close signal is sent. Both Windows build configurations include
+this target, and CTest gives it a 30-second deadline.
+
+These tests cover program behavior and Win32 state. Ten sessions within one
+test process are not evidence of ten actual browser launches or a physical
+30-minute soak.
+
 ## Manual Windows Terminal acceptance
 
 CI can validate Win32 console state and VT construction, but it does not render through the Windows Terminal GUI. Before treating the visual portion of issue #3 as accepted on a release machine, run the diagnostic in actual Windows Terminal and verify:
@@ -134,8 +175,13 @@ CI can validate Win32 console state and VT construction, but it does not render 
 `TerminalSessionOptions::raw_keyboard_input` is an issue-#11 opt-in. It
 requires VT input, disables cooked line/echo/processed input plus unused
 mouse/window console records, and exposes `ReadInputAvailable()`. That method
-checks the input handle with a zero-timeout wait before calling `ReadFile`, so
-the CEF/live loop is not blocked waiting for a complete line.
+checks the input handle with a zero-timeout wait before calling `ReadFile` and
+does not wait for a complete line. This is not a hard nonblocking-read guarantee:
+Windows can signal non-character input that `ReadFile` discards before waiting
+for a character. See [Microsoft's console input description](https://learn.microsoft.com/en-us/windows/console/high-level-console-input-and-output-functions).
+The read does not hold the output/cleanup gate, so it cannot itself prevent the
+emergency handler from attempting restoration. A cancellable input transport
+remains outside this bounded lifecycle change.
 
 The method is intentionally unavailable outside raw keyboard mode. Parser state
 and CEF translation live outside `TerminalSession`; the terminal layer owns

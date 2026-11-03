@@ -123,8 +123,9 @@ int main() {
       // Exercise explicit cleanup and idempotence once; all other cycles rely
       // on the destructor so both supported ownership paths are covered.
       if (cycle == 0) {
-        session.Restore();
-        session.Restore();
+        if (!session.Restore().succeeded() || !session.Restore().succeeded()) {
+          return Fail("explicit terminal restoration outcome");
+        }
       }
     }
 

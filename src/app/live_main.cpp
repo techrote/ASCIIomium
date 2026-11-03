@@ -91,6 +91,9 @@ struct LiveEvidence {
   bool load_complete = false;
   bool closed_cleanly = false;
   bool terminal_restored = false;
+  bool terminal_acquisition_attempted = false;
+  bool terminal_acquired = false;
+  asciiomium::terminal::TerminalRestoreResult terminal_restoration;
   int http_status = 0;
   int load_error = 0;
   std::string load_error_text;
@@ -658,6 +661,13 @@ void WriteReport(const std::filesystem::path& path,
       << (options.terminal_output ? "true" : "false")
       << ",\"terminal_restored\":"
       << (evidence.terminal_restored ? "true" : "false")
+      << ",\"terminal_restore\":{\"acquisition_attempted\":"
+      << (evidence.terminal_acquisition_attempted ? "true" : "false")
+      << ",\"acquired\":" << (evidence.terminal_acquired ? "true" : "false")
+      << ",\"completed\":"
+      << (evidence.terminal_restoration.completed ? "true" : "false")
+      << ",\"failed_steps\":" << evidence.terminal_restoration.failed_steps
+      << ",\"first_error\":" << evidence.terminal_restoration.first_error << "}"
       << ",\"closed_cleanly\":"
       << (evidence.closed_cleanly ? "true" : "false") << "}\n"
       << "}\n";
@@ -938,8 +948,15 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args,
       terminal_options.raw_keyboard_input = true;
       terminal_options.mouse_tracking =
           asciiomium::terminal::MouseTrackingMode::AnyEvent;
-      terminal_session =
-          std::make_unique<asciiomium::terminal::TerminalSession>(terminal_options);
+      evidence.terminal_acquisition_attempted = true;
+      try {
+        terminal_session =
+            std::make_unique<asciiomium::terminal::TerminalSession>(terminal_options);
+      } catch (const asciiomium::terminal::TerminalSessionAcquisitionError& error) {
+        evidence.terminal_restoration = error.restoration();
+        throw;
+      }
+      evidence.terminal_acquired = true;
       target_columns = terminal_session->geometry().columns;
       target_rows = terminal_session->geometry().rows;
     }
@@ -1320,11 +1337,21 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args,
   }
 
   if (terminal_session) {
-    terminal_session->Restore();
-    evidence.terminal_restored = true;
+    evidence.terminal_restoration = terminal_session->Restore();
     terminal_session.reset();
-  } else {
-    evidence.terminal_restored = true;
+  }
+  // Keep the legacy boolean for headless readers: no terminal state needed
+  // restoration there. The additive detail distinguishes that case from an
+  // observed successful cleanup, including constructor rollback.
+  evidence.terminal_restored = !options.terminal_output ||
+                              evidence.terminal_restoration.succeeded();
+  if (!evidence.terminal_restored) {
+    if (!deferred_error.empty()) deferred_error += '\n';
+    deferred_error += "Terminal restoration incomplete (failed steps " +
+                      std::to_string(evidence.terminal_restoration.failed_steps) +
+                      ", first OS error " +
+                      std::to_string(evidence.terminal_restoration.first_error) + ")";
+    if (result == 0) result = 11;
   }
 
   evidence.source_state = frame_store->SnapshotState();
@@ -1337,7 +1364,9 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args,
 
   client = nullptr;
   if (!cef_session.Shutdown()) {
-    std::cerr << "CEF shutdown timed out; terminal restored, active private data retained.\n";
+    std::cerr << "CEF shutdown timed out; terminal restoration "
+              << (evidence.terminal_restored ? "completed" : "incomplete")
+              << ", active private data retained.\n";
     std::_Exit(7);
   }
   evidence.profile_cleanup = profile.Finish();

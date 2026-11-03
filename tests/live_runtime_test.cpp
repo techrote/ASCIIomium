@@ -2,6 +2,7 @@
 #include <cmath>
 #include <cstdint>
 #include <iostream>
+#include <limits>
 #include <vector>
 
 #include "browser/popup_compositor.h"
@@ -120,6 +121,22 @@ void TestPopupComposition() {
                                            view.width, view.height);
   Require(fitted == DirtyRect{2, 0, 2, 1},
           "popup is repositioned to remain inside the view");
+
+  const int maximum = std::numeric_limits<int>::max();
+  const int minimum = std::numeric_limits<int>::min();
+  Require(FitPopupBoundsToView({maximum, maximum, 1, 1}, 1, 1, 2, 2) ==
+              DirtyRect{1, 1, 1, 1},
+          "INT_MAX popup coordinates fit without signed overflow");
+  Require(FitPopupBoundsToView({minimum, minimum, 1, 1}, 1, 1, 1, 1) ==
+              DirtyRect{0, 0, 1, 1},
+          "INT_MIN popup coordinates clamp to one-pixel view");
+  Require(FitPopupBoundsToView({maximum, maximum, 1, 1}, maximum, maximum,
+                               1, 1) == DirtyRect{0, 0, maximum, maximum},
+          "oversized popup dimensions remain safe for clipping");
+  Require(FitPopupBoundsToView({maximum, maximum, 1, 1}, 1, 1,
+                               maximum, maximum) ==
+              DirtyRect{maximum - 1, maximum - 1, 1, 1},
+          "maximum view dimensions preserve fitting semantics");
 
   const auto composed = ComposeViewAndPopup(view, popup);
   Require(composed.valid() && composed.popup_composited,
