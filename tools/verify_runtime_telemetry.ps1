@@ -112,4 +112,8 @@ foreach ($arguments in @(
   overhead = $overhead
   benchmarks = $summaries
 } | ConvertTo-Json -Depth 16 | Set-Content -Encoding utf8 (Join-Path $output 'summary.json')
-$summaries | Format-Table case, rendered_frames, emitted_frames, bytes_per_second, differential_to_full_ratio
+$summaries | ForEach-Object { [pscustomobject]$_ } |
+  Format-Table case, rendered_frames, emitted_frames, bytes_per_second, differential_to_full_ratio
+# The last native command intentionally returned 2 for invalid CLI options.
+# Signal success only after every assertion and evidence write has completed.
+exit 0
