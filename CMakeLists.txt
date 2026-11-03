@@ -60,10 +60,14 @@ set_target_properties(CEF::libcef PROPERTIES
   IMPORTED_IMPLIB_RELEASE "${CEF_ROOT}/Release/libcef.lib"
   INTERFACE_INCLUDE_DIRECTORIES "${CEF_ROOT}")
 
+# Refresh Git/fixture identity at every build, including incremental rebuilds.
+include(cmake/BuildIdentity.cmake)
+
 add_library(asciiomium_build_info STATIC
   src/app/build_info.cpp
   src/app/build_info.h)
 target_include_directories(asciiomium_build_info PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
+asciiomium_add_build_identity(asciiomium_build_info)
 target_link_libraries(asciiomium_build_info PRIVATE CEF::libcef)
 target_compile_features(asciiomium_build_info PUBLIC cxx_std_20)
 target_compile_definitions(asciiomium_build_info PRIVATE
@@ -72,7 +76,8 @@ target_compile_definitions(asciiomium_build_info PRIVATE
   NOMINMAX
   ASCIIOMIUM_VERSION="${PROJECT_VERSION}"
   ASCIIOMIUM_BUILD_TYPE="$<CONFIG>"
-  ASCIIOMIUM_ARCH="x64")
+  ASCIIOMIUM_ARCH="x64"
+  ASCIIOMIUM_COMPILER="${CMAKE_CXX_COMPILER_ID}-${CMAKE_CXX_COMPILER_VERSION}")
 set_target_properties(asciiomium_build_info PROPERTIES FOLDER "ASCIIomium")
 
 # Browser/terminal geometry is a neutral subsystem shared by rendering and
@@ -144,10 +149,15 @@ add_library(asciiomium_runtime STATIC
   src/runtime/frame_scheduler.cpp
   src/runtime/frame_scheduler.h
   src/runtime/timing_series.cpp
-  src/runtime/timing_series.h)
+  src/runtime/timing_series.h
+  src/runtime/process_metrics.cpp
+  src/runtime/process_metrics.h
+  src/runtime/telemetry.cpp
+  src/runtime/telemetry.h)
 target_include_directories(asciiomium_runtime PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_compile_features(asciiomium_runtime PUBLIC cxx_std_20)
 set_target_properties(asciiomium_runtime PROPERTIES FOLDER "ASCIIomium")
+target_link_libraries(asciiomium_runtime PRIVATE psapi)
 
 # Newest-frame storage and popup composition are kept free of CEF headers so
 # ownership/composition semantics can be unit-tested independently.
@@ -202,6 +212,7 @@ set_target_properties(asciiomium PROPERTIES FOLDER "ASCIIomium")
 
 add_executable(asciiomium_live src/app/live_main.cpp)
 target_link_libraries(asciiomium_live PRIVATE
+  asciiomium_build_info
   asciiomium_browser
   asciiomium_render
   asciiomium_runtime
@@ -434,3 +445,25 @@ target_link_libraries(asciiomium_differential_benchmark PRIVATE
   asciiomium_terminal asciiomium_render asciiomium_runtime)
 target_compile_features(asciiomium_differential_benchmark PRIVATE cxx_std_20)
 set_target_properties(asciiomium_differential_benchmark PROPERTIES FOLDER "Tools")
+
+# Issue #15's report/duration/process arithmetic remains portable and testable
+# without constructing a live CEF browser.
+add_executable(runtime_telemetry_tests tests/runtime_telemetry_test.cpp)
+target_link_libraries(runtime_telemetry_tests PRIVATE asciiomium_runtime)
+target_compile_features(runtime_telemetry_tests PRIVATE cxx_std_20)
+set_target_properties(runtime_telemetry_tests PROPERTIES FOLDER "Tests")
+add_test(NAME runtime_telemetry COMMAND "$<TARGET_FILE:runtime_telemetry_tests>")
+
+add_executable(asciiomium_telemetry_overhead tools/telemetry_overhead.cpp)
+target_link_libraries(asciiomium_telemetry_overhead PRIVATE asciiomium_runtime)
+target_compile_features(asciiomium_telemetry_overhead PRIVATE cxx_std_20)
+set_target_properties(asciiomium_telemetry_overhead PROPERTIES FOLDER "Tools")
+
+add_test(NAME build_identity_refresh
+  COMMAND "${CMAKE_COMMAND}"
+    "-DTEST_SOURCE_ROOT=${CMAKE_CURRENT_SOURCE_DIR}"
+    "-DTEST_BINARY_ROOT=${CMAKE_CURRENT_BINARY_DIR}/identity-regression"
+    "-DTEST_GENERATOR=${CMAKE_GENERATOR}"
+    "-DTEST_GENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}"
+    "-DTEST_BUILD_CONFIG=$<CONFIG>"
+    "-P" "${CMAKE_CURRENT_SOURCE_DIR}/tests/build_identity_test.cmake")
