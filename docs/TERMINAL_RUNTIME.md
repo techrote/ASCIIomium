@@ -29,13 +29,14 @@ its entire payload, including short `WriteFile` iterations, before cleanup can
 start. Restoration closes the output gate to later payloads. Normal teardown
 then attempts these operations in order:
 
-1. disable SGR/all-motion mouse tracking when ASCIIomium enabled it;
-2. reset SGR while VT processing is still active;
-3. show the cursor when ASCIIomium hid it;
-4. leave the alternate screen when ASCIIomium entered it;
-5. restore original input/output code pages;
-6. restore original input/output console modes;
-7. remove the console control handler.
+1. request stop, cancel any raw input read, and join the input reader;
+2. disable SGR/all-motion mouse tracking when ASCIIomium enabled it;
+3. reset SGR while VT processing is still active;
+4. show the cursor when ASCIIomium hid it;
+5. leave the alternate screen when ASCIIomium entered it;
+6. restore original input/output code pages;
+7. restore original input/output console modes;
+8. remove the console control handler.
 
 The destructor calls the same restoration path, so exceptions after successful
 acquisition do not require call-site cleanup. Concurrent `Restore()` calls wait
@@ -50,7 +51,12 @@ finished. `succeeded()` additionally requires that every attempted operation
 succeeded. `failed_steps` and the immediately captured `first_error` identify
 incomplete cleanup. A constructor that changes console state and then fails
 throws `TerminalSessionAcquisitionError`, which retains its rollback result.
-See [the issue #16 scope and result contract](LIFECYCLE_HARDENING.md).
+Mode and code-page ownership is recorded before setter attempts because a
+failed setter can still change state. A reader that cannot be joined is a
+fatal incomplete-cleanup outcome: output cleanup is attempted, input changes
+are deferred, and the process exits with code 12 without freeing active reader
+state. See [input lifetime and cancellation](TERMINAL_INPUT.md) and
+[the issue #16 scope and result contract](LIFECYCLE_HARDENING.md).
 
 ## Console-control handling
 
@@ -62,9 +68,12 @@ Live browser keyboard mode is different: it disables `ENABLE_PROCESSED_INPUT` so
 process shortly after invoking the handler. ASCIIomium therefore attempts
 synchronous terminal-state cleanup from the handler before returning. The
 handler pins the session's lifetime while using it and shares the output gate
-with normal cleanup. It never unregisters itself or waits for the CEF/main
-loop. Normal teardown removes the handler outside these gates, then waits for
-any dispatched callback to finish using the object.
+with normal cleanup. It requests input stop but never cancels or joins the
+reader. If its read has not finished, the callback limits cleanup to output
+state and defers input mode/code-page restoration to normal teardown. It never
+unregisters itself or waits for the CEF/main loop. Normal teardown joins the
+reader outside callback/output gates, removes the handler outside these gates,
+then waits for any dispatched callback to finish using the object.
 
 This is a best-effort fallback. Microsoft documents a system-controlled close
 timeout (normally five seconds), unreliable console APIs during close/logoff/
@@ -154,6 +163,15 @@ and handler removal while a callback runs. The callback is invoked directly by
 the test; no OS close signal is sent. Both Windows build configurations include
 this target, and CTest gives it a 30-second deadline.
 
+`terminal_input_tests` injects blocked reads, mailbox backpressure, cancellation
+races and failures. `terminal_input_console` uses fresh hidden console children
+and genuine `ReadFile`/`WriteConsoleInputW`/`CancelSynchronousIo` calls. It checks
+retained non-character records, UTF-8 at actual one-to-three-byte native read
+boundaries, pre-acquisition typeahead, idle/full-mailbox shutdown, conservative
+mode rollback, and deferred emergency input restoration. A separate child
+checks the fatal drain path. The parent bounds child lifetime and retains
+failure diagnostics. See [test scope and commands](TERMINAL_INPUT.md).
+
 These tests cover program behavior and Win32 state. Ten sessions within one
 test process are not evidence of ten actual browser launches or a physical
 30-minute soak.
@@ -174,14 +192,20 @@ CI can validate Win32 console state and VT construction, but it does not render 
 
 `TerminalSessionOptions::raw_keyboard_input` is an issue-#11 opt-in. It
 requires VT input, disables cooked line/echo/processed input plus unused
-mouse/window console records, and exposes `ReadInputAvailable()`. That method
-checks the input handle with a zero-timeout wait before calling `ReadFile` and
-does not wait for a complete line. This is not a hard nonblocking-read guarantee:
-Windows can signal non-character input that `ReadFile` discards before waiting
-for a character. See [Microsoft's console input description](https://learn.microsoft.com/en-us/windows/console/high-level-console-input-and-output-functions).
-The read does not hold the output/cleanup gate, so it cannot itself prevent the
-emergency handler from attempting restoration. A cancellable input transport
-remains outside this bounded lifecycle change.
+mouse/window console records, and exposes `ReadInputAvailable()`. One dedicated
+reader calls `ReadFile` directly and publishes into a fixed 4 KiB mailbox. The
+main-loop method only drains already-published bytes; it never reads or waits
+on the console handle. Backpressure pauses the producer until the mailbox is
+empty, without growing a queue or discarding active-session bytes.
+
+A signalled input handle can contain only non-character records that
+`ReadFile` discards before waiting for a character. Conversely, the console can
+retain converted UTF-8 suffix bytes without a new key. The single high-level
+reader handles both cases without mixing in low-level event reads or flushing
+typeahead. [Microsoft documents the high-level read behavior](https://learn.microsoft.com/en-us/windows/console/high-level-console-input-and-output-functions).
+Cancellation and reader completion precede normal input mode/code-page
+restoration; [the focused input design](TERMINAL_INPUT.md) describes the entry
+race, fatal failure contract and qualification limits.
 
 The method is intentionally unavailable outside raw keyboard mode. Parser state
 and CEF translation live outside `TerminalSession`; the terminal layer owns

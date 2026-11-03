@@ -95,6 +95,8 @@ add_library(asciiomium_terminal STATIC
   src/terminal/terminal_diagnostics.h
   src/terminal/terminal_geometry.cpp
   src/terminal/terminal_geometry.h
+  src/terminal/terminal_input_reader.cpp
+  src/terminal/terminal_input_reader.h
   src/terminal/terminal_sequences.cpp
   src/terminal/terminal_sequences.h
   src/terminal/terminal_session.cpp
@@ -367,6 +369,18 @@ target_compile_features(terminal_lifecycle_tests PRIVATE cxx_std_20)
 set_target_properties(terminal_lifecycle_tests PROPERTIES FOLDER "Tests")
 add_test(NAME terminal_lifecycle COMMAND "$<TARGET_FILE:terminal_lifecycle_tests>")
 set_tests_properties(terminal_lifecycle PROPERTIES TIMEOUT 30)
+
+add_executable(terminal_input_tests tests/terminal_input_test.cpp)
+target_link_libraries(terminal_input_tests PRIVATE asciiomium_terminal)
+set_target_properties(terminal_input_tests PROPERTIES FOLDER "Tests")
+add_test(NAME terminal_input COMMAND "$<TARGET_FILE:terminal_input_tests>")
+set_tests_properties(terminal_input PROPERTIES TIMEOUT 20)
+
+add_executable(terminal_input_console tests/terminal_input_console_test.cpp)
+target_link_libraries(terminal_input_console PRIVATE asciiomium_terminal)
+set_target_properties(terminal_input_console PROPERTIES FOLDER "Tests")
+add_test(NAME terminal_input_console COMMAND "$<TARGET_FILE:terminal_input_console>")
+set_tests_properties(terminal_input_console PROPERTIES TIMEOUT 60)
 
 add_executable(full_frame_emitter_tests tests/full_frame_emitter_test.cpp)
 target_link_libraries(full_frame_emitter_tests PRIVATE asciiomium_terminal)

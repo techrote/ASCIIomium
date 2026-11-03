@@ -14,6 +14,7 @@
 
 #include "terminal/terminal_console_api.h"
 #include "terminal/terminal_geometry.h"
+#include "terminal/terminal_input_reader.h"
 #include "terminal/terminal_sequences.h"
 
 namespace asciiomium::terminal {
@@ -40,6 +41,7 @@ enum class TerminalRestoreFailure : std::uint32_t {
   InputMode = 1u << 6,
   OutputMode = 1u << 7,
   ControlHandler = 1u << 8,
+  InputReaderDrain = 1u << 9,
 };
 
 struct TerminalRestoreResult {
@@ -117,7 +119,7 @@ class TerminalSession {
   void AcquireLocked();
   void WriteLocked(std::string_view bytes);
   [[nodiscard]] DWORD WriteBestEffortLocked(std::string_view bytes) noexcept;
-  void RestoreTerminalStateLocked() noexcept;
+  void RestoreTerminalStateLocked(bool input_drained) noexcept;
   void RecordRestoreFailure(TerminalRestoreFailure step, DWORD error) noexcept;
   static BOOL WINAPI ControlHandler(DWORD control_type);
 
@@ -125,6 +127,7 @@ class TerminalSession {
   HANDLE input_handle_ = INVALID_HANDLE_VALUE;
   HANDLE output_handle_ = INVALID_HANDLE_VALUE;
   const TerminalConsoleApi& console_api_;
+  TerminalInputReader input_reader_;
   DWORD original_input_mode_ = 0;
   DWORD original_output_mode_ = 0;
   UINT original_input_code_page_ = 0;
@@ -146,7 +149,8 @@ class TerminalSession {
   // first two locks while unregistering the Win32 handler.
   SRWLOCK io_lock_ = SRWLOCK_INIT;
   SRWLOCK restore_lock_ = SRWLOCK_INIT;
-  bool terminal_cleanup_completed_ = false;
+  bool output_cleanup_completed_ = false;
+  bool input_cleanup_completed_ = false;
   TerminalRestoreResult restore_result_;
 
   // The registry lock has process lifetime and no C++ destruction ordering.

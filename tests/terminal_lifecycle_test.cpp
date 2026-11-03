@@ -119,6 +119,7 @@ struct FakeConsole {
   std::size_t calls = 0;
   std::size_t output_size = 0;
   std::array<bool, 256> fail{};
+  bool mutate_before_failure = false;
   std::size_t zero_write = 256;
   DWORD write_limit = 0x7fffffffu;
   std::size_t pause_call = 256;
@@ -151,6 +152,9 @@ struct FakeConsole {
         auto& self = *static_cast<FakeConsole*>(context);
         const auto index = self.Record(handle == Input()
             ? Operation::SetInputMode : Operation::SetOutputMode);
+        if (self.mutate_before_failure) {
+          (handle == Input() ? self.input_mode : self.output_mode) = value;
+        }
         if (self.Fail(index)) return FALSE;
         (handle == Input() ? self.input_mode : self.output_mode) = value;
         return TRUE;
@@ -203,7 +207,12 @@ struct FakeConsole {
       },
       [](void* context) noexcept -> DWORD {
         return static_cast<FakeConsole*>(context)->error.load();
-      }} {}
+      },
+      [](void*, HANDLE, void*, DWORD, DWORD* read) noexcept -> BOOL {
+        *read = 0;  // Transport errors are exercised by terminal_input_tests.
+        return TRUE;
+      },
+      [](void*, HANDLE) noexcept -> BOOL { return TRUE; }} {}
 
   std::size_t Record(Operation operation) noexcept {
     std::lock_guard lock(log_mutex);
@@ -255,7 +264,7 @@ bool SameResult(TerminalRestoreResult left, TerminalRestoreResult right) {
 
 void TestRollbackAndRetryAcquisition() {
   // Fail every acquisition operation, from the first query through mouse
-  // enable output. Only successfully changed state is owned and rolled back.
+  // enable output. Every possible mutation is owned before its setter call.
   for (std::size_t failed = 0; failed < 12; ++failed) {
     FakeConsole console;
     console.fail[failed] = true;
@@ -276,6 +285,21 @@ void TestRollbackAndRetryAcquisition() {
     console.ResetLog();
     TerminalSession next(FullOptions(), console.Input(), console.Output(), console.api);
     Require(next.Restore().succeeded(), "reacquire after startup failure");
+  }
+
+  for (std::size_t failed : {std::size_t{4}, std::size_t{5}}) {
+    FakeConsole mutated;
+    mutated.mutate_before_failure = true;
+    mutated.fail[failed] = true;
+    bool caught = false;
+    try {
+      TerminalSession session(FullOptions(), mutated.Input(), mutated.Output(), mutated.api);
+    } catch (const TerminalSessionAcquisitionError& error) {
+      caught = true;
+      Require(error.restoration().succeeded(), "mutating setter failure has a rollback result");
+    }
+    Require(caught && mutated.Baseline(),
+            "mode setter that mutates before returning FALSE is rolled back");
   }
 
   FakeConsole console;

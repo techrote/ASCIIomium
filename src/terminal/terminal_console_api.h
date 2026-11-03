@@ -22,6 +22,8 @@ struct TerminalConsoleApi {
   BOOL (*get_buffer_info)(void*, HANDLE, CONSOLE_SCREEN_BUFFER_INFO*) noexcept;
   BOOL (*write)(void*, HANDLE, const void*, DWORD, DWORD*) noexcept;
   DWORD (*last_error)(void*) noexcept;
+  BOOL (*read)(void*, HANDLE, void*, DWORD, DWORD*) noexcept;
+  BOOL (*cancel_synchronous_io)(void*, HANDLE) noexcept;
 };
 
 const TerminalConsoleApi& Win32TerminalConsoleApi() noexcept;

@@ -71,6 +71,7 @@ the saved result without replaying VT sequences after output mode restoration.
 | 64 | Input mode restore |
 | 128 | Output mode restore |
 | 256 | Control-handler removal |
+| 512 | Input reader failed to drain; fatal path, no completed result returned |
 
 Constructor rollback follows the same path. Its result travels in
 `TerminalSessionAcquisitionError` because no session object survives the failed
@@ -249,6 +250,9 @@ recorded separately. Full acceptance still requires:
 - shutdown during pending navigation/resize and process-tree checks on the
   integrated runtime.
 
-The current console byte reader still lacks a hard cancellable/nonblocking-read
-contract. The scoped callback guards do not claim to contain every allocation
-in every CEF callback, nor to survive sustained process-wide memory exhaustion.
+The related [input lifecycle slice](TERMINAL_INPUT.md) adds a bounded reader
+mailbox, normal cancellation and join, deferred emergency input restoration,
+and a fatal drain path that reports incomplete cleanup. It retains the same
+physical and integrated telemetry gates. The scoped callback guards do not
+claim to contain every allocation in every CEF callback or to survive sustained
+process-wide memory exhaustion.

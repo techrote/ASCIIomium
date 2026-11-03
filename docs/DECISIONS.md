@@ -190,3 +190,24 @@ Display/diagnostic strings are bounded before UTF-16 to UTF-8 conversion.
 Navigation validation requires the complete URL within its limit, and fixture
 console evidence requires the complete trusted address. See
 `LIFECYCLE_HARDENING.md` for scope, failure semantics and reproducible tests.
+
+## D-024 — Drain one bounded high-level console reader before input restoration
+
+**Status:** implemented; exact-revision Windows and physical qualification are
+recorded separately.
+
+Raw console input retains `ReadFile` plus `CP_UTF8` as its only transport. A
+dedicated reader publishes into a fixed 4 KiB mailbox; the main loop drains
+published bytes without performing an OS input read. No low-level event read
+or flush is interleaved with this transport, preserving cached UTF-8 conversion
+bytes and pre-acquisition typeahead.
+
+Normal restoration requests stop, repeatedly cancels a pending read across its
+entry race, and proves native thread completion before joining and restoring
+input code page/mode. Callback and output locks are not held during that drain.
+Emergency callbacks request stop and defer input restoration while the read
+is active. Failure to drain within the application deadline is fatal exit 12
+with incomplete-cleanup evidence and active worker state retained until process
+exit. A cancellation request alone never counts as completion. Console setter
+ownership is recorded before an attempted change so failure after mutation
+still triggers rollback. See [the focused design and tests](TERMINAL_INPUT.md).

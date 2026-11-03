@@ -68,7 +68,11 @@ const TerminalConsoleApi& Win32TerminalConsoleApi() noexcept {
          DWORD* written) noexcept {
         return WriteFile(handle, bytes, size, written, nullptr);
       },
-      [](void*) noexcept { return GetLastError(); }};
+      [](void*) noexcept { return GetLastError(); },
+      [](void*, HANDLE handle, void* bytes, DWORD size, DWORD* read) noexcept {
+        return ReadFile(handle, bytes, size, read, nullptr);
+      },
+      [](void*, HANDLE thread) noexcept { return CancelSynchronousIo(thread); }};
   return api;
 }
 
@@ -93,7 +97,8 @@ TerminalSession::TerminalSession(TerminalSessionOptions options,
     : options_(options),
       input_handle_(input_handle),
       output_handle_(output_handle),
-      console_api_(console_api) {
+      console_api_(console_api),
+      input_reader_(input_handle, console_api) {
   // Publish while holding the state gate, so a dispatched callback cannot see
   // partially initialized ownership flags. The registry is released before
   // any Win32 call that can install or remove a handler.
@@ -149,10 +154,12 @@ void TerminalSession::AcquireLocked() {
 
   const DWORD output_mode =
       original_output_mode_ | ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+  // A failed console setter can still mutate state. Own the possible change
+  // before calling it so partial acquisition always attempts rollback.
+  output_mode_changed_ = output_mode != original_output_mode_;
   if (!console_api_.set_mode(console_api_.context, output_handle_, output_mode)) {
     ThrowLastError(console_api_, "SetConsoleMode(output VT)");
   }
-  output_mode_changed_ = output_mode != original_output_mode_;
 
   if (options_.raw_keyboard_input && !options_.enable_vt_input) {
     throw std::invalid_argument(
@@ -172,23 +179,23 @@ void TerminalSession::AcquireLocked() {
                       ENABLE_WINDOW_INPUT | ENABLE_QUICK_EDIT_MODE);
       input_mode |= ENABLE_EXTENDED_FLAGS;
     }
+    input_mode_changed_ = input_mode != original_input_mode_;
     if (!console_api_.set_mode(console_api_.context, input_handle_, input_mode)) {
       ThrowLastError(console_api_, "SetConsoleMode(input VT)");
     }
-    input_mode_changed_ = input_mode != original_input_mode_;
   }
 
   if (original_output_code_page_ != CP_UTF8) {
+    output_code_page_changed_ = true;
     if (!console_api_.set_output_code_page(console_api_.context, CP_UTF8)) {
       ThrowLastError(console_api_, "SetConsoleOutputCP(CP_UTF8)");
     }
-    output_code_page_changed_ = true;
   }
   if (original_input_code_page_ != CP_UTF8) {
+    input_code_page_changed_ = true;
     if (!console_api_.set_input_code_page(console_api_.context, CP_UTF8)) {
       ThrowLastError(console_api_, "SetConsoleCP(CP_UTF8)");
     }
-    input_code_page_changed_ = true;
   }
 
   if (!console_api_.set_control_handler(
@@ -210,6 +217,7 @@ void TerminalSession::AcquireLocked() {
     mouse_tracking_acquired_ = true;
     WriteLocked(BuildMouseTrackingEnableSequence(options_.mouse_tracking));
   }
+  if (options_.raw_keyboard_input) input_reader_.Start();
 }
 
 bool TerminalSession::RefreshGeometry() noexcept {
@@ -257,31 +265,7 @@ std::string TerminalSession::ReadInputAvailable(std::size_t max_bytes) {
         "ReadInputAvailable requires raw_keyboard_input terminal mode");
   }
   if (closing_.load(std::memory_order_acquire) || max_bytes == 0) return {};
-  max_bytes = std::min<std::size_t>(
-      max_bytes, static_cast<std::size_t>(64 * 1024));
-
-  // Do not hold the output/cleanup gate across ReadFile: a signalled console
-  // handle can contain non-character records, which ReadFile can discard.
-  const DWORD wait = WaitForSingleObject(input_handle_, 0);
-  if (wait == WAIT_TIMEOUT) return {};
-  if (wait != WAIT_OBJECT_0) {
-    if (wait == WAIT_FAILED) {
-      throw std::system_error(static_cast<int>(GetLastError()),
-                              std::system_category(),
-                              "WaitForSingleObject(terminal input)");
-    }
-    throw std::runtime_error("unexpected terminal input wait result");
-  }
-
-  std::string bytes(max_bytes, '\0');
-  DWORD read = 0;
-  if (!ReadFile(input_handle_, bytes.data(),
-                static_cast<DWORD>(bytes.size()), &read, nullptr)) {
-    throw std::system_error(static_cast<int>(GetLastError()),
-                            std::system_category(), "ReadFile(terminal input)");
-  }
-  bytes.resize(read);
-  return bytes;
+  return input_reader_.TakeAvailable(max_bytes);
 }
 
 DWORD TerminalSession::WriteBestEffortLocked(std::string_view bytes) noexcept {
@@ -308,11 +292,10 @@ void TerminalSession::RecordRestoreFailure(TerminalRestoreFailure step,
   }
 }
 
-void TerminalSession::RestoreTerminalStateLocked() noexcept {
-  if (terminal_cleanup_completed_) return;
+void TerminalSession::RestoreTerminalStateLocked(bool input_drained) noexcept {
   // No allocations and no exception-producing string builders on this path.
   // Failed steps remain recorded; later steps are always attempted.
-  if (visual_state_acquired_) {
+  if (!output_cleanup_completed_ && visual_state_acquired_) {
     if (mouse_tracking_acquired_) {
       RecordRestoreFailure(TerminalRestoreFailure::MouseTracking,
                            WriteBestEffortLocked(kDisableSgrMouse));
@@ -334,31 +317,34 @@ void TerminalSession::RestoreTerminalStateLocked() noexcept {
     }
   }
 
-  if (input_code_page_changed_ &&
+  // Never change input conversion/mode while ReadFile can still be active.
+  // Emergency callbacks can finish output cleanup and defer these two steps.
+  if (input_drained && !input_cleanup_completed_ && input_code_page_changed_ &&
       !console_api_.set_input_code_page(console_api_.context,
                                         original_input_code_page_)) {
     RecordRestoreFailure(TerminalRestoreFailure::InputCodePage,
                          LastError(console_api_));
   }
-  if (output_code_page_changed_ &&
+  if (!output_cleanup_completed_ && output_code_page_changed_ &&
       !console_api_.set_output_code_page(console_api_.context,
                                          original_output_code_page_)) {
     RecordRestoreFailure(TerminalRestoreFailure::OutputCodePage,
                          LastError(console_api_));
   }
-  if (input_mode_changed_ &&
+  if (input_drained && !input_cleanup_completed_ && input_mode_changed_ &&
       !console_api_.set_mode(console_api_.context, input_handle_,
                              original_input_mode_)) {
     RecordRestoreFailure(TerminalRestoreFailure::InputMode,
                          LastError(console_api_));
   }
-  if (output_mode_changed_ &&
+  if (!output_cleanup_completed_ && output_mode_changed_ &&
       !console_api_.set_mode(console_api_.context, output_handle_,
                              original_output_mode_)) {
     RecordRestoreFailure(TerminalRestoreFailure::OutputMode,
                          LastError(console_api_));
   }
-  terminal_cleanup_completed_ = true;
+  output_cleanup_completed_ = true;
+  if (input_drained) input_cleanup_completed_ = true;
 }
 
 TerminalRestoreResult TerminalSession::Restore() noexcept {
@@ -367,10 +353,19 @@ TerminalRestoreResult TerminalSession::Restore() noexcept {
   ExclusiveLock restoration(restore_lock_);
   if (restore_result_.completed) return restore_result_;
 
+  // Cancel and join without any gate needed by a control callback or terminal
+  // writer. Actual completion, not a successful cancel request, permits input
+  // mode/code-page restoration and release of the reader's state/handle.
+  const auto input_drain = input_reader_.StopAndJoin();
   {
     ExclusiveLock state(io_lock_);
-    RestoreTerminalStateLocked();
+    if (!input_drain.joined) {
+      RecordRestoreFailure(TerminalRestoreFailure::InputReaderDrain,
+                           input_drain.error);
+    }
+    RestoreTerminalStateLocked(input_drain.joined);
   }
+  if (!input_drain.joined) TerminalInputReader::FatalDrainFailure(input_drain.error);
 
   // Do not assume handler removal drains callbacks. It must also not wait
   // while holding a gate needed by a callback that Windows already dispatched.
@@ -408,10 +403,11 @@ BOOL WINAPI TerminalSession::ControlHandler(DWORD control_type) {
     case CTRL_SHUTDOWN_EVENT: {
       session->stop_requested_.store(true, std::memory_order_release);
       session->closing_.store(true, std::memory_order_release);
+      session->input_reader_.RequestStop();
       ExclusiveLock state(session->io_lock_);
       // Emergency cleanup never unregisters itself or waits for the main/CEF
       // loop. Windows can still terminate us before this best-effort work ends.
-      session->RestoreTerminalStateLocked();
+      session->RestoreTerminalStateLocked(session->input_reader_.finished());
       return FALSE;
     }
     default:
