@@ -352,6 +352,22 @@ jobs:
             build/color-modes-release.svg
           if-no-files-found: error
 
+      - name: Record private cleanup residue on failure
+        if: failure()
+        shell: pwsh
+        run: |
+          # Only names/metadata from our disposable fixture roots, never file
+          # contents or the runner's persistent browser/user profiles.
+          $base = Join-Path $env:TEMP 'ASCIIomium'
+          $entries = @()
+          if (Test-Path $base) {
+            $entries = @(Get-ChildItem $base -Directory -Filter 'private-*' | ForEach-Object {
+              Get-ChildItem $_.FullName -Recurse -Force | Select-Object FullName, Length, Attributes
+            } | Select-Object -First 100)
+          }
+          $entries | ConvertTo-Json -Depth 4 | Set-Content build/private-cleanup-residue.json
+          $entries | Format-Table -AutoSize
+
       - name: Upload fixture and benchmark evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -392,4 +408,5 @@ jobs:
             build/live-mouse-click-release.json
             build/live-mouse-wheel-release.json
             build/live-input-release.json
+            build/private-cleanup-residue.json
           if-no-files-found: error

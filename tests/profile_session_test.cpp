@@ -7,6 +7,8 @@
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
+#include <thread>
+#include <chrono>
 
 using asciiomium::browser::ProfileSession;
 void Require(bool value, const char* message) { if (!value) throw std::runtime_error(message); }
@@ -37,6 +39,21 @@ int main() {
       CloseHandle(handle);
       Require(!premature && error != 0, "cleanup cannot claim success with an open file");
       Require(locked.Finish() && !std::filesystem::exists(locked.root()), "cleanup succeeds after the blocking handle closes");
+    }
+    {
+      ProfileSession transient({}, true);
+      const auto handle = CreateFileW((transient.root() / "transient-handle").c_str(),
+          GENERIC_READ | GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+          FILE_ATTRIBUTE_NORMAL, nullptr);
+      Require(handle != INVALID_HANDLE_VALUE, "create transient cleanup lock");
+      std::jthread release([handle] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(150));
+        CloseHandle(handle);
+      });
+      Require(transient.Finish(1500), "bounded cleanup waits for transient handle release");
+      Require(transient.cleanup_attempts() > 1 && transient.cleanup_error_code() == 0,
+              "transient cleanup actually retries and clears its error");
+      Require(!std::filesystem::exists(transient.root()), "retry removes private root");
     }
     // This temporary owner contains persistent profiles, keeping test cleanup local.
     ProfileSession test_root({}, true);
