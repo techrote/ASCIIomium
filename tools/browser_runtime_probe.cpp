@@ -2,6 +2,8 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include <algorithm>
+#include <array>
 #include <chrono>
 #include <charconv>
 #include <filesystem>
@@ -13,6 +15,7 @@
 #include <string>
 #include <thread>
 
+#include "app/build_info.h"
 #include "browser/browser_commands.h"
 #include "browser/cef_pointer_translator.h"
 #include "browser/cef_runtime_session.h"
@@ -24,6 +27,17 @@
 namespace {
 using namespace asciiomium::browser;
 using Clock = std::chrono::steady_clock;
+
+void WriteIdentityFields(std::ostream& out) {
+  const auto info = asciiomium::GetBuildInfo();
+  out << "\"source_revision\":\"" << info.source_revision
+      << "\",\"source_tree\":\"" << info.source_tree
+      << "\",\"source_identity_available\":" << (info.source_identity_available ? "true" : "false")
+      << ",\"source_dirty\":" << (info.source_dirty ? "true" : "false")
+      << ",\"build_configuration\":\"" << info.build_type
+      << "\",\"cef_compile_version\":\"" << info.cef_compile_version
+      << "\",\"cef_runtime_matches_headers\":" << (info.cef_runtime_matches_headers ? "true" : "false");
+}
 
 // Synthetic devices make the denial test independent of runner hardware.
 // There is deliberately no fake-UI/permission-grant switch. Production live
@@ -86,7 +100,7 @@ void Click(CefRefPtr<OsrClient> client) {
 
 int Probe(int argc, char** argv, const CefMainArgs& main_args, CefRefPtr<CefApp> app) {
   std::filesystem::path profile_path, downloads, default_downloads, report;
-  std::string origin, scenario;
+  std::string origin, scenario, run_id;
   bool private_mode = false;
   for (int i = 1; i < argc; ++i) {
     const std::string arg = argv[i];
@@ -95,6 +109,7 @@ int Probe(int argc, char** argv, const CefMainArgs& main_args, CefRefPtr<CefApp>
     const std::string value = argv[++i];
     if (arg == "--origin") origin = value;
     else if (arg == "--scenario") scenario = value;
+    else if (arg == "--run-id") run_id = value;
     else if (arg == "--profile") profile_path = value;
     else if (arg == "--downloads") downloads = value;
     else if (arg == "--default-download-directory") default_downloads = value;
@@ -105,6 +120,17 @@ int Probe(int argc, char** argv, const CefMainArgs& main_args, CefRefPtr<CefApp>
   Require(LoopbackOrigin(origin),
           "qualification probe is restricted to loopback fixtures");
   Require(!scenario.empty() && !report.empty(), "scenario and report required");
+  constexpr std::array<std::string_view, 13> scenarios{
+      "storage-write", "storage-read", "storage-empty", "navigation", "policies",
+      "download-deny", "download-allow", "tls", "hold", "lifecycle-ready",
+      "lifecycle-before-created", "lifecycle-navigation-requested", "lifecycle-held-load"};
+  Require(std::find(scenarios.begin(), scenarios.end(), std::string_view(scenario)) != scenarios.end(),
+          "unknown probe scenario");
+  if (scenario == "lifecycle-held-load") {
+    Require(!run_id.empty() && run_id.size() <= 64 &&
+            run_id.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_") == std::string::npos,
+            "held-load requires a bounded ASCII run id");
+  }
   ProfileSession profile(profile_path, private_mode, ASCIIOMIUM_SOURCE_DIR);
   CefRuntimeSession session(profile);
   CefSettings settings;
@@ -124,6 +150,7 @@ int Probe(int argc, char** argv, const CefMainArgs& main_args, CefRefPtr<CefApp>
   if (scenario.starts_with("storage-")) path = "/storage?mode=" + scenario.substr(8);
   else if (scenario.starts_with("download-")) path = "/download-page";
   else if (scenario == "policies") path = "/policies";
+  else if (scenario == "lifecycle-held-load") path = "/lifecycle-held/" + run_id;
   else path = "/a";
   Require(CefBrowserHost::CreateBrowser(window, client, origin + path,
       browser_settings, nullptr, nullptr), "CreateBrowser failed");
@@ -131,6 +158,8 @@ int Probe(int argc, char** argv, const CefMainArgs& main_args, CefRefPtr<CefApp>
   bool passed = false;
   std::string failure;
   int verified_transitions = 0;
+  std::string lifecycle_phase;
+  bool phase_reached = false;
   try {
     auto wait_page = [&](std::string_view prefix, std::string_view previous = {}) {
       Require(PumpUntil(client, [&] {
@@ -144,7 +173,28 @@ int Probe(int argc, char** argv, const CefMainArgs& main_args, CefRefPtr<CefApp>
       const auto command = BrowserCommands::Parse(text);
       Require(command.error.empty() && client->Navigate(command), "navigation command rejected");
     };
-    if (scenario.starts_with("storage-")) {
+    if (scenario.starts_with("lifecycle-")) {
+      lifecycle_phase = scenario.substr(10);
+      if (lifecycle_phase == "before-created") {
+        Require(!client->browser_created(), "browser creation unexpectedly completed before the first pump");
+      } else if (lifecycle_phase == "held-load") {
+        Require(PumpUntil(client, [&] {
+          return client->MainTitle() == "LOADING:" + run_id &&
+                 client->Status().loading && !client->load_complete();
+        }), "held response did not reach an incomplete committed document");
+        ++verified_transitions;
+      } else {
+        Require(lifecycle_phase == "ready" || lifecycle_phase == "navigation-requested",
+                "unknown lifecycle phase");
+        wait_page("PAGE:a:");
+        if (lifecycle_phase == "navigation-requested") {
+          // Shutdown follows this accepted request with no intervening pump.
+          // This proves the queued-navigation path, not a network-start event.
+          navigate("open " + origin + "/b");
+        }
+      }
+      phase_reached = true;
+    } else if (scenario.starts_with("storage-")) {
       Require(PumpUntil(client, [&] {
         return client->MainTitle().starts_with("PASS:") || client->MainTitle().starts_with("FAIL:");
       }), "storage page did not complete asynchronous IndexedDB transaction");
@@ -223,6 +273,26 @@ int Probe(int argc, char** argv, const CefMainArgs& main_args, CefRefPtr<CefApp>
     passed = !client->callback_failed();
   } catch (const std::exception& error) { failure = error.what(); }
   const auto status = client->Status();
+  if (!lifecycle_phase.empty()) {
+    // Preserve the reached phase even if shutdown later exhausts its deadline.
+    // The private supervisor finalizes cleanup only after the process tree exits.
+    if (report.has_parent_path()) std::filesystem::create_directories(report.parent_path());
+    std::ofstream checkpoint(report);
+    Require(static_cast<bool>(checkpoint), "cannot open lifecycle checkpoint");
+    checkpoint << "{\"schema\":\"asciiomium-runtime-probe-v1\",\"scenario\":\"" << scenario
+        << "\",\"passed\":false,\"closed_cleanly\":false,\"profile_cleanup\":false"
+        << ",\"profile_cleanup_deferred\":true,\"profile_cleanup_error\":0,\"profile_cleanup_attempts\":0"
+        << ",\"private\":" << (private_mode ? "true" : "false")
+        << ",\"probe_stage\":\"before-shutdown\",\"lifecycle_phase\":\"" << lifecycle_phase
+        << "\",\"phase_reached\":" << (phase_reached ? "true" : "false") << ',';
+    checkpoint << "\"callbacks\":";
+    WriteCallbackStatusJson(checkpoint, client->callback_status());
+    checkpoint << ',';
+    WriteIdentityFields(checkpoint);
+    checkpoint << "}\n";
+    checkpoint.close();
+    Require(static_cast<bool>(checkpoint), "cannot finish lifecycle checkpoint");
+  }
   client = nullptr;
   CallbackStatus callbacks;
   Require(session.Shutdown(&callbacks), "browser failed to close");
@@ -234,6 +304,8 @@ int Probe(int argc, char** argv, const CefMainArgs& main_args, CefRefPtr<CefApp>
   Require(static_cast<bool>(out), "cannot open probe report");
   out << "{\"schema\":\"asciiomium-runtime-probe-v1\",\"scenario\":\"" << scenario
       << "\",\"passed\":" << (passed ? "true" : "false")
+      << ",\"probe_stage\":\"complete\",\"lifecycle_phase\":\"" << lifecycle_phase
+      << "\",\"phase_reached\":" << (phase_reached ? "true" : "false")
       << ",\"closed_cleanly\":true,\"profile_cleanup\":" << (profile.cleanup_deferred() ? "false" : "true")
       << ",\"profile_cleanup_deferred\":" << (profile.cleanup_deferred() ? "true" : "false")
       << ",\"profile_cleanup_error\":" << profile.cleanup_error_code()
@@ -248,6 +320,8 @@ int Probe(int argc, char** argv, const CefMainArgs& main_args, CefRefPtr<CefApp>
       << ",\"denied_certificates\":" << status.denied_certificates
       << ",\"callbacks\":";
   WriteCallbackStatusJson(out, callbacks);
+  out << ',';
+  WriteIdentityFields(out);
   out << "}\n";
   out.close();
   Require(static_cast<bool>(out), "cannot finish probe report");
@@ -264,6 +338,12 @@ int main(int argc, char** argv) {
   const int child = CefExecuteProcess(args, app, nullptr);
   if (child >= 0) return child;
   try {
+    if (argc == 2 && std::string_view(argv[1]) == "--identity") {
+      std::cout << "{\"schema\":\"asciiomium-runtime-probe-identity-v1\",";
+      WriteIdentityFields(std::cout);
+      std::cout << "}\n";
+      return 0;
+    }
     InitializePrivateWorker();
     bool private_mode = false;
     std::filesystem::path report;

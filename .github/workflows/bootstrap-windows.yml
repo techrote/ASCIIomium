@@ -331,7 +331,7 @@ jobs:
 
       - name: Qualify real CEF browser runtime
         shell: pwsh
-        run: python tests/verify_browser_runtime.py --exe build/bin/RELEASE/asciiomium_runtime_probe.exe --output build/browser-runtime-evidence.json
+        run: python tests/verify_browser_runtime.py --exe build/bin/RELEASE/asciiomium_runtime_probe.exe --output build/browser-runtime-evidence.json --lifecycle-cycles 10
 
       - name: Upload browser runtime evidence
         if: always()

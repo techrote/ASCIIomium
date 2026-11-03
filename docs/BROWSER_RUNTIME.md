@@ -148,11 +148,21 @@ that it remains empty; enabled download bytes are verified outside CEF. A delibe
 untrusted test-only certificate proves TLS rejection. Its checked-in private
 key is public fixture material and must never be used by a service.
 
-The probe is restricted to loopback origins. Results record the tested Git
-revision, individual scenarios, close/cleanup results and HTTP request counts.
+The probe is restricted to loopback origins. Its compiled source identity is
+checked against the checkout before execution and in each report; evidence also
+records the executable SHA-256, source tree, individual scenarios, close/cleanup
+results and HTTP request counts. Source identity is refreshed at build time by
+the same narrow helper used in the #15/#17 candidates, without importing their
+runtime features. Failed launches, timeouts and malformed reports remain failed
+records with output files, rather than disappearing from a success-only list.
 CI checks out the exact PR head, builds Debug and Release, runs CTest in both,
 and runs the live runtime suite in Release. The existing keyboard/mouse/live
 fixtures continue to run; their headless sessions now use private profiles.
+
+The #16 candidate adds `--lifecycle-cycles 10` to exercise normal close at four
+different creation/navigation/load phases. See [the phase protocol](LIFECYCLE_PROBES.md).
+These are headless process-lifecycle controls, not ten interactive terminal
+launches or a physical soak.
 
 ## Physical gate
 

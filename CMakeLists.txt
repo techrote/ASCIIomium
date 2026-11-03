@@ -33,6 +33,7 @@ foreach(config DEBUG RELEASE)
 endforeach()
 
 include(cmake/AcquireCEF.cmake)
+include(cmake/BuildIdentity.cmake)
 asciiomium_acquire_cef(CEF_ROOT)
 
 # Issue #8 begins using CEF's C++ wrapper library. Load the official CMake
@@ -63,6 +64,7 @@ set_target_properties(CEF::libcef PROPERTIES
 add_library(asciiomium_build_info STATIC
   src/app/build_info.cpp
   src/app/build_info.h)
+asciiomium_add_build_identity(asciiomium_build_info)
 target_include_directories(asciiomium_build_info PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_link_libraries(asciiomium_build_info PRIVATE CEF::libcef)
 target_compile_features(asciiomium_build_info PUBLIC cxx_std_20)
@@ -72,7 +74,8 @@ target_compile_definitions(asciiomium_build_info PRIVATE
   NOMINMAX
   ASCIIOMIUM_VERSION="${PROJECT_VERSION}"
   ASCIIOMIUM_BUILD_TYPE="$<CONFIG>"
-  ASCIIOMIUM_ARCH="x64")
+  ASCIIOMIUM_ARCH="x64"
+  ASCIIOMIUM_COMPILER="${CMAKE_CXX_COMPILER_ID}-${CMAKE_CXX_COMPILER_VERSION}")
 set_target_properties(asciiomium_build_info PROPERTIES FOLDER "ASCIIomium")
 
 # Browser/terminal geometry is a neutral subsystem shared by rendering and
@@ -272,7 +275,7 @@ set_target_properties(asciiomium_cef_capture PROPERTIES
   MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
 add_executable(asciiomium_runtime_probe tools/browser_runtime_probe.cpp)
-target_link_libraries(asciiomium_runtime_probe PRIVATE asciiomium_browser)
+target_link_libraries(asciiomium_runtime_probe PRIVATE asciiomium_browser asciiomium_build_info)
 target_compile_definitions(asciiomium_runtime_probe PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN
   ASCIIOMIUM_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 
@@ -327,6 +330,17 @@ asciiomium_stage_cef_browser_runtime(asciiomium_cef_capture)
 asciiomium_stage_cef_browser_runtime(asciiomium_runtime_probe)
 
 enable_testing()
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+add_test(NAME runtime_process_evidence
+  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/runtime_process_test.py")
+add_test(NAME build_identity_refresh
+  COMMAND "${CMAKE_COMMAND}"
+    "-DTEST_SOURCE_ROOT=${CMAKE_CURRENT_SOURCE_DIR}"
+    "-DTEST_BINARY_ROOT=${CMAKE_CURRENT_BINARY_DIR}/identity-regression"
+    "-DTEST_GENERATOR=${CMAKE_GENERATOR}"
+    "-DTEST_GENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}"
+    "-DTEST_BUILD_CONFIG=$<CONFIG>"
+    "-P" "${CMAKE_CURRENT_SOURCE_DIR}/tests/build_identity_test.cmake")
 
 add_executable(asciiomium_tests tests/build_info_test.cpp)
 target_link_libraries(asciiomium_tests PRIVATE asciiomium_build_info CEF::libcef)
