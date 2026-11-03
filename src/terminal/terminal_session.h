@@ -41,7 +41,7 @@ enum class TerminalRestoreFailure : std::uint32_t {
   InputMode = 1u << 6,
   OutputMode = 1u << 7,
   ControlHandler = 1u << 8,
-  InputReaderDrain = 1u << 9,
+  InputReaderDrain = 1u << 9,  // Reader join or owned input-handle close failed.
 };
 
 struct TerminalRestoreResult {

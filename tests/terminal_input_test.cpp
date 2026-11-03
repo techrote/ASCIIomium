@@ -21,6 +21,11 @@ using namespace std::chrono_literals;
 int failures = 0;
 thread_local DWORD fake_error = ERROR_SUCCESS;
 
+struct ThreadExitMarker {
+  std::atomic_bool* exited = nullptr;
+  ~ThreadExitMarker() { if (exited) exited->store(true); }
+};
+
 void Require(bool condition, const char* message) {
   if (!condition) { std::cerr << "FAIL: " << message << '\n'; ++failures; }
 }
@@ -38,6 +43,9 @@ void Until(Predicate predicate, const char* message) {
 }
 
 struct Input {
+  static HANDLE OwnedHandle() {
+    return reinterpret_cast<HANDLE>(std::uintptr_t{3});
+  }
   std::mutex mutex;
   std::condition_variable changed;
   std::u16string pending;
@@ -45,7 +53,10 @@ struct Input {
   DWORD read_limit = static_cast<DWORD>(TerminalInputReader::kReadUnits);
   std::atomic_uint read_calls{0};
   std::atomic_uint cancel_calls{0};
+  std::atomic_uint open_calls{0}, close_calls{0};
   std::atomic_bool counts_initialized{true};
+  std::atomic_bool thread_exited{false}, closed{false};
+  std::atomic_bool wrong_handle{false}, close_before_thread_exit{false};
   bool reading = false;
   bool cancelled = false;
   bool release = false;
@@ -57,15 +68,20 @@ struct Input {
   bool oversized_count = false;
   bool cancel_returns_true = false;
   DWORD read_failure = ERROR_SUCCESS;
+  DWORD open_failure = ERROR_SUCCESS;
+  DWORD close_failure = ERROR_SUCCESS;
 
   TerminalConsoleApi api{};
 
   Input() {
     api.context = this;
     api.last_error = [](void*) noexcept { return fake_error; };
-    api.read_utf16 = [](void* context, HANDLE, wchar_t* units, DWORD capacity,
+    api.read_utf16 = [](void* context, HANDLE handle, wchar_t* units, DWORD capacity,
                         DWORD* count) noexcept -> BOOL {
       auto& self = *static_cast<Input*>(context);
+      thread_local ThreadExitMarker exit_marker;
+      exit_marker.exited = &self.thread_exited;
+      if (handle != OwnedHandle()) self.wrong_handle.store(true);
       self.read_calls.fetch_add(1);
       if (*count != 0) self.counts_initialized.store(false);
       std::unique_lock lock(self.mutex);
@@ -116,6 +132,29 @@ struct Input {
       self.cancelled = true;
       return TRUE;
     };
+    api.open_input_reader = [](void* context, HANDLE) noexcept -> HANDLE {
+      auto& self = *static_cast<Input*>(context);
+      self.open_calls.fetch_add(1);
+      if (self.open_failure != ERROR_SUCCESS) {
+        fake_error = self.open_failure;
+        return INVALID_HANDLE_VALUE;
+      }
+      return OwnedHandle();
+    };
+    api.close_input_reader = [](void* context, HANDLE handle) noexcept -> BOOL {
+      auto& self = *static_cast<Input*>(context);
+      self.close_calls.fetch_add(1);
+      if (handle != OwnedHandle()) self.wrong_handle.store(true);
+      if (self.read_calls.load() > 0 && !self.thread_exited.load()) {
+        self.close_before_thread_exit.store(true);
+      }
+      if (self.close_failure != ERROR_SUCCESS) {
+        fake_error = self.close_failure;
+        return FALSE;
+      }
+      self.closed.store(true);
+      return TRUE;
+    };
   }
 
   void Append(std::u16string_view units) {
@@ -138,6 +177,54 @@ struct Input {
     changed.notify_all();
   }
 };
+
+void TestReaderHandleOwnership() {
+  Input failed_open;
+  failed_open.open_failure = ERROR_ACCESS_DENIED;
+  TerminalInputReader unavailable(nullptr, failed_open.api);
+  bool caught = false;
+  try { unavailable.Start(); }
+  catch (const std::system_error& error) {
+    caught = error.code().value() == static_cast<int>(ERROR_ACCESS_DENIED);
+  }
+  Require(caught && unavailable.finished() && unavailable.input_released() &&
+              failed_open.read_calls.load() == 0 && failed_open.close_calls.load() == 0 &&
+              unavailable.StopAndJoin().succeeded(),
+          "failed reader open owns no handle and starts no thread");
+
+  Input input;
+  const HANDLE caller = reinterpret_cast<HANDLE>(std::uintptr_t{1});
+  TerminalInputReader reader(caller, input.api);
+  reader.Start();
+  Until([&] { return input.Reading(); }, "owned reader starts");
+  Require(!reader.input_released(), "active owned input cannot be restored");
+  const auto result = reader.StopAndJoin();
+  Require(result.joined && result.handle_closed && input.closed.load() &&
+              input.thread_exited.load() && !input.close_before_thread_exit.load() &&
+              !input.wrong_handle.load() && reader.input_released(),
+          "only the reader-owned handle closes, after actual worker thread exit");
+  Require(reader.StopAndJoin().succeeded() && input.open_calls.load() == 1 &&
+              input.close_calls.load() == 1,
+          "repeated drain cannot reopen or double-close input ownership");
+
+  Input failed_close;
+  failed_close.close_failure = ERROR_ACCESS_DENIED;
+  TerminalInputReader retained(caller, failed_close.api);
+  retained.Start();
+  Until([&] { return failed_close.Reading(); }, "close-failure reader starts");
+  const auto incomplete = retained.StopAndJoin();
+  Require(incomplete.joined && !incomplete.handle_closed && !incomplete.succeeded() &&
+              incomplete.error == ERROR_ACCESS_DENIED && retained.finished() &&
+              !retained.input_released() && !failed_close.closed.load() &&
+              !failed_close.close_before_thread_exit.load(),
+          "a joined thread cannot disguise failed owned-handle cleanup");
+  // The standalone reader retains ownership after failure. Resolve this fake
+  // API fault explicitly so the test can finish; a session's first incomplete
+  // drain is fatal, independently checked by the native child harness.
+  failed_close.close_failure = ERROR_SUCCESS;
+  Require(retained.StopAndJoin().succeeded() && failed_close.close_calls.load() == 2,
+          "failed close retains the handle until a later successful owner cleanup");
+}
 
 std::string Encode(std::u16string_view units) {
   Utf16InputEncoder encoder;
@@ -211,7 +298,7 @@ void TestNonblockingByteStream() {
   ReadExpected(reader, expected, "mailbox preserves every UTF-8/CSI/SS3/mouse byte");
   Until([&] { return input.read_calls.load() >= 2 && input.Reading(); },
         "reader immediately resumes without an input-event gate");
-  Require(reader.StopAndJoin().joined, "idle blocked read cancels and joins");
+  Require(reader.StopAndJoin().succeeded(), "idle blocked read cancels, joins and closes");
   Require(input.cancel_calls.load() > 0, "blocked read uses cancellation");
   Require(input.counts_initialized.load(), "every native result count starts at zero");
 }
@@ -225,7 +312,7 @@ void TestSurrogateReadBoundaries() {
     reader.Start();
     ReadExpected(reader, "\xc2\xa3\xe2\x82\xac\xf0\x9f\x98\x80\x1b[A",
                  "one/two/three-unit native reads preserve split pairs and VT");
-    Require(reader.StopAndJoin().joined, "short UTF-16 reader joins");
+    Require(reader.StopAndJoin().succeeded(), "short UTF-16 reader joins and closes");
   }
 
   Input boundary;
@@ -236,7 +323,7 @@ void TestSurrogateReadBoundaries() {
   ReadExpected(split, std::string(TerminalInputReader::kReadUnits - 1, 'q') +
                      "\xf0\x9f\x98\x80\x1bOP",
                "surrogate at the end of the maximum native read retains its partner");
-  Require(split.StopAndJoin().joined, "boundary reader joins");
+  Require(split.StopAndJoin().succeeded(), "boundary reader joins and closes");
 
   Input carried;
   carried.Append(std::u16string{0xd800});
@@ -251,7 +338,7 @@ void TestSurrogateReadBoundaries() {
     expected += "\xe0\xa0\x80";
   }
   ReadExpected(maximum, expected, "maximum BMP expansion plus malformed carry stays exact");
-  Require(expected.size() == 3075 && maximum.StopAndJoin().joined,
+  Require(expected.size() == 3075 && maximum.StopAndJoin().succeeded(),
           "maximum native output fits the fixed mailbox");
 
   Input stopped_carry;
@@ -260,7 +347,7 @@ void TestSurrogateReadBoundaries() {
   stopped.Start();
   Until([&] { return stopped_carry.read_calls.load() == 2 && stopped_carry.Reading(); },
         "stop fixture retains a high surrogate while awaiting its partner");
-  Require(stopped.StopAndJoin().joined && stopped.TakeAvailable(10).empty(),
+  Require(stopped.StopAndJoin().succeeded() && stopped.TakeAvailable(10).empty(),
           "stop discards a pending half without emitting replacement input");
 
   Input failed_carry;
@@ -276,7 +363,7 @@ void TestSurrogateReadBoundaries() {
   catch (const std::system_error& error) {
     caught = error.code().value() == static_cast<int>(ERROR_READ_FAULT);
   }
-  Require(caught && failed.StopAndJoin().joined,
+  Require(caught && failed.StopAndJoin().succeeded(),
           "transport failure remains an error instead of invented replacement input");
 }
 
@@ -299,14 +386,14 @@ void TestBoundAndBackpressure() {
     return received.size() >= expected.size();
   }, "backpressured stream drains");
   Require(received == expected, "backpressure does not discard bytes");
-  Require(reader.StopAndJoin().joined, "backpressured reader joins");
+  Require(reader.StopAndJoin().succeeded(), "backpressured reader joins and closes");
 
   Input full;
   full.Append(std::u16string(TerminalInputReader::kReadUnits, u'z'));
   TerminalInputReader waiting(nullptr, full.api);
   waiting.Start();
   Until([&] { return waiting.TakeAvailable(1) == "z"; }, "nonempty mailbox wait");
-  Require(waiting.StopAndJoin().joined && full.read_calls.load() == 1,
+  Require(waiting.StopAndJoin().succeeded() && full.read_calls.load() == 1,
           "stop wakes mailbox backpressure without issuing another read");
 }
 
@@ -316,7 +403,7 @@ void TestCancelEntryRaceAndCompletion() {
   TerminalInputReader reader(nullptr, racing.api);
   reader.Start();
   Until([&] { return racing.read_calls.load() == 1; }, "read paused before kernel entry");
-  Require(reader.StopAndJoin().joined && racing.cancel_calls.load() >= 2,
+  Require(reader.StopAndJoin().succeeded() && racing.cancel_calls.load() >= 2,
           "ERROR_NOT_FOUND before read entry is retried until actual completion");
 
   Input failed_cancel;
@@ -324,7 +411,7 @@ void TestCancelEntryRaceAndCompletion() {
   TerminalInputReader completed(nullptr, failed_cancel.api);
   completed.Start();
   Until([&] { return failed_cancel.Reading(); }, "read before failed cancel");
-  Require(completed.StopAndJoin().joined,
+  Require(completed.StopAndJoin().succeeded(),
           "completion wins over a failed cancellation request");
 
   Input cancelled_true;
@@ -335,7 +422,7 @@ void TestCancelEntryRaceAndCompletion() {
   ReadExpected(successful_cancel, "before-cancel", "input before TRUE cancellation");
   Until([&] { return cancelled_true.read_calls.load() == 2 && cancelled_true.Reading(); },
         "TRUE/untouched-count cancellation fixture is blocked");
-  Require(successful_cancel.StopAndJoin().joined && cancelled_true.counts_initialized.load(),
+  Require(successful_cancel.StopAndJoin().succeeded() && cancelled_true.counts_initialized.load(),
           "stop accepts actual completion even when cancellation returns TRUE without a count");
 
   Input ignored;
@@ -344,12 +431,14 @@ void TestCancelEntryRaceAndCompletion() {
   retained.Start();
   Until([&] { return ignored.Reading(); }, "uncancellable read starts");
   const auto timed_out = retained.StopAndJoin(30ms);
-  Require(!timed_out.joined && timed_out.error == ERROR_TIMEOUT && !retained.finished(),
+  Require(!timed_out.joined && !timed_out.handle_closed &&
+              timed_out.error == ERROR_TIMEOUT && !retained.finished() &&
+              ignored.close_calls.load() == 0,
           "successful cancel request alone cannot claim a completed drain");
   // State and buffer must still exist after the failed drain. Release the fake
   // driver explicitly, then join; the session-level fatal case is a child test.
   ignored.Release();
-  Require(retained.StopAndJoin().joined, "failed drain retains worker until real completion");
+  Require(retained.StopAndJoin().succeeded(), "failed drain retains worker until real completion");
 }
 
 void TestReadErrors() {
@@ -371,12 +460,15 @@ void TestReadErrors() {
     }
     Require(caught && input.read_calls.load() == 1,
             "read failure/EOF/untouched or invalid count stops without a hot retry loop");
-    Require(reader.StopAndJoin().joined, "failed reader still joins");
+    Require(!reader.input_released(),
+            "read completion alone does not release console-host input ownership");
+    Require(reader.StopAndJoin().succeeded(), "failed reader still joins and closes");
   }
 }
 }  // namespace
 
 int main() {
+  TestReaderHandleOwnership();
   TestUtf16ScalarAndRecovery();
   TestNonblockingByteStream();
   TestSurrogateReadBoundaries();

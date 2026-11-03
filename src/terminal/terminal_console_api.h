@@ -25,6 +25,10 @@ struct TerminalConsoleApi {
   // The capacity and returned count are UTF-16 code units, never byte counts.
   BOOL (*read_utf16)(void*, HANDLE, wchar_t*, DWORD, DWORD*) noexcept;
   BOOL (*cancel_synchronous_io)(void*, HANDLE) noexcept;
+  // Open an independent input file object, not a duplicate of the caller's
+  // handle. Closing it after join releases console-host read ownership.
+  HANDLE (*open_input_reader)(void*, HANDLE caller_input) noexcept;
+  BOOL (*close_input_reader)(void*, HANDLE owned_input) noexcept;
 };
 
 const TerminalConsoleApi& Win32TerminalConsoleApi() noexcept;

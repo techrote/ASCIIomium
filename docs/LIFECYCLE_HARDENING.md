@@ -71,7 +71,7 @@ the saved result without replaying VT sequences after output mode restoration.
 | 64 | Input mode restore |
 | 128 | Output mode restore |
 | 256 | Control-handler removal |
-| 512 | Input reader failed to drain; fatal path, no completed result returned |
+| 512 | Input reader join or owned-handle close failed; fatal path, no completed result returned |
 
 Constructor rollback follows the same path. Its result travels in
 `TerminalSessionAcquisitionError` because no session object survives the failed
@@ -312,7 +312,8 @@ recorded separately. Full acceptance still requires:
   integrated runtime.
 
 The related [input lifecycle slice](TERMINAL_INPUT.md) adds a bounded reader
-mailbox, normal cancellation and join, deferred emergency input restoration,
+mailbox, normal cancellation/join and separate reader-owned handle closure,
+deferred emergency input restoration until that handle is released,
 and a fatal drain path that reports incomplete cleanup. It retains the same
 physical and integrated telemetry gates. The scoped callback guards do not
 claim to contain every allocation in every CEF callback or to survive sustained

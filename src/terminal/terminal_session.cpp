@@ -72,7 +72,12 @@ const TerminalConsoleApi& Win32TerminalConsoleApi() noexcept {
       [](void*, HANDLE handle, wchar_t* units, DWORD size, DWORD* read) noexcept {
         return ReadConsoleW(handle, units, size, read, nullptr);
       },
-      [](void*, HANDLE thread) noexcept { return CancelSynchronousIo(thread); }};
+      [](void*, HANDLE thread) noexcept { return CancelSynchronousIo(thread); },
+      [](void*, HANDLE) noexcept {
+        return CreateFileW(L"CONIN$", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                           nullptr, OPEN_EXISTING, 0, nullptr);
+      },
+      [](void*, HANDLE handle) noexcept { return CloseHandle(handle); }};
   return api;
 }
 
@@ -317,8 +322,9 @@ void TerminalSession::RestoreTerminalStateLocked(bool input_drained) noexcept {
     }
   }
 
-  // Never change input code page/mode while ReadConsoleW can still be active.
-  // Emergency callbacks can finish output cleanup and defer these two steps.
+  // Never change input code page/mode until both the native thread and its
+  // owned input handle have been released. Emergency callbacks defer these
+  // steps even if client cancellation returned but host read state remains.
   if (input_drained && !input_cleanup_completed_ && input_code_page_changed_ &&
       !console_api_.set_input_code_page(console_api_.context,
                                         original_input_code_page_)) {
@@ -355,17 +361,17 @@ TerminalRestoreResult TerminalSession::Restore() noexcept {
 
   // Cancel and join without any gate needed by a control callback or terminal
   // writer. Actual completion, not a successful cancel request, permits input
-  // mode/code-page restoration and release of the reader's state/handle.
+  // handle closure before mode/code-page restoration and state release.
   const auto input_drain = input_reader_.StopAndJoin();
   {
     ExclusiveLock state(io_lock_);
-    if (!input_drain.joined) {
+    if (!input_drain.succeeded()) {
       RecordRestoreFailure(TerminalRestoreFailure::InputReaderDrain,
                            input_drain.error);
     }
-    RestoreTerminalStateLocked(input_drain.joined);
+    RestoreTerminalStateLocked(input_drain.succeeded());
   }
-  if (!input_drain.joined) TerminalInputReader::FatalDrainFailure(input_drain.error);
+  if (!input_drain.succeeded()) TerminalInputReader::FatalDrainFailure(input_drain);
 
   // Do not assume handler removal drains callbacks. It must also not wait
   // while holding a gate needed by a callback that Windows already dispatched.
@@ -407,7 +413,7 @@ BOOL WINAPI TerminalSession::ControlHandler(DWORD control_type) {
       ExclusiveLock state(session->io_lock_);
       // Emergency cleanup never unregisters itself or waits for the main/CEF
       // loop. Windows can still terminate us before this best-effort work ends.
-      session->RestoreTerminalStateLocked(session->input_reader_.finished());
+      session->RestoreTerminalStateLocked(session->input_reader_.input_released());
       return FALSE;
     }
     default:

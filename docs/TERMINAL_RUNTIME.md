@@ -25,11 +25,12 @@ Issue #12 adds opt-in VT mouse ownership for the live browser. Interactive mode 
 ## Teardown order
 
 Restoration is idempotent. A write already accepted by `TerminalSession` drains
-its entire payload, including short `WriteFile` iterations, before cleanup can
+its entire payload, including short `WriteFile` iterations, before output cleanup can
 start. Restoration closes the output gate to later payloads. Normal teardown
 then attempts these operations in order:
 
-1. request stop, cancel any raw input read, and join the input reader;
+1. request stop, cancel any raw input read, join the input reader, then close
+   its separately opened `CONIN$` handle while keeping the caller's handle open;
 2. disable SGR/all-motion mouse tracking when ASCIIomium enabled it;
 3. reset SGR while VT processing is still active;
 4. show the cursor when ASCIIomium hid it;
@@ -55,7 +56,10 @@ Mode and code-page ownership is recorded before setter attempts because a
 failed setter can still change state. A reader that cannot be joined is a
 fatal incomplete-cleanup outcome: output cleanup is attempted, input changes
 are deferred, and the process exits with code 12 without freeing active reader
-state. See [input lifetime and cancellation](TERMINAL_INPUT.md) and
+state. Failure to close the joined reader's owned input handle is separately
+reported and also exits 12 with input restoration deferred; it does not claim
+an active reader. Open/thread-start failures run the same checked rollback.
+See [input lifetime and cancellation](TERMINAL_INPUT.md) and
 [the issue #16 scope and result contract](LIFECYCLE_HARDENING.md).
 
 ## Console-control handling
@@ -69,10 +73,11 @@ process shortly after invoking the handler. ASCIIomium therefore attempts
 synchronous terminal-state cleanup from the handler before returning. The
 handler pins the session's lifetime while using it and shares the output gate
 with normal cleanup. It requests input stop but never cancels or joins the
-reader. If its read has not finished, the callback limits cleanup to output
-state and defers input mode/code-page restoration to normal teardown. It never
+reader or closes its handle. Until the owned handle is released, the callback
+limits cleanup to output state and defers input mode/code-page restoration to
+normal teardown, even if the read has finished. It never
 unregisters itself or waits for the CEF/main loop. Normal teardown joins the
-reader outside callback/output gates, removes the handler outside these gates,
+reader and closes its handle outside callback/output gates, removes the handler outside these gates,
 then waits for any dispatched callback to finish using the object.
 
 This is a best-effort fallback. Microsoft documents a system-controlled close
@@ -172,8 +177,8 @@ boundaries with exact UTF-8 byte delivery, pre-acquisition typeahead,
 idle/full-mailbox shutdown, conservative mode rollback, and deferred emergency
 input restoration. A successful-acquisition startup exception must unwind the
 native reader/console before its outer catch, followed by reacquisition and
-retained Unicode input on the same console. A separate child
-checks the fatal drain path. The parent bounds child lifetime and retains
+retained Unicode input on the same console. Separate children
+check fatal drain and owned-handle close failures. The parent bounds child lifetime and retains
 failure diagnostics. See [test scope and commands](TERMINAL_INPUT.md).
 
 These tests cover program behavior and Win32 state. Ten sessions within one
@@ -210,7 +215,7 @@ hosted native transcript in `TERMINAL_INPUT.md` demonstrated. Explicit Unicode
 reads and bounded application conversion avoid that path without mixing in
 low-level event reads or flushing typeahead.
 [Microsoft documents the high-level read behavior](https://learn.microsoft.com/en-us/windows/console/high-level-console-input-and-output-functions).
-Cancellation and reader completion precede normal input mode/code-page
+Cancellation, reader join and owned-handle closure precede normal input mode/code-page
 restoration; [the focused input design](TERMINAL_INPUT.md) describes the entry
 race, fatal failure contract and qualification limits.
 

@@ -11,6 +11,7 @@
 #include <mutex>
 #include <new>
 #include <string>
+#include <system_error>
 #include <thread>
 
 #include "terminal/terminal_session.h"
@@ -108,6 +109,7 @@ struct FakeConsole {
   static constexpr UINT kOutputPage = 1252;
   static HANDLE Input() { return reinterpret_cast<HANDLE>(std::uintptr_t{1}); }
   static HANDLE Output() { return reinterpret_cast<HANDLE>(std::uintptr_t{2}); }
+  static HANDLE ReaderInput() { return reinterpret_cast<HANDLE>(std::uintptr_t{3}); }
 
   DWORD input_mode = kInputMode;
   DWORD output_mode = kOutputMode;
@@ -120,6 +122,11 @@ struct FakeConsole {
   std::size_t output_size = 0;
   std::array<bool, 256> fail{};
   bool mutate_before_failure = false;
+  bool fail_reader_open = false;
+  bool reject_thread_start = false;
+  bool reader_open = false;
+  bool input_restored_before_reader_close = false;
+  unsigned reader_opens = 0, reader_closes = 0;
   std::size_t zero_write = 256;
   DWORD write_limit = 0x7fffffffu;
   std::size_t pause_call = 256;
@@ -150,6 +157,9 @@ struct FakeConsole {
       },
       [](void* context, HANDLE handle, DWORD value) noexcept -> BOOL {
         auto& self = *static_cast<FakeConsole*>(context);
+        if (handle == Input() && value == kInputMode && self.reader_open) {
+          self.input_restored_before_reader_close = true;
+        }
         const auto index = self.Record(handle == Input()
             ? Operation::SetInputMode : Operation::SetOutputMode);
         if (self.mutate_before_failure) {
@@ -161,6 +171,9 @@ struct FakeConsole {
       },
       [](void* context, UINT value) noexcept -> BOOL {
         auto& self = *static_cast<FakeConsole*>(context);
+        if (value == kInputPage && self.reader_open) {
+          self.input_restored_before_reader_close = true;
+        }
         const auto index = self.Record(Operation::SetInputPage);
         if (self.Fail(index)) return FALSE;
         self.input_page = value;
@@ -212,7 +225,31 @@ struct FakeConsole {
         *read = 0;  // Transport errors are exercised by terminal_input_tests.
         return TRUE;
       },
-      [](void*, HANDLE) noexcept -> BOOL { return TRUE; }} {}
+      [](void*, HANDLE) noexcept -> BOOL { return TRUE; },
+      [](void* context, HANDLE caller) noexcept -> HANDLE {
+        auto& self = *static_cast<FakeConsole*>(context);
+        ++self.reader_opens;
+        if (caller != Input() || self.fail_reader_open) {
+          self.error.store(ERROR_ACCESS_DENIED);
+          return INVALID_HANDLE_VALUE;
+        }
+        self.reader_open = true;
+        // The next allocation belongs to std::thread's start state. The close
+        // hook re-enables allocation before the acquisition error is wrapped.
+        if (self.reject_thread_start) reject_allocations = true;
+        return ReaderInput();
+      },
+      [](void* context, HANDLE handle) noexcept -> BOOL {
+        auto& self = *static_cast<FakeConsole*>(context);
+        ++self.reader_closes;
+        if (handle != ReaderInput()) {
+          self.error.store(ERROR_INVALID_DATA);
+          return FALSE;
+        }
+        self.reader_open = false;
+        if (self.reject_thread_start) reject_allocations = false;
+        return TRUE;
+      }} {}
 
   std::size_t Record(Operation operation) noexcept {
     std::lock_guard lock(log_mutex);
@@ -416,7 +453,8 @@ void TestSuccessfulAcquisitionUnwind() {
     throw StartupFailure{};
   } catch (const StartupFailure&) {
     caught = true;
-    Require(console.Baseline() && console.handler == nullptr,
+    Require(console.Baseline() && console.handler == nullptr &&
+                console.reader_closes == 1 && !console.input_restored_before_reader_close,
             "outer startup-error handler observes restored modes/pages and no handler");
     Require(console.Bytes() == CleanupBytes(),
             "successful session unwinds visual/mouse state before the startup error is handled");
@@ -427,6 +465,56 @@ void TestSuccessfulAcquisitionUnwind() {
   TerminalSession next(FullOptions(), console.Input(), console.Output(), console.api);
   Require(next.Restore().succeeded() && console.Baseline(),
           "a new terminal session can acquire after successful-session unwinding");
+}
+
+void TestReaderStartupRollback() {
+  for (bool fail_thread_start : {false, true}) {
+    FakeConsole console;
+    console.fail_reader_open = !fail_thread_start;
+    console.reject_thread_start = fail_thread_start;
+    bool caught = false;
+    try {
+      TerminalSession session(FullOptions(), console.Input(), console.Output(), console.api);
+      reject_allocations = false;
+    } catch (const TerminalSessionAcquisitionError& error) {
+      reject_allocations = false;
+      caught = true;
+      Require(error.restoration().succeeded(),
+              "reader open/thread-start failure preserves successful constructor rollback");
+    } catch (...) {
+      reject_allocations = false;
+      throw;
+    }
+    Require(caught && console.Baseline() && console.handler == nullptr &&
+                !console.reader_open && !console.input_restored_before_reader_close,
+            "failed reader start closes owned input before restoring the terminal");
+    Require(console.reader_opens == 1 &&
+                console.reader_closes == (fail_thread_start ? 1u : 0u),
+            "thread-start rollback closes exactly its opened handle; failed open closes none");
+  }
+}
+
+void TestEmergencyWaitsForOwnedHandleRelease() {
+  FakeConsole console;
+  TerminalSession session(FullOptions(), console.Input(), console.Output(), console.api);
+  AwaitCondition([&] {
+    try { (void)session.ReadInputAvailable(1); }
+    catch (const std::system_error& error) {
+      return error.code().value() == static_cast<int>(ERROR_HANDLE_EOF);
+    }
+    return false;
+  }, "fake read has returned and its terminal error is published");
+  const auto callback = console.handler;
+  Require(callback && callback(CTRL_CLOSE_EVENT) == FALSE,
+          "emergency callback can finish output cleanup after read completion");
+  Require(console.reader_open && console.reader_closes == 0 &&
+              console.input_mode != console.kInputMode &&
+              console.input_page != console.kInputPage &&
+              !console.input_restored_before_reader_close,
+          "read completion alone cannot authorize emergency input restoration");
+  Require(session.Restore().succeeded() && console.Baseline() &&
+              console.reader_closes == 1 && !console.input_restored_before_reader_close,
+          "normal restoration joins and closes before completing deferred input cleanup");
 }
 
 void TestWriteVersusRestore() {
@@ -534,6 +622,8 @@ int main() {
   TestRestoreFailuresAndNoAllocation();
   TestWriteFailureRollback();
   TestSuccessfulAcquisitionUnwind();
+  TestReaderStartupRollback();
+  TestEmergencyWaitsForOwnedHandleRelease();
   TestWriteVersusRestore();
   TestConcurrentRestore();
   TestCallbackPinsLifetime();

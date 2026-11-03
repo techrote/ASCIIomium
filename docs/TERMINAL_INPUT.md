@@ -58,9 +58,14 @@ incremental parser remains unchanged.
 
 The mailbox and synchronization state belong to a shared worker state, not to
 a raw `TerminalSession` pointer. UTF-16 staging and encoder state live on the
-worker's stack. The session owns the worker thread and borrows its input handle;
-injected operation contexts and the handle must outlive the joined worker.
-Shared-state allocation happens before any terminal mutation. A read error,
+worker's stack. The session borrows the caller's console handle for mode
+ownership and leaves it open. The reader opens its own non-inheritable `CONIN$`
+handle with `GENERIC_READ` and read/write sharing before starting the thread;
+only that handle is used for `ReadConsoleW`. Injected operation contexts must
+outlive the joined worker and handle cleanup. Shared-state allocation happens
+before any terminal mutation. Open failure starts no thread and owns no handle.
+If thread creation throws after the open, constructor rollback still closes
+the owned handle and checks that result before restoring input state. A read error,
 zero-unit completion or out-of-range returned count stops the producer and is
 reported to the caller; it does not create a busy retry loop. During active operation the
 transport preserves the byte order. Once teardown requests stop, unread
@@ -89,18 +94,31 @@ Each native count starts at zero. A reported console cancellation behavior is
 `ReadConsoleW` returning `TRUE` without updating that count
 ([Microsoft Terminal issue 17791](https://github.com/microsoft/terminal/issues/17791)).
 After the call the worker checks requested stop before processing or publishing
-the result. Actual read/thread completion still determines a successful drain;
+the result. Actual read/thread completion determines whether it can be joined;
 it does not require one particular BOOL/error combination. The real-console
 suite also checks cancellation followed by retained typeahead and a new session
 on the same console, since cancellation's effect on subsequent reads needs
 native qualification.
 
-After the join, normal restoration performs visual cleanup, restores original
-code pages and modes, removes the handler and drains callback use. A close,
-logoff or shutdown callback only requests reader stop. It performs available
+After the join, normal restoration closes the reader's independent input
+handle, then performs visual cleanup, restores original code pages and modes,
+removes the handler and drains callback use. Joining and owned-handle closure
+are separate conditions in `InputDrainResult`; both must succeed. The close
+runs without callback, output or reader-state gates. It never closes the
+caller's handle, duplicates it, flushes input, or injects a wake-up key.
+Microsoft documents `CreateFile(CONIN$)` and `CloseHandle` as console operations
+in [Console Handles](https://learn.microsoft.com/en-us/windows/console/console-handles).
+[DuplicateHandle](https://learn.microsoft.com/en-us/windows/win32/api/handleapi/nf-handleapi-duplicatehandle)
+would refer to the same underlying object and is not the
+independent open required here.
+
+A close, logoff or shutdown callback only requests reader stop. It performs available
 output cleanup without cancelling or joining. Input mode and input code-page
-restoration are deferred while a read can still be active; if the reader has
-already completed its final read, the callback can safely attempt them.
+restoration are deferred until the reader-owned handle is released, even if
+the final read has already returned. A returned client read does not prove the
+console host has disposed of its waiter. When no reader handle was opened, or
+normal teardown has already joined and closed it, the callback may attempt
+input restoration.
 Normal teardown later finishes any deferred steps. The callback never marks
 the entire session restoration completed by itself.
 
@@ -113,11 +131,52 @@ is claimed on this fatal path. The diagnostic conservatively says that input
 restoration is not confirmed, because a concurrent emergency callback may
 have completed some steps.
 
+Owned-handle close failure is also fatal exit **12**, with the same failure bit
+and deferred input restoration. Its diagnostic explicitly says that no live
+worker remains but the owned handle could not be closed; it does not claim an
+active-thread failure. This wording also covers an open followed by failed
+thread creation. Handle ownership remains retained until process exit. A
+normal session never returns a successful restoration result from this path.
+
 The deadline bounds application retries and waits; it cannot forcibly bound
-an OS API that itself fails to return, a blocked output call or scheduling
+an OS API that itself fails to return (including handle open/close), a blocked
+output call or scheduling
 delays. Emergency Windows control signals still have the operating system's
 own timeout and best-effort limitations. This is not a hard real-time shutdown
 guarantee.
+
+### Why the reader owns a separate input handle
+
+The `1290b627a52905683d21be9d12fa0c812ab53727` hosted run
+([41602982890](https://github.com/techrote/ASCIIomium/actions/runs/41602982890))
+passed the original mixed Unicode/VT stream, retained typeahead, and every
+one/two/three-unit native read case. The startup exception then passed its
+outer-catch mode/code-page, read-completion and handler-removal checks. However,
+the subsequent session received no bytes from 12 successfully queued UTF-16
+units: after five seconds its first native read was still active with zero
+completions. This is a same-console reuse failure, distinct from the earlier
+narrow-read conversion corruption. The cancelled startup read had delivered
+no input before cancellation.
+
+A console-side waiter surviving client cancellation is the working inference,
+not an observed internal runner state. The later raw-mode report in
+[Microsoft Terminal issue 12143](https://github.com/microsoft/terminal/issues/12143#issuecomment-2085721450)
+describes subsequent input loss after cancellation. At Microsoft Terminal pin
+`596586d91166089f3c3d06f2f5f250c5bb918d00`,
+[input-object creation](https://github.com/microsoft/terminal/blob/596586d91166089f3c3d06f2f5f250c5bb918d00/src/server/IoDispatchers.cpp)
+and [ConsoleHandleData](https://github.com/microsoft/terminal/blob/596586d91166089f3c3d06f2f5f250c5bb918d00/src/server/ObjectHandle.cpp)
+give a fresh open its own read context. `_CloseInputHandle` completes pending
+state and notifies `HandleClosing`; the
+[raw read notification](https://github.com/microsoft/terminal/blob/596586d91166089f3c3d06f2f5f250c5bb918d00/src/host/readDataRaw.cpp)
+handles that reason without consuming a new character. The input buffer is
+reinitialized only when no handles remain, so the caller's handle stays open.
+
+This remains a **sole-consumer** protocol. The inspected historical close path
+can notify input-buffer waiters broadly; it is not a promise to coexist with
+unrelated simultaneous console readers. The original strict reuse fixture
+qualifies the candidate on the actual runner. The documented source supports
+the ownership design but does not identify that runner's exact host binary or
+prove that the inferred internal waiter caused its failure.
 
 ## Setter failure after mutation
 
@@ -134,7 +193,7 @@ operation into a successful result.
 
 ## Focused qualification
 
-`terminal_input_tests` uses the production reader with injected read/cancel
+`terminal_input_tests` uses the production reader with injected read/cancel/open/close
 operations and explicit synchronization barriers. It checks:
 
 - main-loop polls complete while the input operation is blocked;
@@ -151,6 +210,13 @@ operations and explicit synchronization barriers. It checks:
 - successful cancellation alone is not accepted as completion;
 - failed cancellation followed by actual completion can still join;
 - a timed-out worker retains usable state until a later explicit release;
+- the reader uses and closes its own handle exactly once, leaving the caller's
+  handle untouched; a thread-local exit marker verifies close follows actual
+  worker-thread exit;
+- open failure starts no thread, and a completed read still defers input
+  restoration until owned-handle cleanup;
+- close failure reports `joined=true`, `handle_closed=false`, retaining handle
+  ownership and preventing a successful drain;
 - TRUE cancellation with an untouched count still drains after requested stop;
 - read failure, EOF and invalid counts stop further reads without hiding an
   incomplete surrogate or creating a hot retry loop.
@@ -175,6 +241,10 @@ pages, completed read cancellation and handler removal **before** the fixture's
 fallback cleanup can run. It reacquires on the same console and reads retained
 Unicode typeahead. The injected lifecycle counterpart verifies the full
 mouse/SGR/cursor/alternate-screen cleanup sequence before its outer catch.
+Additional injected lifecycle cases fail the handle open and the thread-start
+allocation after the open, then require exact rollback and close ordering.
+A direct emergency callback after a completed fake read must still defer
+input restoration until normal teardown closes the owned handle.
 These exercise successful-constructor stack unwinding, separately from the
 existing failed-constructor rollback tests; no CEF or physical screen behavior
 is claimed by these component fixtures.
@@ -187,11 +257,17 @@ distinct code without stack unwinding, so a later destructor cannot make the
 death test pass. This checks the fatal contract; it does not claim that a real
 console `ReadConsoleW` was observed refusing cancellation.
 
-The parent gives the normal child 30 seconds and the fatal child 10 seconds,
+A further native child injects owned-handle close failure after a genuine
+read/thread drain. It requires the distinct no-live-worker diagnostic, exit 12,
+and no input mode/code-page restoration. Its close hook also verifies that the
+target is not the caller's handle and no read remains active. An unexpected
+normal return again exits with a distinct code without unwinding.
+
+The parent gives the normal child 30 seconds and each fatal child 10 seconds,
 then attempts termination and checks its wait outcome. Failures retain the
 temporary child log and print bounded output plus exit/wait/termination codes.
-CTest has an outer 60-second deadline. Both build configurations include the
-new targets:
+CTest has an outer 60-second deadline. Both build configurations include these
+targets:
 
 ```powershell
 cmake --build build --config Debug --target terminal_input_tests terminal_input_console terminal_lifecycle_tests terminal_console_smoke
@@ -241,6 +317,19 @@ fixed test-only trace retains the first 16 completions, each with at most 32
 raw UTF-16 units; byte displays remain capped at 96. Native qualification stays
 open until exact-revision Windows assertions pass. No input-event reads,
 flushes, fallback transport, skipped fixture or extended deadline are added.
+
+The owned-handle follow-up also retains the preceding session's native
+BOOL/count/error and the first 16 cancellation results. Read-only checkpoints
+record handle open/close outcomes and unread input-event counts before startup
+failure, after its unwind, immediately after queuing typeahead, after
+reacquisition, and on byte-stream failure. The event count comes from
+[GetNumberOfConsoleInputEvents](https://learn.microsoft.com/en-us/windows/console/getnumberofconsoleinputevents);
+it is a diagnostic snapshot, not a readiness gate or a count of Unicode units.
+No input records are read or removed by these checkpoints. Trace arrays share
+one mutex and are copied before native queries or printing. Child output keeps
+an 8 KiB data budget; when longer, it preserves the first and last 4 KiB with an
+omission marker so the final failure evidence is not lost behind successful
+checkpoints. Failure logs remain available in full at their reported path.
 
 Linux runs using a mutex-backed Win32 type shim exercise the injected tests and
 portable concurrency logic only. They do not qualify real console behavior,

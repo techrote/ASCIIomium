@@ -207,11 +207,18 @@ this transport. Pre-acquisition typeahead, exact VT/control bytes and split
 surrogate pairs remain covered by strict native assertions.
 
 Normal restoration requests stop, repeatedly cancels a pending read across its
-entry race, and proves native thread completion before joining and restoring
-input code page/mode. Callback and output locks are not held during that drain.
-Emergency callbacks request stop and defer input restoration while the read
-is active. Failure to drain within the application deadline is fatal exit 12
-with incomplete-cleanup evidence and active worker state retained until process
-exit. A cancellation request alone never counts as completion. Console setter
+entry race, proves native thread completion, joins, and closes the reader's
+separately opened `CONIN$` handle before restoring input code page/mode. The
+caller's handle remains open. A duplicate would share the same file object;
+the independent open gives reader lifetime its own host-side read context.
+The hosted `1290b62` reuse failure motivates this ownership boundary; the
+specific surviving-waiter cause remains an inference, and the ownership repair
+requires native qualification.
+Callback and output locks are not held during join/close. Emergency callbacks
+defer input restoration until the owned handle is released, even after the
+read returns. Join failure and owned-handle close failure are distinct outcomes;
+either causes fatal exit 12 with incomplete-cleanup evidence. The close-failure
+diagnostic does not claim a live worker. A cancellation request alone never
+counts as completion. Console setter
 ownership is recorded before an attempted change so failure after mutation
 still triggers rollback. See [the focused design and tests](TERMINAL_INPUT.md).
