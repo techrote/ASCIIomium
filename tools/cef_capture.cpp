@@ -2,6 +2,7 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include "app/resource_paths.h"
 
 #include <charconv>
 #include <chrono>
@@ -182,8 +183,7 @@ std::string ResolveUrl(const Options& options) {
   if (file.empty()) {
     throw std::runtime_error("unknown bundled fixture: " + options.fixture);
   }
-  std::filesystem::path path =
-      std::filesystem::path(ASCIIOMIUM_SOURCE_DIR) / "fixtures" / "web" / file;
+  const auto path = asciiomium::BundledFixture(file);
   std::string url = FileUrl(path);
   if (options.freeze) {
     url += "?freeze=1";
