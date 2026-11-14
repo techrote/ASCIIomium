@@ -26,3 +26,6 @@ CMakeSettings.json
 .idea/
 .DS_Store
 Thumbs.db
+
+# Python qualification runner caches
+__pycache__/

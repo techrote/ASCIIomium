@@ -32,6 +32,7 @@ foreach(config DEBUG RELEASE)
   set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY_${config} "${CMAKE_BINARY_DIR}/lib/${config}")
 endforeach()
 
+include(cmake/BuildIdentity.cmake)
 include(cmake/AcquireCEF.cmake)
 asciiomium_acquire_cef(CEF_ROOT)
 
@@ -60,9 +61,11 @@ set_target_properties(CEF::libcef PROPERTIES
   IMPORTED_IMPLIB_RELEASE "${CEF_ROOT}/Release/libcef.lib"
   INTERFACE_INCLUDE_DIRECTORIES "${CEF_ROOT}")
 
+# Build identity is refreshed before every dependent compilation.
 add_library(asciiomium_build_info STATIC
   src/app/build_info.cpp
   src/app/build_info.h)
+asciiomium_add_build_identity(asciiomium_build_info)
 target_include_directories(asciiomium_build_info PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_link_libraries(asciiomium_build_info PRIVATE CEF::libcef)
 target_compile_features(asciiomium_build_info PUBLIC cxx_std_20)
@@ -72,8 +75,13 @@ target_compile_definitions(asciiomium_build_info PRIVATE
   NOMINMAX
   ASCIIOMIUM_VERSION="${PROJECT_VERSION}"
   ASCIIOMIUM_BUILD_TYPE="$<CONFIG>"
-  ASCIIOMIUM_ARCH="x64")
+  ASCIIOMIUM_ARCH="x64"
+  ASCIIOMIUM_COMPILER="${CMAKE_CXX_COMPILER_ID}-${CMAKE_CXX_COMPILER_VERSION}")
 set_target_properties(asciiomium_build_info PROPERTIES FOLDER "ASCIIomium")
+
+add_library(asciiomium_resources STATIC src/app/resource_paths.cpp src/app/resource_paths.h)
+target_include_directories(asciiomium_resources PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_compile_definitions(asciiomium_resources PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
 
 # Browser/terminal geometry is a neutral subsystem shared by rendering and
 # later input. Keep it free of CEF and Win32 so coordinate semantics are
@@ -86,16 +94,21 @@ target_compile_features(asciiomium_geometry PUBLIC cxx_std_20)
 set_target_properties(asciiomium_geometry PROPERTIES FOLDER "ASCIIomium")
 
 add_library(asciiomium_terminal STATIC
+  src/terminal/differential_frame_emitter.cpp
+  src/terminal/differential_frame_emitter.h
   src/terminal/full_frame_emitter.cpp
   src/terminal/full_frame_emitter.h
   src/terminal/terminal_diagnostics.cpp
   src/terminal/terminal_diagnostics.h
   src/terminal/terminal_geometry.cpp
   src/terminal/terminal_geometry.h
+  src/terminal/terminal_input_reader.cpp
+  src/terminal/terminal_input_reader.h
   src/terminal/terminal_sequences.cpp
   src/terminal/terminal_sequences.h
   src/terminal/terminal_session.cpp
-  src/terminal/terminal_session.h)
+  src/terminal/terminal_session.h
+  src/terminal/terminal_console_api.h)
 target_include_directories(asciiomium_terminal PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_compile_features(asciiomium_terminal PUBLIC cxx_std_20)
 target_compile_definitions(asciiomium_terminal PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
@@ -142,10 +155,15 @@ add_library(asciiomium_runtime STATIC
   src/runtime/frame_scheduler.cpp
   src/runtime/frame_scheduler.h
   src/runtime/timing_series.cpp
-  src/runtime/timing_series.h)
+  src/runtime/timing_series.h
+  src/runtime/process_metrics.cpp
+  src/runtime/process_metrics.h
+  src/runtime/telemetry.cpp
+  src/runtime/telemetry.h)
 target_include_directories(asciiomium_runtime PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_compile_features(asciiomium_runtime PUBLIC cxx_std_20)
 set_target_properties(asciiomium_runtime PROPERTIES FOLDER "ASCIIomium")
+target_link_libraries(asciiomium_runtime PRIVATE psapi)
 
 # Newest-frame storage and popup composition are kept free of CEF headers so
 # ownership/composition semantics can be unit-tested independently.
@@ -161,6 +179,18 @@ set_target_properties(asciiomium_source_frame PROPERTIES
   MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
 add_library(asciiomium_browser STATIC
+  src/browser/bounded_text.cpp
+  src/browser/bounded_text.h
+  src/browser/browser_commands.cpp
+  src/browser/browser_commands.h
+  src/browser/callback_state.h
+  src/browser/profile_session.cpp
+  src/browser/profile_session.h
+  src/browser/private_process.cpp
+  src/browser/private_process.h
+  src/browser/runtime_app.h
+  src/browser/cef_profile.h
+  src/browser/cef_runtime_session.h
   src/browser/cef_key_translator.cpp
   src/browser/cef_key_translator.h
   src/browser/cef_pointer_translator.cpp
@@ -178,6 +208,7 @@ target_link_libraries(asciiomium_browser PUBLIC
   asciiomium_source_frame
   libcef_dll_wrapper
   libcef_lib
+  Shell32
   ${CEF_STANDARD_LIBS})
 target_compile_features(asciiomium_browser PUBLIC cxx_std_20)
 target_compile_definitions(asciiomium_browser PRIVATE
@@ -200,6 +231,8 @@ set_target_properties(asciiomium PROPERTIES FOLDER "ASCIIomium")
 
 add_executable(asciiomium_live src/app/live_main.cpp)
 target_link_libraries(asciiomium_live PRIVATE
+  asciiomium_build_info
+  asciiomium_resources
   asciiomium_browser
   asciiomium_render
   asciiomium_runtime
@@ -209,8 +242,7 @@ target_compile_definitions(asciiomium_live PRIVATE
   __STDC_CONSTANT_MACROS
   __STDC_FORMAT_MACROS
   NOMINMAX
-  WIN32_LEAN_AND_MEAN
-  ASCIIOMIUM_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+  WIN32_LEAN_AND_MEAN)
 set_target_properties(asciiomium_live PROPERTIES
   FOLDER "ASCIIomium"
   MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
@@ -245,17 +277,21 @@ target_compile_definitions(asciiomium_benchmark PRIVATE NOMINMAX WIN32_LEAN_AND_
 set_target_properties(asciiomium_benchmark PROPERTIES FOLDER "Tools")
 
 add_executable(asciiomium_cef_capture tools/cef_capture.cpp)
-target_link_libraries(asciiomium_cef_capture PRIVATE asciiomium_browser)
+target_link_libraries(asciiomium_cef_capture PRIVATE asciiomium_browser asciiomium_resources)
 target_compile_features(asciiomium_cef_capture PRIVATE cxx_std_20)
 target_compile_definitions(asciiomium_cef_capture PRIVATE
   __STDC_CONSTANT_MACROS
   __STDC_FORMAT_MACROS
   NOMINMAX
-  WIN32_LEAN_AND_MEAN
-  ASCIIOMIUM_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+  WIN32_LEAN_AND_MEAN)
 set_target_properties(asciiomium_cef_capture PROPERTIES
   FOLDER "Tools"
   MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+
+add_executable(asciiomium_runtime_probe tools/browser_runtime_probe.cpp)
+target_link_libraries(asciiomium_runtime_probe PRIVATE asciiomium_browser asciiomium_build_info)
+target_compile_definitions(asciiomium_runtime_probe PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN
+  ASCIIOMIUM_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 
 # Even a version-only executable can cause the Windows loader to resolve CEF's
 # sibling DLL dependencies before main(), so stage the complete DLL manifest
@@ -300,13 +336,33 @@ function(asciiomium_stage_cef_browser_runtime target)
             "${CEF_ROOT}/Resources/locales"
             "$<TARGET_FILE_DIR:${target}>/locales"
     COMMENT "Staging CEF locales for ${target}")
+  add_custom_command(TARGET ${target} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_SOURCE_DIR}/fixtures/web"
+            "$<TARGET_FILE_DIR:${target}>/fixtures/web"
+    COMMENT "Staging executable-relative web fixtures for ${target}")
 endfunction()
 
 asciiomium_stage_cef_runtime(asciiomium)
 asciiomium_stage_cef_browser_runtime(asciiomium_live)
 asciiomium_stage_cef_browser_runtime(asciiomium_cef_capture)
+asciiomium_stage_cef_browser_runtime(asciiomium_runtime_probe)
 
 enable_testing()
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+add_test(NAME runtime_process_evidence
+  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/runtime_process_test.py")
+set_tests_properties(runtime_process_evidence PROPERTIES TIMEOUT 60)
+add_test(NAME package_inventory
+  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/package_inventory_test.py")
+add_test(NAME build_identity_refresh
+  COMMAND "${CMAKE_COMMAND}"
+    "-DTEST_SOURCE_ROOT=${CMAKE_CURRENT_SOURCE_DIR}"
+    "-DTEST_BINARY_ROOT=${CMAKE_CURRENT_BINARY_DIR}/identity-regression"
+    "-DTEST_GENERATOR=${CMAKE_GENERATOR}"
+    "-DTEST_GENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}"
+    "-DTEST_BUILD_CONFIG=$<CONFIG>"
+    "-P" "${CMAKE_CURRENT_SOURCE_DIR}/tests/build_identity_test.cmake")
+set_tests_properties(build_identity_refresh PROPERTIES TIMEOUT 120)
 
 add_executable(asciiomium_tests tests/build_info_test.cpp)
 target_link_libraries(asciiomium_tests PRIVATE asciiomium_build_info CEF::libcef)
@@ -326,6 +382,25 @@ target_link_libraries(terminal_console_smoke PRIVATE asciiomium_terminal)
 target_compile_features(terminal_console_smoke PRIVATE cxx_std_20)
 set_target_properties(terminal_console_smoke PROPERTIES FOLDER "Tests")
 add_test(NAME terminal_console_smoke COMMAND "$<TARGET_FILE:terminal_console_smoke>")
+
+add_executable(terminal_lifecycle_tests tests/terminal_lifecycle_test.cpp)
+target_link_libraries(terminal_lifecycle_tests PRIVATE asciiomium_terminal)
+target_compile_features(terminal_lifecycle_tests PRIVATE cxx_std_20)
+set_target_properties(terminal_lifecycle_tests PROPERTIES FOLDER "Tests")
+add_test(NAME terminal_lifecycle COMMAND "$<TARGET_FILE:terminal_lifecycle_tests>")
+set_tests_properties(terminal_lifecycle PROPERTIES TIMEOUT 30)
+
+add_executable(terminal_input_tests tests/terminal_input_test.cpp)
+target_link_libraries(terminal_input_tests PRIVATE asciiomium_terminal)
+set_target_properties(terminal_input_tests PROPERTIES FOLDER "Tests")
+add_test(NAME terminal_input COMMAND "$<TARGET_FILE:terminal_input_tests>")
+set_tests_properties(terminal_input PROPERTIES TIMEOUT 20)
+
+add_executable(terminal_input_console tests/terminal_input_console_test.cpp)
+target_link_libraries(terminal_input_console PRIVATE asciiomium_terminal)
+set_target_properties(terminal_input_console PROPERTIES FOLDER "Tests")
+add_test(NAME terminal_input_console COMMAND "$<TARGET_FILE:terminal_input_console>")
+set_tests_properties(terminal_input_console PROPERTIES TIMEOUT 60)
 
 add_executable(full_frame_emitter_tests tests/full_frame_emitter_test.cpp)
 target_link_libraries(full_frame_emitter_tests PRIVATE asciiomium_terminal)
@@ -365,6 +440,18 @@ target_compile_features(input_parser_tests PRIVATE cxx_std_20)
 set_target_properties(input_parser_tests PROPERTIES FOLDER "Tests")
 add_test(NAME input_parser COMMAND "$<TARGET_FILE:input_parser_tests>")
 
+add_executable(browser_commands_tests tests/browser_commands_test.cpp)
+target_link_libraries(browser_commands_tests PRIVATE asciiomium_browser)
+add_test(NAME browser_commands COMMAND "$<TARGET_FILE:browser_commands_tests>")
+
+add_executable(profile_session_tests tests/profile_session_test.cpp)
+target_link_libraries(profile_session_tests PRIVATE asciiomium_browser)
+add_test(NAME profile_session COMMAND "$<TARGET_FILE:profile_session_tests>")
+
+add_executable(private_process_tests tests/private_process_test.cpp)
+target_link_libraries(private_process_tests PRIVATE asciiomium_browser)
+add_test(NAME private_process COMMAND "$<TARGET_FILE:private_process_tests>")
+
 add_executable(cef_key_translator_tests tests/cef_key_translator_test.cpp)
 target_link_libraries(cef_key_translator_tests PRIVATE asciiomium_browser)
 target_compile_features(cef_key_translator_tests PRIVATE cxx_std_20)
@@ -399,6 +486,25 @@ set_target_properties(source_frame_tests PROPERTIES
   FOLDER "Tests"
   MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 add_test(NAME source_frame COMMAND "$<TARGET_FILE:source_frame_tests>")
+set_tests_properties(source_frame PROPERTIES TIMEOUT 30)
+
+add_executable(callback_boundary_tests tests/callback_boundary_test.cpp)
+target_link_libraries(callback_boundary_tests PRIVATE asciiomium_browser)
+set_target_properties(callback_boundary_tests PROPERTIES
+  FOLDER "Tests"
+  MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+add_test(NAME callback_boundary COMMAND "$<TARGET_FILE:callback_boundary_tests>")
+set_tests_properties(callback_boundary PROPERTIES TIMEOUT 30)
+
+add_executable(osr_callback_tests tests/osr_callback_test.cpp)
+target_link_libraries(osr_callback_tests PRIVATE asciiomium_browser)
+target_compile_definitions(osr_callback_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+set_target_properties(osr_callback_tests PROPERTIES
+  FOLDER "Tests"
+  MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+asciiomium_stage_cef_runtime(osr_callback_tests)
+add_test(NAME osr_callback COMMAND "$<TARGET_FILE:osr_callback_tests>")
+set_tests_properties(osr_callback PROPERTIES TIMEOUT 30)
 
 add_executable(live_runtime_tests tests/live_runtime_test.cpp)
 target_link_libraries(live_runtime_tests PRIVATE
@@ -419,3 +525,30 @@ message(STATUS "Pinned CEF: ${ASCIIOMIUM_CEF_VERSION}")
 message(STATUS "CEF root: ${CEF_ROOT}")
 message(STATUS "CEF sandbox for direct OSR prototype: ${USE_SANDBOX}")
 message(STATUS "Target architecture: x64")
+
+# Issue #14 keeps differential planning/serialization independently replayable.
+add_executable(differential_frame_emitter_tests tests/differential_frame_emitter_test.cpp)
+target_link_libraries(differential_frame_emitter_tests PRIVATE asciiomium_terminal asciiomium_render)
+target_compile_features(differential_frame_emitter_tests PRIVATE cxx_std_20)
+set_target_properties(differential_frame_emitter_tests PROPERTIES FOLDER "Tests")
+add_test(NAME differential_frame_emitter COMMAND "$<TARGET_FILE:differential_frame_emitter_tests>")
+
+add_executable(asciiomium_differential_benchmark tools/differential_benchmark.cpp)
+target_link_libraries(asciiomium_differential_benchmark PRIVATE
+  asciiomium_terminal asciiomium_render asciiomium_runtime)
+target_compile_features(asciiomium_differential_benchmark PRIVATE cxx_std_20)
+set_target_properties(asciiomium_differential_benchmark PROPERTIES FOLDER "Tools")
+
+# Issue #15's report/duration/process arithmetic remains portable and testable
+# without constructing a live CEF browser.
+add_executable(runtime_telemetry_tests tests/runtime_telemetry_test.cpp)
+target_link_libraries(runtime_telemetry_tests PRIVATE asciiomium_runtime)
+target_compile_features(runtime_telemetry_tests PRIVATE cxx_std_20)
+set_target_properties(runtime_telemetry_tests PROPERTIES FOLDER "Tests")
+add_test(NAME runtime_telemetry COMMAND "$<TARGET_FILE:runtime_telemetry_tests>")
+
+add_executable(asciiomium_telemetry_overhead tools/telemetry_overhead.cpp)
+target_link_libraries(asciiomium_telemetry_overhead PRIVATE asciiomium_runtime)
+target_compile_features(asciiomium_telemetry_overhead PRIVATE cxx_std_20)
+set_target_properties(asciiomium_telemetry_overhead PROPERTIES FOLDER "Tools")
+

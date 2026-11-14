@@ -146,3 +146,138 @@ Pointer precision remains terminal-cell granular. Cells outside contained
 browser content are rejected rather than assigned synthetic sub-cell or
 letterbox coordinates. Mouse tracking is RAII-owned and must be disabled during
 terminal restoration.
+
+## D-018 — Explicit profile ownership and temporary browser commands
+
+**Status:** implemented; Windows CI and physical command-row qualification are
+recorded separately in the #13 PR.
+
+Each persistent profile has its own CEF root/cache and an exclusive OS lock.
+Private mode has a unique temporary root plus an empty cache path; removal
+requires completed CEF shutdown. Browser commands use Ctrl+Alt+O and a bounded
+temporary bottom-row overlay after the shared VT parser. Page Ctrl shortcuts
+and Ctrl+Alt+Q retain their accepted meanings. UI/report handling is separate:
+the transient status can show the current URL, but diagnostics store origins
+only. Browser popup windows and unsupported sensitive capabilities are denied
+explicitly; downloads require an opted-in directory with application-selected
+unique paths. See `BROWSER_RUNTIME.md` for the pinned CEF API rationale and tests.
+
+Windows qualification found that completed CEF shutdown does not release every
+process-owned file handle. Private sessions therefore use an ordinary OSR worker
+and an owning supervisor: only after the complete worker job exits can the root
+be removed and cleanup reported successful. The pipe/environment protocol carries
+only a root created by that supervisor, never an arbitrary deletion target.
+Startup `--disable-logging` complements the severity setting because this CEF
+pin otherwise creates a fatal-level diagnostic file. See `BROWSER_RUNTIME.md`.
+
+## D-019 — Opt-in differential output with explicit invalidation
+
+**Status:** implemented; full-frame output remains the live default pending
+Windows Terminal physical qualification.
+
+Issue #14 plans changes from the last successfully written logical frame.
+Within-row gap decisions include cursor, colour and UTF-8 byte costs, including
+the next changed cell's SGR transition. The planner uses bounded frame-sized
+storage and preserves newest-frame scheduling. Serialization resets SGR and
+cursor state at each nonempty payload boundary. Initial/geometry/forced
+reconstruction resets, clears and writes the complete frame; empty trusted
+deltas write nothing. Write failure never advances the trusted reference.
+
+The full-frame serializer remains the correctness oracle and the output of
+`--vt-output`. Live mode selection is explicit; a diagnostic interval can force
+reconstruction even without source paints. Paired comparison on the same frames
+is opt-in because it adds work. One-cell printable glyph semantics are retained;
+no arbitrary Unicode-width or style engine is introduced. Details and evidence:
+`docs/DIFFERENTIAL_OUTPUT.md`.
+
+## D-020 — Bounded, explicit runtime telemetry and benchmark identity
+
+**Status:** implemented; Windows qualification evidence is recorded separately.
+
+Issue #15 adds an `asciiomium-runtime-telemetry-v1` section without replacing the
+existing live/offline report schemas. Timing means cover all accepted samples;
+p50/p95 cover the last 2,048, with counts, scopes and index formula included.
+Unavailable measurements/rates in the new section are null, including actual
+writes in headless runs; old numeric timing fields retain explicitly unavailable
+compatibility placeholders. Empty deltas remain rendered opportunities without nonempty emissions.
+
+Source counters and process endpoints are taken at the render-loop boundary,
+before shutdown. Windows process metrics cover the browser process only; CPU
+percentages use counter-sample clock intervals, and lifetime peak memory is
+identified as such. Per-frame telemetry uses bounded histories; an explicit
+switch disables stage timers and process probes while preserving scheduler
+clocks and functional counters. JSON/percentile work occurs after measurement.
+
+Build identity is refreshed through a generated header before each BuildInfo
+build. This prevents edit/rebuild or commit/rebuild from retaining stale clean
+provenance. The same CMake helper is exercised by an isolated incremental-build
+regression. Details, CLI and schema: `docs/RUNTIME_TELEMETRY.md`.
+
+## D-021 — Source-bound portable package from a verified dependency archive
+
+**Status:** implemented for development qualification; Windows extraction and
+human acceptance evidence are recorded in the #17 PR.
+
+Portable fixtures resolve beside the executable. The package builder uses a
+fixed application/fixture allowlist and fresh CEF bytes from the locked archive,
+including full locales and Chromium third-party credits. It rejects dirty source
+and mismatched binary/fixture identity. Shared build-time identity generation is
+the narrow prerequisite shared with #15; integrated telemetry is qualified separately.
+Payload and external ZIP custody hashes are checked by a standalone verifier and
+a separate Windows job with no source checkout/cache. Deterministic ZIP metadata
+does not imply reproducible native builds. Packages remain unsigned development
+candidates under the existing sandbox exception until explicit release gates pass.
+See `WINDOWS_PACKAGE.md` for inventory, verification and failure evidence.
+
+## D-022 — Publish complete frames and retain callback failure evidence
+
+**Status:** implemented in the issue #16 branch; exact-head Windows tests and
+physical lifecycle acceptance are recorded separately.
+
+Source pixels and metadata become visible as one logical generation only after
+all required capacity is available. The newest-frame model remains in place;
+damage lists above 1,024 rectangles become one full-frame rectangle because the
+pixel copy is already complete. This bounds metadata without changing the image.
+
+Allocation/validation failures inside `OnPaint` are fatal run state, retained
+without allocating and observed by the owning main loop. Later paints cannot
+silently restore a successful result. Live, capture and probe reports expose
+the cause and rejected/suppressed counts; normal browser close and terminal
+cleanup still run. No executable may call `CefShutdown` with a live browser.
+
+Display/diagnostic strings are bounded before UTF-16 to UTF-8 conversion.
+Navigation validation requires the complete URL within its limit, and fixture
+console evidence requires the complete trusted address. See
+`LIFECYCLE_HARDENING.md` for scope, failure semantics and reproducible tests.
+
+## D-024 — Drain one bounded high-level console reader before input restoration
+
+**Status:** implemented; exact-revision Windows and physical qualification are
+recorded separately.
+
+Raw console input uses explicit `ReadConsoleW` and bounded incremental UTF-16
+to UTF-8 conversion. The hosted `f321cae` diagnostic proved that `ReadFile`
+with CP65001 returned NULs for valid non-ASCII input before mailbox publication.
+One dedicated reader owns a 1,024-unit staging buffer, one pending high
+surrogate and a fixed 4 KiB byte mailbox; even the largest encoded read fits in
+3,075 bytes. The main loop drains published bytes without performing an OS
+input read. No low-level event read, A/W fallback or flush is interleaved with
+this transport. Pre-acquisition typeahead, exact VT/control bytes and split
+surrogate pairs remain covered by strict native assertions.
+
+Normal restoration requests stop, repeatedly cancels a pending read across its
+entry race, proves native thread completion, joins, and closes the reader's
+separately opened `CONIN$` handle before restoring input code page/mode. The
+caller's handle remains open. A duplicate would share the same file object;
+the independent open gives reader lifetime its own host-side read context.
+The hosted `1290b62` reuse failure motivates this ownership boundary; the
+specific surviving-waiter cause remains an inference, and the ownership repair
+requires native qualification.
+Callback and output locks are not held during join/close. Emergency callbacks
+defer input restoration until the owned handle is released, even after the
+read returns. Join failure and owned-handle close failure are distinct outcomes;
+either causes fatal exit 12 with incomplete-cleanup evidence. The close-failure
+diagnostic does not claim a live worker. A cancellation request alone never
+counts as completion. Console setter
+ownership is recorded before an attempted change so failure after mutation
+still triggers rollback. See [the focused design and tests](TERMINAL_INPUT.md).

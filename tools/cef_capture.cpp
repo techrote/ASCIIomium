@@ -2,6 +2,7 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include "app/resource_paths.h"
 
 #include <charconv>
 #include <chrono>
@@ -20,6 +21,7 @@
 #include <thread>
 
 #include "browser/osr_client.h"
+#include "browser/runtime_app.h"
 #include "browser/source_frame.h"
 #include "include/cef_app.h"
 #include "include/cef_browser.h"
@@ -182,8 +184,7 @@ std::string ResolveUrl(const Options& options) {
   if (file.empty()) {
     throw std::runtime_error("unknown bundled fixture: " + options.fixture);
   }
-  std::filesystem::path path =
-      std::filesystem::path(ASCIIOMIUM_SOURCE_DIR) / "fixtures" / "web" / file;
+  const auto path = asciiomium::BundledFixture(file);
   std::string url = FileUrl(path);
   if (options.freeze) {
     url += "?freeze=1";
@@ -271,6 +272,7 @@ void WriteBmp32(const std::filesystem::path& path,
 }
 
 struct CaptureEvidence {
+  asciiomium::browser::CallbackStatus callback_status;
   bool load_complete = false;
   bool post_load_paint_observed = false;
   bool closed_cleanly = false;
@@ -302,7 +304,9 @@ void WriteReport(const std::filesystem::path& path,
          << "  \"cef_compile\":\"" << JsonEscape(CEF_VERSION) << "\",\n"
          << "  \"cef_runtime\":\"" << CefRuntimeVersion() << "\",\n"
          << "  \"chromium_runtime\":\"" << ChromiumRuntimeVersion() << "\",\n"
-         << "  \"url\":\"" << JsonEscape(evidence.url) << "\",\n"
+         << "  \"callbacks\":";
+  asciiomium::browser::WriteCallbackStatusJson(output, evidence.callback_status);
+  output << ",\n  \"url\":\"" << JsonEscape(evidence.url) << "\",\n"
          << "  \"sandbox\":\"disabled-temporary-direct-executable-bootstrap\",\n"
          << "  \"pixel_contract\":\"BGRA8, tightly packed width*height*4, upper-left origin\",\n"
          << "  \"device_scale_factor\":1.0,\n"
@@ -348,6 +352,8 @@ void WriteReport(const std::filesystem::path& path,
          << "  \"closed_cleanly\":"
          << (evidence.closed_cleanly ? "true" : "false") << "\n"
          << "}\n";
+  output.close();
+  if (!output) throw std::runtime_error("failed while writing capture report");
 }
 
 bool PumpUntil(CefRefPtr<asciiomium::browser::OsrClient> client,
@@ -355,6 +361,7 @@ bool PumpUntil(CefRefPtr<asciiomium::browser::OsrClient> client,
                const std::function<bool()>& predicate) {
   while (std::chrono::steady_clock::now() < deadline) {
     CefDoMessageLoopWork();
+    if (client->callback_failed()) return false;
     if (predicate()) {
       return true;
     }
@@ -363,10 +370,11 @@ bool PumpUntil(CefRefPtr<asciiomium::browser::OsrClient> client,
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(5));
   }
-  return predicate();
+  return !client->callback_failed() && predicate();
 }
 
-int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
+int BrowserProcessMain(const Options& options, const CefMainArgs& main_args,
+                       CefRefPtr<CefApp> app) {
   CefSettings settings;
   settings.windowless_rendering_enabled = true;
   settings.multi_threaded_message_loop = false;
@@ -378,9 +386,9 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
   // and the matching runtime setting is required here. This is a documented
   // milestone exception, not the intended long-term security posture.
   settings.no_sandbox = true;
-  settings.log_severity = LOGSEVERITY_WARNING;
+  settings.log_severity = LOGSEVERITY_DISABLE;
 
-  if (!CefInitialize(main_args, settings, nullptr, nullptr)) {
+  if (!CefInitialize(main_args, settings, app, nullptr)) {
     std::cerr << "CefInitialize failed with exit code " << CefGetExitCode() << '\n';
     return 3;
   }
@@ -498,16 +506,34 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
                               std::chrono::seconds(5);
   while (!client->closed() && std::chrono::steady_clock::now() < close_deadline) {
     CefDoMessageLoopWork();
+    client->CloseBrowser();  // Service pending creation after its stack unwinds.
     std::this_thread::sleep_for(std::chrono::milliseconds(5));
   }
   evidence.closed_cleanly = client->closed();
-  if (!evidence.closed_cleanly && result == 0) {
+  evidence.callback_status = client->callback_status();
+  if (!evidence.closed_cleanly) {
     std::cerr << "CEF browser did not close before shutdown deadline\n";
-    result = 7;
+    // CefShutdown is invalid while a browser remains alive. Retain the failure
+    // report, then terminate without destroying active CEF-owned state.
+    try {
+      WriteReport(options.report, options, evidence);
+    } catch (const std::exception& error) {
+      std::cerr << "Failed to write capture timeout report: " << error.what() << '\n';
+    }
+    std::_Exit(7);
   }
 
+  const auto callbacks = client->callback_state();
   client = nullptr;
   CefShutdown();
+  evidence.callback_status = callbacks->Snapshot();
+  if (evidence.callback_status.failed()) {
+    std::cerr << "CEF callback failed: "
+              << asciiomium::browser::CallbackFailureName(evidence.callback_status.first_failure)
+              << "; rejected paints=" << evidence.callback_status.paint_failures
+              << ", suppressed paints=" << evidence.callback_status.suppressed_paints << '\n';
+    if (result == 0) result = 9;
+  }
 
   try {
     WriteReport(options.report, options, evidence);
@@ -536,9 +562,10 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
 
 int main(int argc, char** argv) {
   CefMainArgs main_args(GetModuleHandle(nullptr));
+  CefRefPtr<CefApp> app(new asciiomium::browser::RuntimeApp);
 
   // The same executable services Chromium renderer/GPU/utility subprocesses.
-  const int subprocess_exit = CefExecuteProcess(main_args, nullptr, nullptr);
+  const int subprocess_exit = CefExecuteProcess(main_args, app, nullptr);
   if (subprocess_exit >= 0) {
     return subprocess_exit;
   }
@@ -550,7 +577,7 @@ int main(int argc, char** argv) {
   }
 
   try {
-    return BrowserProcessMain(options, main_args);
+    return BrowserProcessMain(options, main_args, app);
   } catch (const std::exception& error) {
     std::cerr << "CEF capture failed: " << error.what() << '\n';
     return 1;

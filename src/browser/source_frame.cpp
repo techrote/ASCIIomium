@@ -19,14 +19,27 @@ std::size_t CheckedByteCount(int width, int height) {
   return w * h * 4u;
 }
 
-void CopyPixels(std::vector<std::uint8_t>* destination,
-                const void* source,
-                std::size_t byte_count) {
+void ValidateBuffer(const void* source) {
   if (source == nullptr) {
     throw std::invalid_argument("source frame buffer must not be null");
   }
-  destination->resize(byte_count);
-  std::memcpy(destination->data(), source, byte_count);
+}
+
+void CopyFrame(std::vector<std::uint8_t>& pixels,
+               std::vector<DirtyRect>& damage,
+               const void* source, std::size_t byte_count,
+               int width, int height, const std::vector<DirtyRect>& dirty_rects) {
+  const bool collapse = dirty_rects.size() > kMaxSourceDirtyRects;
+  const auto damage_count = collapse ? std::size_t{1} : dirty_rects.size();
+  // Every potentially allocating operation precedes any logical mutation.
+  // resize/copy below cannot allocate and both element types are nonthrowing.
+  pixels.reserve(byte_count);
+  damage.reserve(damage_count);
+  pixels.resize(byte_count);
+  damage.resize(damage_count);
+  std::memcpy(pixels.data(), source, byte_count);
+  if (collapse) damage[0] = DirtyRect{0, 0, width, height};
+  else std::copy(dirty_rects.begin(), dirty_rects.end(), damage.begin());
 }
 
 }  // namespace
@@ -37,12 +50,13 @@ void SourceFrameStore::UpdateView(
     int height,
     const std::vector<DirtyRect>& dirty_rects) {
   const std::size_t byte_count = CheckedByteCount(width, height);
+  ValidateBuffer(bgra);
 
   std::lock_guard lock(mutex_);
-  CopyPixels(&view_.bgra, bgra, byte_count);
+  CopyFrame(view_.bgra, view_.dirty_rects, bgra, byte_count, width, height,
+            dirty_rects);
   view_.width = width;
   view_.height = height;
-  view_.dirty_rects = dirty_rects;
   ++view_.generation;
   ++view_.paint_count;
   ++presentation_generation_;
@@ -99,12 +113,13 @@ void SourceFrameStore::UpdatePopup(
     int height,
     const std::vector<DirtyRect>& dirty_rects) {
   const std::size_t byte_count = CheckedByteCount(width, height);
+  ValidateBuffer(bgra);
 
   std::lock_guard lock(mutex_);
-  CopyPixels(&popup_.bgra, bgra, byte_count);
+  CopyFrame(popup_.bgra, popup_.dirty_rects, bgra, byte_count, width, height,
+            dirty_rects);
   popup_.width = width;
   popup_.height = height;
-  popup_.dirty_rects = dirty_rects;
   ++popup_.generation;
   ++popup_.paint_count;
   ++presentation_generation_;

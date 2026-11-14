@@ -14,6 +14,7 @@
 #include <iomanip>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -22,8 +23,15 @@
 #include <utility>
 #include <vector>
 
+#include "app/build_info.h"
 #include "browser/cef_key_translator.h"
+#include "app/resource_paths.h"
 #include "browser/cef_pointer_translator.h"
+#include "browser/browser_commands.h"
+#include "browser/cef_profile.h"
+#include "browser/cef_runtime_session.h"
+#include "browser/private_process.h"
+#include "browser/runtime_app.h"
 #include "browser/fixture_observation.h"
 #include "browser/osr_client.h"
 #include "browser/popup_compositor.h"
@@ -39,7 +47,11 @@
 #include "render/render_types.h"
 #include "runtime/frame_scheduler.h"
 #include "runtime/timing_series.h"
+#include "runtime/telemetry.h"
+#include "runtime/process_metrics.h"
+#include "terminal/differential_frame_emitter.h"
 #include "terminal/full_frame_emitter.h"
+#include "terminal/terminal_sequences.h"
 #include "terminal/terminal_session.h"
 
 namespace {
@@ -56,7 +68,12 @@ struct Options {
   int columns = 120;
   int rows = 40;
   int duration_ms = 0;
+  int benchmark_duration_ms = 0;
+  bool telemetry_enabled = true;
   int max_frames = 0;
+  bool differential_output = false;
+  bool compare_emitter = false;
+  int full_repaint_ms = 0;
   double cell_aspect = 0.5;
   asciiomium::geometry::FitMode fit_mode =
       asciiomium::geometry::FitMode::Contain;
@@ -65,6 +82,9 @@ struct Options {
   bool quiet = false;
   bool geometry_debug = false;
   bool input_debug = false;
+  bool private_mode = false;
+  std::filesystem::path profile;
+  std::filesystem::path downloads;
   int wheel_delta = 120;
   std::string input_script;
   std::string input_hex;
@@ -83,11 +103,27 @@ struct LiveEvidence {
   bool load_complete = false;
   bool closed_cleanly = false;
   bool terminal_restored = false;
+  bool terminal_acquisition_attempted = false;
+  bool terminal_acquired = false;
+  asciiomium::terminal::TerminalRestoreResult terminal_restoration;
   int http_status = 0;
   int load_error = 0;
   std::string load_error_text;
   std::string failed_url;
+  bool private_mode = false;
+  bool profile_cleanup = false;
+  bool profile_cleanup_deferred = false;
+  unsigned profile_cleanup_attempts = 0;
+  int profile_cleanup_error = 0;
+  asciiomium::browser::BrowserStatus browser_status;
+  asciiomium::browser::CallbackStatus callback_status;
   double duration_seconds = 0.0;
+  int runtime_result = 0;
+  asciiomium::BuildInfo build_info;
+  std::optional<asciiomium::runtime::ProcessMeasurement> process_measurement;
+  asciiomium::browser::SourceFrameState measurement_source_start{};
+  asciiomium::browser::SourceFrameState measurement_source_end{};
+  std::uint64_t distinct_generations_rendered = 0;
   int terminal_columns = 0;
   int terminal_rows = 0;
   std::uint64_t popup_composited_frames = 0;
@@ -115,6 +151,15 @@ struct LiveEvidence {
   std::uint64_t input_generation_before = 0;
   std::uint64_t input_generation_after = 0;
   std::size_t last_vt_bytes = 0;
+  std::uint64_t total_vt_bytes = 0;
+  std::uint64_t empty_payload_frames = 0;
+  std::uint64_t full_reconstructions = 0;
+  std::uint64_t changed_cells = 0;
+  std::uint64_t changed_runs = 0;
+  std::uint64_t written_cells = 0;
+  std::uint64_t emitted_runs = 0;
+  std::uint64_t reference_full_bytes = 0;
+  std::uint64_t reference_differential_bytes = 0;
   std::uint64_t geometry_generation = 0;
   std::uint64_t cef_resize_requests = 0;
   int sample_columns = 0;
@@ -125,6 +170,9 @@ struct LiveEvidence {
   asciiomium::runtime::FrameSchedulerStats scheduler{};
   asciiomium::runtime::TimingSeries conversion_timing;
   asciiomium::runtime::TimingSeries serialization_timing;
+  asciiomium::runtime::TimingSeries differential_planning_timing;
+  asciiomium::runtime::TimingSeries differential_serialization_timing;
+  asciiomium::runtime::TimingSeries full_reference_timing;
   asciiomium::runtime::TimingSeries write_timing;
 };
 
@@ -194,6 +242,9 @@ void PrintUsage() {
       << "Usage: asciiomium_live [options]\n"
       << "  --fixture NAME          index|flat-ui|colour-ramps|raster-imagery|motion-scroll|input-focus\n"
       << "  --url URL               explicit URL instead of a bundled fixture\n"
+      << "  --profile DIR           persistent profile (default LOCALAPPDATA/ASCIIomium/Profiles/Default)\n"
+      << "  --private               isolated disposable profile; cannot combine with --profile\n"
+      << "  --downloads DIR         opt in to downloads into unique DIR/download-*/download.bin\n"
       << "  --width N --height N    CEF viewport (default 960x540)\n"
       << "  --fps N                 terminal max FPS, 1..60 (default 20; useful 10/15/20/30)\n"
       << "  --cef-fps N             CEF windowless frame-rate cap, 1..60 (default 60)\n"
@@ -204,7 +255,13 @@ void PrintUsage() {
       << "  --geometry-debug        log viewport generations and mappings to stderr\n"
       << "  --freeze                append ?freeze=1 to bundled fixture URL\n"
       << "  --duration-ms N         stop after N ms; 0 means until quit chord (default 0)\n"
-      << "  --max-frames N          stop after N emitted frames; 0 means unlimited\n"
+      << "  --benchmark DURATION    bounded run, e.g. 30s, 500ms, 2m (100ms..60m)\n"
+      << "                          writes --report, default benchmark.json; no --max-frames\n"
+      << "  --telemetry on|off      stage timers/process counters (default on)\n"
+      << "  --max-frames N          stop after N nonempty emitted frames; 0 means unlimited\n"
+      << "  --emitter MODE          full|differential (default full)\n"
+      << "  --full-repaint-ms N     force screen reconstruction every N ms; 0 disables\n"
+      << "  --compare-emitter       measure both emitters on identical frames (adds work)\n"
       << "  --no-terminal           serialize frames without acquiring a console (CI/benchmark)\n"
       << "  --columns N --rows N    logical target for --no-terminal (default 120x40)\n"
       << "  --report FILE.json      write live-run metrics\n"
@@ -215,7 +272,9 @@ void PrintUsage() {
       << "  --input-hex HEX         inject raw bytes as hexadecimal (CI/test aid)\n"
       << "  --wheel-delta N         CEF wheel delta per terminal notch, 1..1200 (default 120)\n"
       << "  --quiet                 suppress final one-line summary\n"
-      << "\nCtrl+Alt+Q exits interactive browser mode. Ctrl+C is forwarded to CEF.\n";
+      << "\nCtrl+Alt+O opens commands; Enter submits, Escape cancels.\n"
+      << "Commands: open URL | back | forward | reload | hard-reload | stop | status | repaint | quit\n"
+      << "Ctrl+Alt+Q exits interactive browser mode. Ctrl+C is forwarded to CEF.\n";
 }
 
 bool ParseArgs(int argc, char** argv, Options* options) {
@@ -249,6 +308,12 @@ bool ParseArgs(int argc, char** argv, Options* options) {
       if (!take_string(&options->fixture)) return false;
     } else if (arg == "--url") {
       if (!take_string(&options->url)) return false;
+    } else if (arg == "--profile") {
+      if (!take_path(&options->profile) || options->profile.empty()) return false;
+    } else if (arg == "--downloads") {
+      if (!take_path(&options->downloads) || options->downloads.empty()) return false;
+    } else if (arg == "--private") {
+      options->private_mode = true;
     } else if (arg == "--width") {
       if (!take_int(1, 8192, &options->width)) return false;
     } else if (arg == "--height") {
@@ -263,6 +328,28 @@ bool ParseArgs(int argc, char** argv, Options* options) {
       if (!take_int(1, 512, &options->rows)) return false;
     } else if (arg == "--duration-ms") {
       if (!take_int(0, 3'600'000, &options->duration_ms)) return false;
+    } else if (arg == "--benchmark") {
+      if (i + 1 >= argc) return false;
+      const auto duration = asciiomium::runtime::ParseBenchmarkDuration(argv[++i]);
+      if (!duration) return false;
+      options->benchmark_duration_ms = *duration;
+    } else if (arg == "--telemetry") {
+      if (i + 1 >= argc) return false;
+      const std::string_view value(argv[++i]);
+      if (value == "on") options->telemetry_enabled = true;
+      else if (value == "off") options->telemetry_enabled = false;
+      else return false;
+    } else if (arg == "--emitter") {
+      if (i + 1 >= argc) return false;
+      const std::string_view mode(argv[++i]);
+      if (mode == "differential") options->differential_output = true;
+      else if (mode == "full") options->differential_output = false;
+      else return false;
+    } else if (arg == "--full-repaint-ms") {
+      if (!take_int(0, 3'600'000, &options->full_repaint_ms)) return false;
+      if (options->full_repaint_ms > 0 && options->full_repaint_ms < 100) return false;
+    } else if (arg == "--compare-emitter") {
+      options->compare_emitter = true;
     } else if (arg == "--max-frames") {
       if (!take_int(0, 1'000'000, &options->max_frames)) return false;
     } else if (arg == "--colors") {
@@ -320,6 +407,15 @@ bool ParseArgs(int argc, char** argv, Options* options) {
     }
   }
 
+  if (options->benchmark_duration_ms > 0) {
+    if (options->max_frames != 0 ||
+        (options->duration_ms != 0 && options->duration_ms != options->benchmark_duration_ms)) {
+      return false;
+    }
+    options->duration_ms = options->benchmark_duration_ms;
+    if (options->report.empty()) options->report = "benchmark.json";
+  }
+
   // Headless/CI runs need a deterministic stop condition. Interactive terminal
   // mode may intentionally run forever until the browser-mode quit chord is
   // decoded (or a separate console-control shutdown occurs).
@@ -327,9 +423,17 @@ bool ParseArgs(int argc, char** argv, Options* options) {
       options->max_frames == 0) {
     return false;
   }
+  // An unchanged differential frame may emit zero bytes forever. Require a
+  // wall-time bound for unattended delta runs even when --max-frames is set.
+  if (!options->terminal_output && options->differential_output &&
+      options->duration_ms == 0) return false;
   if (!options->input_script.empty() && !options->input_hex.empty()) {
     return false;
   }
+  if (options->private_mode && !options->profile.empty()) return false;
+  // Raw input can contain passwords. Only deterministic bundled fixtures may
+  // opt into this existing diagnostic transport; never arbitrary websites.
+  if (options->input_debug && !options->url.empty()) return false;
   return true;
 }
 
@@ -368,14 +472,15 @@ std::string FileUrl(const std::filesystem::path& path) {
 
 std::string ResolveUrl(const Options& options) {
   if (!options.url.empty()) {
+    if (!asciiomium::browser::IsAllowedNavigation(options.url))
+      throw std::invalid_argument("unsupported URL; use http://, https://, file:/// or about:blank");
     return options.url;
   }
   const std::string file = FixtureFileName(options.fixture);
   if (file.empty()) {
     throw std::runtime_error("unknown bundled fixture: " + options.fixture);
   }
-  const std::filesystem::path path =
-      std::filesystem::path(ASCIIOMIUM_SOURCE_DIR) / "fixtures" / "web" / file;
+  const auto path = asciiomium::BundledFixture(file);
   std::string url = FileUrl(path);
   if (options.freeze) {
     url += "?freeze=1";
@@ -480,6 +585,98 @@ void WriteTerminalFrameSvg(const std::filesystem::path& path,
   out << "</svg>\n";
 }
 
+std::string TimingJson(const asciiomium::runtime::TimingSeries& timing) {
+  if (timing.count() == 0) return "null";
+  std::ostringstream out;
+  out << std::fixed << std::setprecision(6)
+      << "{\"average_ms\":" << timing.average_ms()
+      << ",\"p50_ms\":" << timing.percentile_ms(0.50)
+      << ",\"p95_ms\":" << timing.percentile_ms(0.95)
+      << ",\"sample_count\":" << timing.count()
+      << ",\"percentile_retained_samples\":" << timing.retained_count() << '}';
+  return out.str();
+}
+
+std::string LegacyStageTiming(const asciiomium::runtime::TimingSeries& timing, bool enabled) {
+  if (!enabled || timing.count() == 0) {
+    return "{\"available\":false,\"average\":0,\"p95\":0,"
+           "\"scope\":\"legacy numeric placeholders; no measurement; use telemetry.timing for nullable values\"}";
+  }
+  std::ostringstream out;
+  out << std::fixed << std::setprecision(6)
+      << "{\"available\":true,\"average\":" << timing.average_ms()
+      << ",\"p95\":" << timing.percentile_ms(0.95) << '}';
+  return out.str();
+}
+
+asciiomium::runtime::TelemetryReport MakeTelemetryReport(
+    const Options& options, const LiveEvidence& evidence) {
+  using namespace asciiomium::runtime;
+  TelemetryReport report;
+  const auto& build = evidence.build_info;
+  report.identity = {build.asciiomium_version, build.source_revision, build.source_tree,
+      build.source_identity_available, build.source_dirty, build.build_type,
+      build.compiler, build.architecture, build.cef_compile_version,
+      build.cef_runtime_version, build.chromium_runtime_version,
+      build.cef_runtime_matches_headers, build.fixture_manifest_sha256};
+  auto& config = report.config;
+  if (options.url.empty()) config.fixture_id = options.fixture;
+  config.colors = asciiomium::render::ColorModeName(options.color_mode);
+  config.sampling = FilterName(options.filter);
+  config.fit = asciiomium::geometry::FitModeName(options.fit_mode);
+  config.emitter = options.differential_output ? "differential" : "full";
+  config.cell_aspect = options.cell_aspect;
+  config.source_width = options.width;
+  config.source_height = options.height;
+  config.columns = evidence.terminal_columns;
+  config.rows = evidence.terminal_rows;
+  config.frame_cap = options.fps;
+  config.cef_frame_cap = options.cef_fps;
+  config.requested_duration_ms = options.duration_ms;
+  config.full_repaint_ms = options.full_repaint_ms;
+  config.fixture_frozen = options.freeze;
+  config.benchmark_mode = options.benchmark_duration_ms > 0;
+  config.terminal_output = options.terminal_output;
+  config.comparison_enabled = options.compare_emitter;
+  config.timings_enabled = options.telemetry_enabled;
+  auto& counters = report.counters;
+  counters.source_view_paints_start = evidence.measurement_source_start.view_paint_count;
+  counters.source_view_paints_end = evidence.measurement_source_end.view_paint_count;
+  counters.source_popup_paints_start = evidence.measurement_source_start.popup_paint_count;
+  counters.source_popup_paints_end = evidence.measurement_source_end.popup_paint_count;
+  counters.source_generation_start = evidence.measurement_source_start.presentation_generation;
+  counters.source_generation_end = evidence.measurement_source_end.presentation_generation;
+  counters.last_rendered_generation = evidence.scheduler.last_rendered_source_generation;
+  counters.distinct_generations_rendered = evidence.distinct_generations_rendered;
+  counters.rendered_frames = evidence.scheduler.rendered_frames;
+  counters.emitted_frames = evidence.scheduler.emitted_frames;
+  counters.empty_payload_frames = evidence.empty_payload_frames;
+  counters.coalesced_generations = evidence.scheduler.coalesced_source_generations;
+  counters.full_reconstructions = evidence.full_reconstructions;
+  counters.bytes_serialized = evidence.total_vt_bytes;
+  counters.written_cells = evidence.written_cells;
+  counters.emitted_runs = evidence.emitted_runs;
+  if (options.differential_output || options.compare_emitter) {
+    counters.changed_cells = evidence.changed_cells;
+    counters.changed_runs = evidence.changed_runs;
+    report.timings.planning = &evidence.differential_planning_timing;
+  }
+  if (options.compare_emitter) {
+    counters.same_frame_full_bytes = evidence.reference_full_bytes;
+    counters.same_frame_differential_bytes = evidence.reference_differential_bytes;
+    report.timings.compared_full_serialization = &evidence.full_reference_timing;
+    report.timings.compared_differential_serialization = &evidence.differential_serialization_timing;
+  }
+  report.timings.conversion = &evidence.conversion_timing;
+  report.timings.serialization = &evidence.serialization_timing;
+  if (options.terminal_output) report.timings.terminal_write = &evidence.write_timing;
+  report.process = evidence.process_measurement;
+  report.wall_seconds = evidence.duration_seconds;
+  report.completed_normally = evidence.runtime_result == 0 && evidence.closed_cleanly;
+  report.exit_reason = evidence.exit_reason;
+  return report;
+}
+
 void WriteReport(const std::filesystem::path& path,
                  const Options& options,
                  const LiveEvidence& evidence) {
@@ -495,22 +692,52 @@ void WriteReport(const std::filesystem::path& path,
       static_cast<double>(evidence.scheduler.emitted_frames) / duration;
   const double source_fps =
       static_cast<double>(evidence.source_state.view_paint_count) / duration;
+  const bool have_diff_metrics = options.differential_output || options.compare_emitter;
+  const double rendered = static_cast<double>(std::max<std::uint64_t>(1, evidence.scheduler.rendered_frames));
+  const double emitted = static_cast<double>(std::max<std::uint64_t>(1, evidence.scheduler.emitted_frames));
+  const auto diff_count = [&](std::uint64_t value) {
+    return have_diff_metrics ? std::to_string(value) : std::string("null");
+  };
 
   out << std::fixed << std::setprecision(6)
       << "{\n"
       << "  \"schema\":\"asciiomium-live-v1\",\n"
+      << "  \"fixture_resolution\":\"" << (options.url.empty() ? "executable-relative" : "explicit-url") << "\",\n"
+      << "  \"telemetry\":" << asciiomium::runtime::SerializeTelemetry(MakeTelemetryReport(options, evidence)) << ",\n"
       << "  \"cef_compile\":\"" << JsonEscape(CEF_VERSION) << "\",\n"
       << "  \"cef_runtime\":\"" << CefRuntimeVersion() << "\",\n"
       << "  \"chromium_runtime\":\"" << ChromiumRuntimeVersion() << "\",\n"
-      << "  \"url\":\"" << JsonEscape(evidence.url) << "\",\n"
+      << "  \"callbacks\":";
+  asciiomium::browser::WriteCallbackStatusJson(out, evidence.callback_status);
+  out << ",\n  \"url\":\"" << JsonEscape(asciiomium::browser::DiagnosticOrigin(evidence.url)) << "\",\n"
+      << "  \"browser\":{\"profile_mode\":\"" << (evidence.private_mode ? "private" : "persistent")
+      << "\",\"profile_cleanup\":" << (evidence.profile_cleanup ? "true" : "false")
+      << ",\"profile_cleanup_deferred\":" << (evidence.profile_cleanup_deferred ? "true" : "false")
+      << ",\"profile_cleanup_attempts\":" << evidence.profile_cleanup_attempts
+      << ",\"profile_cleanup_error\":" << evidence.profile_cleanup_error
+      << ",\"current_origin\":\"" << JsonEscape(asciiomium::browser::DiagnosticOrigin(
+           evidence.browser_status.url, !evidence.browser_status.url_truncated))
+      << "\",\"loading\":" << (evidence.browser_status.loading ? "true" : "false")
+      << ",\"can_go_back\":" << (evidence.browser_status.can_go_back ? "true" : "false")
+      << ",\"can_go_forward\":" << (evidence.browser_status.can_go_forward ? "true" : "false")
+      << ",\"url_truncated\":" << (evidence.browser_status.url_truncated ? "true" : "false")
+      << ",\"title_truncated\":" << (evidence.browser_status.title_truncated ? "true" : "false")
+      << ",\"denied_popups\":" << evidence.browser_status.denied_popups
+      << ",\"denied_permissions\":" << evidence.browser_status.denied_permissions
+      << ",\"denied_media\":" << evidence.browser_status.denied_media
+      << ",\"denied_downloads\":" << evidence.browser_status.denied_downloads
+      << ",\"completed_downloads\":" << evidence.browser_status.completed_downloads
+      << ",\"denied_protocols\":" << evidence.browser_status.denied_protocols
+      << ",\"denied_certificates\":" << evidence.browser_status.denied_certificates
+      << ",\"denied_dialogs\":" << evidence.browser_status.denied_dialogs << "},\n"
       << "  \"exit_reason\":\"" << JsonEscape(evidence.exit_reason) << "\",\n"
       << "  \"sandbox\":\"disabled-temporary-direct-executable-bootstrap\",\n"
       << "  \"load\":{\"complete\":"
       << (evidence.load_complete ? "true" : "false")
       << ",\"http_status\":" << evidence.http_status
       << ",\"error_code\":" << evidence.load_error
-      << ",\"error_text\":\"" << JsonEscape(evidence.load_error_text)
-      << "\",\"failed_url\":\"" << JsonEscape(evidence.failed_url)
+      << ",\"error_text\":\"" << (evidence.load_error ? "navigation-error" : "")
+      << "\",\"failed_url\":\"" << JsonEscape(asciiomium::browser::DiagnosticOrigin(evidence.failed_url))
       << "\"},\n"
       << "  \"source\":{\"viewport_width\":" << options.width
       << ",\"viewport_height\":" << options.height
@@ -558,15 +785,41 @@ void WriteReport(const std::filesystem::path& path,
       << evidence.scheduler.coalesced_source_generations
       << ",\"forced_refreshes\":" << evidence.scheduler.forced_refreshes
       << ",\"observed_emitted_fps\":" << emitted_fps << "},\n"
-      << "  \"timing_ms\":{\"conversion\":{\"average\":"
-      << evidence.conversion_timing.average_ms() << ",\"p95\":"
-      << evidence.conversion_timing.percentile_ms(0.95)
-      << "},\"serialization\":{\"average\":"
-      << evidence.serialization_timing.average_ms() << ",\"p95\":"
-      << evidence.serialization_timing.percentile_ms(0.95)
-      << "},\"terminal_write\":{\"average\":"
-      << evidence.write_timing.average_ms() << ",\"p95\":"
-      << evidence.write_timing.percentile_ms(0.95) << "}},\n"
+      << "  \"timing_ms\":{\"conversion\":"
+      << LegacyStageTiming(evidence.conversion_timing, options.telemetry_enabled)
+      << ",\"serialization\":"
+      << LegacyStageTiming(evidence.serialization_timing, options.telemetry_enabled)
+      << ",\"terminal_write\":"
+      << LegacyStageTiming(evidence.write_timing, options.telemetry_enabled && options.terminal_output)
+      << "},\n"
+      << "  \"emission\":{\"schema\":\"asciiomium-emission-v1\",\"mode\":\""
+      << (options.differential_output ? "differential" : "full")
+      << "\",\"bytes_serialized\":" << evidence.total_vt_bytes
+      << ",\"bytes_written_to_terminal\":"
+      << (options.terminal_output && evidence.runtime_result == 0 && evidence.closed_cleanly
+              ? std::to_string(evidence.total_vt_bytes) : std::string("null"))
+      << ",\"bytes_per_rendered_frame\":" << evidence.total_vt_bytes / rendered
+      << ",\"bytes_per_nonempty_payload\":" << evidence.total_vt_bytes / emitted
+      << ",\"bytes_per_second\":" << evidence.total_vt_bytes / duration
+      << ",\"empty_payload_frames\":" << evidence.empty_payload_frames
+      << ",\"full_reconstructions\":" << evidence.full_reconstructions
+      << ",\"full_repaint_interval_ms\":" << options.full_repaint_ms
+      << ",\"changed_cells\":" << diff_count(evidence.changed_cells)
+      << ",\"changed_runs\":" << diff_count(evidence.changed_runs)
+      << ",\"written_cells\":" << evidence.written_cells
+      << ",\"emitted_runs\":" << evidence.emitted_runs
+      << ",\"differential_planning\":"
+      << (have_diff_metrics && options.telemetry_enabled ? TimingJson(evidence.differential_planning_timing) : "null")
+      << ",\"differential_serialization\":"
+      << (have_diff_metrics && options.telemetry_enabled ? TimingJson(evidence.differential_serialization_timing) : "null")
+      << ",\"comparison_enabled\":" << (options.compare_emitter ? "true" : "false")
+      << ",\"same_frame_full_bytes\":"
+      << (options.compare_emitter ? std::to_string(evidence.reference_full_bytes) : "null")
+      << ",\"same_frame_differential_bytes\":"
+      << (options.compare_emitter ? std::to_string(evidence.reference_differential_bytes) : "null")
+      << ",\"same_frame_full_reference_timing\":"
+      << (options.compare_emitter && options.telemetry_enabled ? TimingJson(evidence.full_reference_timing) : "null")
+      << ",\"timing_scope\":\"cumulative average; p50/p95 last 2048 samples; compare-emitter adds reference work\"},\n"
       << "  \"input\":{\"decoded_events\":" << evidence.input_decoded_events
       << ",\"unsupported_events\":" << evidence.input_unsupported_events
       << ",\"cef_events\":" << evidence.input_cef_events
@@ -610,22 +863,22 @@ void WriteReport(const std::filesystem::path& path,
       << (options.terminal_output ? "true" : "false")
       << ",\"terminal_restored\":"
       << (evidence.terminal_restored ? "true" : "false")
+      << ",\"terminal_restore\":{\"acquisition_attempted\":"
+      << (evidence.terminal_acquisition_attempted ? "true" : "false")
+      << ",\"acquired\":" << (evidence.terminal_acquired ? "true" : "false")
+      << ",\"completed\":"
+      << (evidence.terminal_restoration.completed ? "true" : "false")
+      << ",\"failed_steps\":" << evidence.terminal_restoration.failed_steps
+      << ",\"first_error\":" << evidence.terminal_restoration.first_error << "}"
       << ",\"closed_cleanly\":"
       << (evidence.closed_cleanly ? "true" : "false") << "}\n"
       << "}\n";
+  out.flush();
+  if (!out) throw std::runtime_error("unable to finish live report output");
 }
 
 double Milliseconds(Clock::time_point start, Clock::time_point end) {
   return std::chrono::duration<double, std::milli>(end - start).count();
-}
-
-bool IsQuitChord(const asciiomium::input::KeyboardEvent& event) {
-  using namespace asciiomium::input;
-  return event.kind == KeyboardEventKind::Key &&
-         event.key == KeyCode::Character &&
-         (event.codepoint == U'Q' || event.codepoint == U'q') &&
-         HasModifier(event.modifiers, kModifierControl) &&
-         HasModifier(event.modifiers, kModifierAlt);
 }
 
 void ForwardInput(
@@ -634,13 +887,21 @@ void ForwardInput(
     const asciiomium::geometry::ViewportSnapshot& viewport_snapshot,
     const Options& options,
     LiveEvidence* evidence,
+    asciiomium::browser::BrowserCommands* commands,
+    bool* command_changed,
+    bool overlay_visible,
     bool* quit_requested) {
+  const bool input_debug = options.input_debug && options.url.empty() &&
+                           client->Status().url == ResolveUrl(options);
   for (const auto& decoded : decoded_events) {
     ++evidence->input_decoded_events;
 
     if (decoded.is_pointer()) {
+      const bool release = decoded.pointer.kind == asciiomium::input::PointerEventKind::ButtonRelease;
+      if (!release && (commands->active() || (overlay_visible && viewport_snapshot.valid() &&
+          decoded.pointer.row == viewport_snapshot.transform->terminal_rows() - 1))) continue;
       ++evidence->pointer_decoded_events;
-      if (options.input_debug) {
+      if (input_debug) {
         std::cerr << "[input] raw="
                   << asciiomium::input::EscapeBytes(decoded.raw_bytes)
                   << " decoded="
@@ -653,7 +914,7 @@ void ForwardInput(
 
       if (!viewport_snapshot.valid()) {
         ++evidence->pointer_rejected_events;
-        if (options.input_debug) {
+        if (input_debug) {
           std::cerr << "[input] pointer rejected: no viewport transform\n";
         }
         continue;
@@ -665,7 +926,7 @@ void ForwardInput(
               options.wheel_delta);
       if (!dispatch.has_value()) {
         ++evidence->pointer_rejected_events;
-        if (options.input_debug) {
+        if (input_debug) {
           std::cerr << "[input] pointer rejected geometry="
                     << viewport_snapshot.generation
                     << " (outside browser content or invalid mapping)\n";
@@ -673,7 +934,7 @@ void ForwardInput(
         continue;
       }
 
-      if (options.input_debug) {
+      if (input_debug) {
         std::cerr << "[input] geometry=" << viewport_snapshot.generation
                   << " cef="
                   << asciiomium::browser::DescribeCefPointerDispatch(
@@ -687,7 +948,22 @@ void ForwardInput(
       continue;
     }
 
-    if (options.input_debug) {
+    asciiomium::browser::BrowserCommand command;
+    if (commands->Handle(decoded.event, &command)) {
+      *command_changed = true;
+      if (command.action == asciiomium::browser::BrowserAction::Quit) {
+        *quit_requested = true;
+      } else if (!command.error.empty()) {
+        client->Notice(command.error);
+      } else if (command.action != asciiomium::browser::BrowserAction::None &&
+                 command.action != asciiomium::browser::BrowserAction::Status &&
+                 command.action != asciiomium::browser::BrowserAction::Repaint) {
+        if (!client->Navigate(command)) client->Notice("Navigation is unavailable while the browser is closing.");
+      }
+      continue;
+    }
+
+    if (input_debug) {
       std::cerr << "[input] raw="
                 << asciiomium::input::EscapeBytes(decoded.raw_bytes)
                 << " decoded="
@@ -704,17 +980,9 @@ void ForwardInput(
       continue;
     }
 
-    if (IsQuitChord(decoded.event)) {
-      *quit_requested = true;
-      if (options.input_debug) {
-        std::cerr << "[input] application quit chord consumed\n";
-      }
-      continue;
-    }
-
     const auto cef_events =
         asciiomium::browser::TranslateKeyboardEvent(decoded.event);
-    if (options.input_debug) {
+    if (input_debug) {
       if (cef_events.empty()) {
         std::cerr << "[input] cef=<none> mapping-unavailable\n";
       } else {
@@ -776,33 +1044,55 @@ void LogGeometry(const asciiomium::geometry::ViewportSnapshot& snapshot,
             << '\n';
 }
 
-int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
+int BrowserProcessMain(const Options& options, const CefMainArgs& main_args,
+                       CefRefPtr<CefApp> app) {
+  // Resolve/validate all filesystem and URL options before CEF owns resources.
+  const auto initial_url = ResolveUrl(options);
+  asciiomium::browser::ProfileSession profile(options.profile, options.private_mode,
+                                               asciiomium::DevelopmentSourceDirectory());
+  asciiomium::browser::BrowserRuntimeOptions runtime;
+  if (!options.downloads.empty()) {
+    runtime.downloads = std::filesystem::weakly_canonical(std::filesystem::absolute(options.downloads));
+    std::filesystem::create_directories(runtime.downloads);
+  }
+  runtime.fixture_observations = options.url.empty() && options.fixture == "input-focus";
+  runtime.fixture_url = initial_url;
   CefSettings settings;
   settings.windowless_rendering_enabled = true;
   settings.multi_threaded_message_loop = false;
   settings.external_message_pump = false;
   settings.no_sandbox = true;
-  settings.log_severity = LOGSEVERITY_WARNING;
+  asciiomium::browser::ConfigureProfile(profile, settings);
 
-  if (!CefInitialize(main_args, settings, nullptr, nullptr)) {
+  asciiomium::browser::CefRuntimeSession cef_session(profile);
+  if (!cef_session.Initialize(main_args, settings, app)) {
     std::cerr << "CefInitialize failed with exit code " << CefGetExitCode() << '\n';
     return 3;
   }
 
   int result = 0;
   LiveEvidence evidence;
-  evidence.url = ResolveUrl(options);
+  evidence.build_info = asciiomium::GetBuildInfo();
+  evidence.url = initial_url;
+  evidence.private_mode = profile.private_mode();
 
   auto frame_store = std::make_shared<asciiomium::browser::SourceFrameStore>();
   CefRefPtr<asciiomium::browser::OsrClient> client(
       new asciiomium::browser::OsrClient(frame_store, options.width,
-                                         options.height));
+                                         options.height, runtime));
   std::unique_ptr<asciiomium::terminal::TerminalSession> terminal_session;
   asciiomium::render::TerminalFrame last_terminal_frame;
-  std::string last_vt_payload;
   bool have_terminal_frame = false;
+  bool force_full_repaint = true;
+  bool terminal_geometry_usable = true;
   asciiomium::input::VtInputParser input_parser;
   bool quit_requested = false;
+  asciiomium::browser::BrowserCommands commands;
+  bool command_changed = false;
+  bool show_status = false;
+  std::uint64_t status_revision = 0;
+  auto status_until = Clock::now();
+  std::string deferred_error;
   bool fixture_ready_ack_requested = false;
   bool input_script_focus_requested = false;
   bool input_script_injected = false;
@@ -838,9 +1128,10 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
                                      browser_settings, nullptr, nullptr)) {
     std::cerr << "CefBrowserHost::CreateBrowser failed\n";
     client = nullptr;
-    CefShutdown();
+    cef_session.Shutdown();
     return 4;
   }
+  cef_session.BrowserCreationStarted(client);
 
   asciiomium::runtime::FrameScheduler scheduler(options.fps);
   asciiomium::render::ModeQuantizer quantizer(options.color_mode);
@@ -853,6 +1144,8 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
   asciiomium::geometry::ViewportState viewport_state;
   int target_columns = options.columns;
   int target_rows = options.rows;
+  std::optional<Clock::time_point> measurement_started;
+  asciiomium::runtime::ProcessSnapshot process_start;
 
   try {
     if (options.terminal_output) {
@@ -863,8 +1156,15 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
       terminal_options.raw_keyboard_input = true;
       terminal_options.mouse_tracking =
           asciiomium::terminal::MouseTrackingMode::AnyEvent;
-      terminal_session =
-          std::make_unique<asciiomium::terminal::TerminalSession>(terminal_options);
+      evidence.terminal_acquisition_attempted = true;
+      try {
+        terminal_session =
+            std::make_unique<asciiomium::terminal::TerminalSession>(terminal_options);
+      } catch (const asciiomium::terminal::TerminalSessionAcquisitionError& error) {
+        evidence.terminal_restoration = error.restoration();
+        throw;
+      }
+      evidence.terminal_acquired = true;
       target_columns = terminal_session->geometry().columns;
       target_rows = terminal_session->geometry().rows;
     }
@@ -880,13 +1180,22 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
       LogGeometry(viewport_snapshot, false);
     }
 
+    evidence.measurement_source_start = frame_store->SnapshotState();
+    if (options.telemetry_enabled) process_start = asciiomium::runtime::ReadProcessSnapshot();
     const auto started = Clock::now();
+    measurement_started = started;
     auto last_geometry_poll = started;
+    auto next_full_repaint = started + std::chrono::milliseconds(options.full_repaint_ms);
 
     auto refresh_terminal_geometry = [&]() {
       if (!terminal_session || !terminal_session->RefreshGeometry()) {
         return;
       }
+      // Physical reflow invalidates the display even if this geometry is
+      // rejected, or later returns to the last accepted transform unchanged.
+      force_full_repaint = true;
+      scheduler.RequestRefresh();
+      terminal_geometry_usable = false;
       target_columns = terminal_session->geometry().columns;
       target_rows = terminal_session->geometry().rows;
       const auto next_transform =
@@ -904,6 +1213,7 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
         return;
       }
 
+      terminal_geometry_usable = true;
       const auto change = viewport_state.Publish(*next_transform);
       if (!change.changed) {
         return;
@@ -920,15 +1230,33 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
       }
       viewport_snapshot = change.snapshot;
       RecordGeometry(viewport_snapshot, &evidence);
-      scheduler.RequestRefresh();
       if (options.geometry_debug) {
         LogGeometry(viewport_snapshot, cef_resize_requested);
       }
     };
 
+    auto dispatch_input = [&](const std::vector<asciiomium::input::DecodedInputEvent>& events) {
+      // One wrapper covers real Feed/Flush and synthetic delivery. Diagnostic
+      // writes can corrupt the retained screen even if the page does not paint.
+      if (options.input_debug && !events.empty()) {
+        force_full_repaint = true;
+        scheduler.RequestRefresh();
+      }
+      ForwardInput(events, client,
+                   terminal_geometry_usable ? viewport_snapshot
+                                             : asciiomium::geometry::ViewportSnapshot{},
+                   options, &evidence, &commands, &command_changed,
+                   show_status, &quit_requested);
+    };
+
     while (true) {
       ++evidence.loop_iterations;
       CefDoMessageLoopWork();
+      if (client->callback_failed()) {
+        evidence.exit_reason = "callback_error";
+        result = 6;
+        break;
+      }
       const auto now = Clock::now();
 
       if (terminal_session && terminal_session->stop_requested()) {
@@ -944,16 +1272,12 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
           refresh_terminal_geometry();
           viewport_snapshot = viewport_state.Snapshot();
           last_input_byte_at = now;
-          ForwardInput(input_parser.Feed(input_bytes), client,
-                       viewport_snapshot, options, &evidence,
-                       &quit_requested);
+          dispatch_input(input_parser.Feed(input_bytes));
         } else if (input_parser.has_pending() &&
                    now - last_input_byte_at >=
                        std::chrono::milliseconds(35)) {
           viewport_snapshot = viewport_state.Snapshot();
-          ForwardInput(input_parser.FlushPending(), client,
-                       viewport_snapshot, options, &evidence,
-                       &quit_requested);
+          dispatch_input(input_parser.FlushPending());
         }
       }
       if (quit_requested) {
@@ -971,7 +1295,7 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
         evidence.exit_reason = "max-frames";
         break;
       }
-      if (client->load_error_code() != 0) {
+      if (!options.terminal_output && client->load_error_code() != 0) {
         evidence.exit_reason = "load-error";
         result = 5;
         break;
@@ -1066,8 +1390,7 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
       if ((evidence.input_hex_sent || evidence.input_script_sent) &&
           next_synthetic_event < synthetic_event_queue.size() &&
           now >= next_synthetic_event_at) {
-        ForwardInput({synthetic_event_queue[next_synthetic_event]}, client,
-                     viewport_snapshot, options, &evidence, &quit_requested);
+        dispatch_input({synthetic_event_queue[next_synthetic_event]});
         ++next_synthetic_event;
         next_synthetic_event_at = now + std::chrono::milliseconds(60);
       }
@@ -1105,8 +1428,27 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
         break;
       }
 
+      const auto browser_status = client->Status();
+      if (options.terminal_output &&
+          (command_changed || browser_status.revision != status_revision)) {
+        status_revision = browser_status.revision;
+        show_status = true;
+        status_until = now + std::chrono::seconds(6);
+        scheduler.RequestRefresh();
+      }
+      command_changed = false;
+      if (show_status && !commands.active() && now >= status_until) {
+        show_status = false;
+        scheduler.RequestRefresh();
+      }
+
+      if (options.full_repaint_ms > 0 && now >= next_full_repaint) {
+        force_full_repaint = true;
+        scheduler.RequestRefresh();
+        next_full_repaint = now + std::chrono::milliseconds(options.full_repaint_ms);
+      }
       scheduler.ObserveSource(state.presentation_generation);
-      if (!scheduler.Ready(now)) {
+      if (!terminal_geometry_usable || !scheduler.Ready(now)) {
         ++evidence.idle_iterations;
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
         continue;
@@ -1127,7 +1469,7 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
         continue;
       }
 
-      const auto conversion_started = Clock::now();
+      const auto conversion_started = options.telemetry_enabled ? Clock::now() : Clock::time_point{};
       const auto composed = asciiomium::browser::ComposeViewAndPopup(
           presentation.view, presentation.popup);
       if (composed.width != viewport_snapshot.transform->browser_width() ||
@@ -1144,45 +1486,129 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
           asciiomium::render::PixelFormat::BGRA8};
       auto terminal_frame = asciiomium::render::RenderHalfBlock(
           source_view, *viewport_snapshot.transform, render_config);
-      const auto conversion_finished = Clock::now();
+      if (options.terminal_output && (show_status || commands.active())) {
+        // Transient, one-row overlay: no viewport reservation or altered mouse
+        // coordinate transform. Pointer events are consumed during command entry.
+        std::string line;
+        if (commands.active()) line = ": " + commands.text() + "_";
+        else {
+          line = browser_status.loading ? "Loading " : "Ready ";
+          if (!browser_status.notice.empty()) line = browser_status.notice + " | ";
+          line += browser_status.url + " | " + browser_status.title + " | Ctrl+Alt+O commands";
+        }
+        line = asciiomium::browser::TerminalSafeText(line, static_cast<std::size_t>(terminal_frame.columns()));
+        auto cells = terminal_frame.cells();
+        for (int column = 0; column < terminal_frame.columns(); ++column) {
+          auto& cell = cells[static_cast<std::size_t>(terminal_frame.rows() - 1) *
+                             terminal_frame.columns() + column];
+          cell.glyph = column < static_cast<int>(line.size()) ? static_cast<unsigned char>(line[column]) : U' ';
+          cell.foreground = asciiomium::render::TerminalColor::Rgb({255, 255, 255});
+          cell.background = asciiomium::render::TerminalColor::Rgb({24, 44, 64});
+        }
+        terminal_frame = asciiomium::render::TerminalFrame(terminal_frame.columns(), terminal_frame.rows(), std::move(cells));
+      }
+      const auto conversion_finished = options.telemetry_enabled ? Clock::now() : Clock::time_point{};
 
-      const auto serialization_started = conversion_finished;
-      auto emission =
-          asciiomium::terminal::SerializeFullFrame(terminal_frame);
-      const auto serialization_finished = Clock::now();
-
-      const auto write_started = serialization_finished;
-      if (terminal_session) {
-        terminal_session->Write(emission.bytes);
+      // Comparison is opt-in: both paths consume the same immutable logical
+      // frame, so CSS animation scheduling cannot confound the byte comparison.
+      asciiomium::terminal::DifferentialPlan plan;
+      asciiomium::terminal::DifferentialEmission delta;
+      const auto planning_started = options.telemetry_enabled ? Clock::now() : Clock::time_point{};
+      if (options.differential_output || options.compare_emitter) {
+        plan = asciiomium::terminal::PlanDifferentialFrame(
+            have_terminal_frame ? &last_terminal_frame : nullptr,
+            terminal_frame, force_full_repaint);
+      }
+      const auto planning_finished = options.telemetry_enabled ? Clock::now() : Clock::time_point{};
+      if (options.differential_output || options.compare_emitter) {
+        delta = asciiomium::terminal::SerializeDifferentialFrame(terminal_frame, plan);
+      }
+      const auto differential_finished = options.telemetry_enabled ? Clock::now() : Clock::time_point{};
+      std::string full_bytes;
+      if (!options.differential_output || options.compare_emitter) {
+        full_bytes = asciiomium::terminal::SerializeFullFrame(terminal_frame).bytes;
+        if (force_full_repaint) {
+          full_bytes.insert(0, std::string(asciiomium::terminal::kResetSgr) +
+                                  asciiomium::terminal::kClearScreen);
+        }
+      }
+      const auto full_finished = options.telemetry_enabled ? Clock::now() : Clock::time_point{};
+      if (options.compare_emitter) {
+        evidence.reference_full_bytes += full_bytes.size();
+        evidence.reference_differential_bytes += delta.bytes.size();
+        if (options.telemetry_enabled) {
+          evidence.full_reference_timing.AddMilliseconds(
+              Milliseconds(differential_finished, full_finished));
+        }
+      }
+      const bool reconstructing = force_full_repaint;
+      std::string payload = options.differential_output ? std::move(delta.bytes)
+                                                       : std::move(full_bytes);
+      const auto write_started = options.telemetry_enabled ? Clock::now() : Clock::time_point{};
+      if (terminal_session && !payload.empty()) {
+        terminal_session->Write(payload);
       }
       const auto write_finished = Clock::now();
+      // The previous frame remains trusted only after Write succeeds. A partial
+      // write exception leaves it unchanged and follows the existing teardown.
+      force_full_repaint = false;
+      evidence.total_vt_bytes += payload.size();
+      evidence.last_vt_bytes = payload.size();
+      if (payload.empty()) ++evidence.empty_payload_frames;
+      if (reconstructing) ++evidence.full_reconstructions;
+      evidence.written_cells += options.differential_output ? plan.written_cells : terminal_frame.size();
+      evidence.emitted_runs += options.differential_output ? plan.runs.size()
+                                                         : static_cast<std::size_t>(terminal_frame.rows());
+      if (options.differential_output || options.compare_emitter) {
+        evidence.changed_cells += plan.changed_cells;
+        evidence.changed_runs += plan.changed_runs;
+        if (options.telemetry_enabled) {
+          evidence.differential_planning_timing.AddMilliseconds(
+              Milliseconds(planning_started, planning_finished));
+          evidence.differential_serialization_timing.AddMilliseconds(
+              Milliseconds(planning_finished, differential_finished));
+        }
+      }
 
-      evidence.conversion_timing.AddMilliseconds(
-          Milliseconds(conversion_started, conversion_finished));
-      evidence.serialization_timing.AddMilliseconds(
-          Milliseconds(serialization_started, serialization_finished));
-      evidence.write_timing.AddMilliseconds(
-          Milliseconds(write_started, write_finished));
+      if (options.telemetry_enabled) {
+        evidence.conversion_timing.AddMilliseconds(
+            Milliseconds(conversion_started, conversion_finished));
+        evidence.serialization_timing.AddMilliseconds(options.differential_output
+            ? Milliseconds(planning_finished, differential_finished)
+            : Milliseconds(differential_finished, full_finished));
+        if (terminal_session && !payload.empty()) {
+          evidence.write_timing.AddMilliseconds(Milliseconds(write_started, write_finished));
+        }
+      }
       if (composed.popup_composited) {
         ++evidence.popup_composited_frames;
       }
 
+      if (presentation.presentation_generation > scheduler.stats().last_rendered_source_generation) {
+        ++evidence.distinct_generations_rendered;
+      }
       scheduler.MarkRendered(write_finished,
                              presentation.presentation_generation);
-      scheduler.MarkEmitted();
-
-      last_vt_payload = std::move(emission.bytes);
-      evidence.last_vt_bytes = last_vt_payload.size();
+      if (!payload.empty()) scheduler.MarkEmitted();
       last_terminal_frame = std::move(terminal_frame);
       have_terminal_frame = true;
     }
 
-    evidence.duration_seconds =
-        std::chrono::duration<double>(Clock::now() - started).count();
   } catch (const std::exception& error) {
-    std::cerr << "Live render loop failed: " << error.what() << '\n';
+    deferred_error = "Live render loop failed: " + std::string(error.what());
     evidence.exit_reason = "exception";
     result = 6;
+  }
+
+  // Finalize at the render-loop boundary, before closure can add more paints
+  // or process work. This also records a useful partial interval after errors.
+  if (measurement_started) {
+    evidence.duration_seconds = std::chrono::duration<double>(Clock::now() - *measurement_started).count();
+    evidence.measurement_source_end = frame_store->SnapshotState();
+    if (options.telemetry_enabled) {
+      evidence.process_measurement = asciiomium::runtime::MeasureProcess(
+          process_start, asciiomium::runtime::ReadProcessSnapshot(), evidence.duration_seconds);
+    }
   }
 
   evidence.load_complete = client->load_complete();
@@ -1190,25 +1616,42 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
   evidence.load_error = client->load_error_code();
   evidence.load_error_text = client->load_error_text();
   evidence.failed_url = client->failed_url();
+  evidence.browser_status = client->Status();
 
   client->CloseBrowser();
   const auto close_deadline = Clock::now() + std::chrono::seconds(5);
   while (!client->closed() && Clock::now() < close_deadline) {
     CefDoMessageLoopWork();
+    client->CloseBrowser();  // Service pending creation after its stack unwinds.
     std::this_thread::sleep_for(std::chrono::milliseconds(5));
   }
   evidence.closed_cleanly = client->closed();
+  evidence.callback_status = client->callback_status();
+  if (evidence.callback_status.failed() && result == 0) {
+    evidence.exit_reason = "callback_error";
+    result = 6;
+  }
   if (!evidence.closed_cleanly && result == 0) {
-    std::cerr << "CEF browser did not close before shutdown deadline\n";
+    deferred_error = "CEF browser did not close before shutdown deadline";
     result = 7;
   }
 
   if (terminal_session) {
-    terminal_session->Restore();
-    evidence.terminal_restored = true;
+    evidence.terminal_restoration = terminal_session->Restore();
     terminal_session.reset();
-  } else {
-    evidence.terminal_restored = true;
+  }
+  // Keep the legacy boolean for headless readers: no terminal state needed
+  // restoration there. The additive detail distinguishes that case from an
+  // observed successful cleanup, including constructor rollback.
+  evidence.terminal_restored = !options.terminal_output ||
+                              evidence.terminal_restoration.succeeded();
+  if (!evidence.terminal_restored) {
+    if (!deferred_error.empty()) deferred_error += '\n';
+    deferred_error += "Terminal restoration incomplete (failed steps " +
+                      std::to_string(evidence.terminal_restoration.failed_steps) +
+                      ", first OS error " +
+                      std::to_string(evidence.terminal_restoration.first_error) + ")";
+    if (result == 0) result = 11;
   }
 
   evidence.source_state = frame_store->SnapshotState();
@@ -1220,7 +1663,33 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
   evidence.scheduler = scheduler.stats();
 
   client = nullptr;
-  CefShutdown();
+  if (!cef_session.Shutdown(&evidence.callback_status)) {
+    std::cerr << "CEF shutdown timed out; terminal restoration "
+              << (evidence.terminal_restored ? "completed" : "incomplete")
+              << ", active private data retained.\n";
+    std::_Exit(7);
+  }
+  if (evidence.callback_status.failed() && result == 0) {
+    evidence.exit_reason = "callback_error";
+    result = 6;
+  }
+  evidence.profile_cleanup = profile.Finish();
+  evidence.profile_cleanup_deferred = profile.cleanup_deferred();
+  if (evidence.profile_cleanup_deferred) evidence.profile_cleanup = false;
+  evidence.profile_cleanup_attempts = profile.cleanup_attempts();
+  evidence.profile_cleanup_error = profile.cleanup_error_code();
+  if (!evidence.profile_cleanup && !evidence.profile_cleanup_deferred) {
+    std::cerr << "Private browser data cleanup failed (OS error " << profile.cleanup_error_code()
+              << "); temporary data remains at " << CefString(profile.root().wstring()).ToString() << '\n';
+    if (result == 0) result = 10;
+  }
+  if (!deferred_error.empty()) std::cerr << deferred_error << '\n';
+  if (evidence.callback_status.failed()) {
+    std::cerr << "CEF callback failed: "
+              << asciiomium::browser::CallbackFailureName(evidence.callback_status.first_failure)
+              << "; rejected paints=" << evidence.callback_status.paint_failures
+              << ", suppressed paints=" << evidence.callback_status.suppressed_paints << '\n';
+  }
 
   if (!have_terminal_frame && result == 0) {
     std::cerr << "No terminal frame was produced\n";
@@ -1232,8 +1701,12 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
       WriteTerminalFrameSvg(options.evidence_svg, last_terminal_frame);
     }
     if (!options.vt_output.empty() && have_terminal_frame) {
-      WriteBinaryFile(options.vt_output, last_vt_payload);
+      // A final delta alone is not replayable. This evidence artifact always
+      // remains a standalone reference-frame snapshot, regardless of live mode.
+      WriteBinaryFile(options.vt_output,
+                      asciiomium::terminal::SerializeFullFrame(last_terminal_frame).bytes);
     }
+    evidence.runtime_result = result;
     WriteReport(options.report, options, evidence);
   } catch (const std::exception& error) {
     std::cerr << "Failed to write live evidence: " << error.what() << '\n';
@@ -1247,9 +1720,11 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
               << " coalesced="
               << evidence.scheduler.coalesced_source_generations
               << " conversion_avg_ms=" << std::fixed << std::setprecision(3)
-              << evidence.conversion_timing.average_ms()
+              << (options.telemetry_enabled && evidence.conversion_timing.count() > 0
+                      ? std::to_string(evidence.conversion_timing.average_ms()) : "unavailable")
               << " conversion_p95_ms="
-              << evidence.conversion_timing.percentile_ms(0.95)
+              << (options.telemetry_enabled && evidence.conversion_timing.count() > 0
+                      ? std::to_string(evidence.conversion_timing.percentile_ms(0.95)) : "unavailable")
               << " geometry_gen=" << evidence.geometry_generation
               << " exit=" << evidence.exit_reason << '\n';
   }
@@ -1261,12 +1736,24 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args) {
 
 int main(int argc, char** argv) {
   CefMainArgs main_args(GetModuleHandle(nullptr));
+  CefRefPtr<CefApp> app(new asciiomium::browser::RuntimeApp);
 
   // This executable also services Chromium renderer/GPU/utility subprocesses.
   // Subprocesses must exit before terminal ownership or CLI validation occurs.
-  const int subprocess_exit = CefExecuteProcess(main_args, nullptr, nullptr);
+  const int subprocess_exit = CefExecuteProcess(main_args, app, nullptr);
   if (subprocess_exit >= 0) {
     return subprocess_exit;
+  }
+  if (argc == 2 && (std::string_view(argv[1]) == "--version" || std::string_view(argv[1]) == "-V")) {
+    const auto info = asciiomium::GetBuildInfo();
+    std::cout << asciiomium::FormatBuildInfo(info) << '\n';
+    return info.cef_runtime_matches_headers ? 0 : 2;
+  }
+
+  try { asciiomium::browser::InitializePrivateWorker(); }
+  catch (const std::exception& error) {
+    std::cerr << "Private worker initialization failed: " << error.what() << '\n';
+    return 1;
   }
 
   Options options;
@@ -1276,7 +1763,11 @@ int main(int argc, char** argv) {
   }
 
   try {
-    return BrowserProcessMain(options, main_args);
+    if (options.private_mode && asciiomium::browser::PrivateWorkerRoot().empty())
+      return asciiomium::browser::RunPrivateProcess(options.report, asciiomium::browser::ProcessArguments());
+    if (!asciiomium::browser::PrivateWorkerRoot().empty())
+      options.report = asciiomium::browser::PrivateWorkerRoot() / asciiomium::browser::kPrivateWorkerReportFilename;
+    return BrowserProcessMain(options, main_args, app);
   } catch (const std::exception& error) {
     std::cerr << "ASCIIomium live failed: " << error.what() << '\n';
     return 1;

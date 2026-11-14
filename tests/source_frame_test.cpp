@@ -3,6 +3,7 @@
 #include <vector>
 
 #include "browser/source_frame.h"
+#include "test_diagnostics.h"
 
 namespace {
 
@@ -18,6 +19,8 @@ void Require(bool condition, const char* message) {
 }  // namespace
 
 int main() {
+  test_diagnostics::Configure();
+  test_diagnostics::Stage("source frame storage");
   using asciiomium::browser::DirtyRect;
   using asciiomium::browser::SourceFrameStore;
 
