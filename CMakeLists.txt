@@ -342,21 +342,9 @@ asciiomium_stage_cef_browser_runtime(asciiomium_runtime_probe)
 
 enable_testing()
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
-<<<<<<< HEAD
 add_test(NAME runtime_process_evidence
   COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/runtime_process_test.py")
 set_tests_properties(runtime_process_evidence PROPERTIES TIMEOUT 60)
-add_test(NAME build_identity_refresh
-  COMMAND "${CMAKE_COMMAND}"
-    "-DTEST_SOURCE_ROOT=${CMAKE_CURRENT_SOURCE_DIR}"
-    "-DTEST_BINARY_ROOT=${CMAKE_CURRENT_BINARY_DIR}/identity-regression"
-    "-DTEST_GENERATOR=${CMAKE_GENERATOR}"
-    "-DTEST_GENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}"
-    "-DTEST_BUILD_CONFIG=$<CONFIG>"
-    "-P" "${CMAKE_CURRENT_SOURCE_DIR}/tests/build_identity_test.cmake")
-set_tests_properties(build_identity_refresh PROPERTIES TIMEOUT 120)
-||||||| 88195b1
-=======
 add_test(NAME package_inventory
   COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/package_inventory_test.py")
 add_test(NAME build_identity_refresh
@@ -367,7 +355,7 @@ add_test(NAME build_identity_refresh
     "-DTEST_GENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}"
     "-DTEST_BUILD_CONFIG=$<CONFIG>"
     "-P" "${CMAKE_CURRENT_SOURCE_DIR}/tests/build_identity_test.cmake")
->>>>>>> refs/remotes/origin/issue-17-portable-windows
+set_tests_properties(build_identity_refresh PROPERTIES TIMEOUT 120)
 
 add_executable(asciiomium_tests tests/build_info_test.cpp)
 target_link_libraries(asciiomium_tests PRIVATE asciiomium_build_info CEF::libcef)
