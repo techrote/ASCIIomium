@@ -54,6 +54,10 @@ jobs:
             done < /tmp/p0-conflicts.txt
             echo '::endgroup::'
           fi
+          # The workflow-restricted Actions token cannot update bootstrap-windows.yml.
+          # Preserve its auto-merged contents as ordinary text for an authorised API write.
+          cp .github/workflows/bootstrap-windows.yml tools/p0-bootstrap-merged.txt
+          git show HEAD:.github/workflows/bootstrap-windows.yml > .github/workflows/bootstrap-windows.yml
           git add -A
           git -c user.name='ASCIIomium P0 integration' commit -m "P0 mechanical merge $ref (manual conflict reconciliation required where marked)"
           git push origin HEAD:refs/heads/p0-integration-rc-2026-11-14
