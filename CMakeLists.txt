@@ -34,7 +34,6 @@ endforeach()
 
 include(cmake/BuildIdentity.cmake)
 include(cmake/AcquireCEF.cmake)
-include(cmake/BuildIdentity.cmake)
 asciiomium_acquire_cef(CEF_ROOT)
 
 # Issue #8 begins using CEF's C++ wrapper library. Load the official CMake
@@ -62,15 +61,12 @@ set_target_properties(CEF::libcef PROPERTIES
   IMPORTED_IMPLIB_RELEASE "${CEF_ROOT}/Release/libcef.lib"
   INTERFACE_INCLUDE_DIRECTORIES "${CEF_ROOT}")
 
-# Refresh Git/fixture identity at every build, including incremental rebuilds.
-include(cmake/BuildIdentity.cmake)
-
+# Build identity is refreshed before every dependent compilation.
 add_library(asciiomium_build_info STATIC
   src/app/build_info.cpp
   src/app/build_info.h)
 asciiomium_add_build_identity(asciiomium_build_info)
 target_include_directories(asciiomium_build_info PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
-asciiomium_add_build_identity(asciiomium_build_info)
 target_link_libraries(asciiomium_build_info PRIVATE CEF::libcef)
 target_compile_features(asciiomium_build_info PUBLIC cxx_std_20)
 target_compile_definitions(asciiomium_build_info PRIVATE
