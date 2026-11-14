@@ -1,0 +1,10 @@
+{
+"schema":"asciiomium-differential-benchmark-v1",
+"source":"paired-synthetic-terminal-frames-v1",
+"terminal":{"columns":160,"rows":50},
+"color_mode":"1024",
+"nominal_fps":20,
+"timing_scope":"all samples, percentile index ceil(p*(N-1)); no terminal writes",
+"results":[{"scenario":"synthetic-static","frames":240,"nominal_playback_seconds":12.000000,"measured_compute_seconds":0.113890,"full_bytes":6275040,"differential_bytes":26154,"full_bytes_per_frame":26146.000000,"differential_bytes_per_frame":108.975000,"full_bytes_per_nominal_second":522920.000000,"differential_bytes_per_nominal_second":2179.500000,"differential_to_full_ratio":0.004168,"initial_full_bytes":26146,"initial_differential_bytes":26154,"steady_full_bytes":6248894,"steady_differential_bytes":0,"changed_cells":8000,"changed_runs":50,"written_cells":8000,"emitted_runs":50,"empty_frames":239,"timing":{"full_serialization":{"mean_ms":0.156498,"p50_ms":0.128324,"p95_ms":0.271571,"sample_count":240},"differential_planning":{"mean_ms":0.034904,"p50_ms":0.031517,"p95_ms":0.052580,"sample_count":240},"differential_serialization":{"mean_ms":0.001233,"p50_ms":0.000030,"p95_ms":0.000050,"sample_count":240}}},
+{"scenario":"synthetic-moving-12x5-patch","frames":240,"nominal_playback_seconds":12.000000,"measured_compute_seconds":0.116256,"full_bytes":6355680,"differential_bytes":152804,"full_bytes_per_frame":26482.000000,"differential_bytes_per_frame":636.683333,"full_bytes_per_nominal_second":529640.000000,"differential_bytes_per_nominal_second":12733.666667,"differential_to_full_ratio":0.024042,"initial_full_bytes":26401,"initial_differential_bytes":26409,"steady_full_bytes":6329279,"steady_differential_bytes":126395,"changed_cells":16214,"changed_runs":2440,"written_cells":16214,"emitted_runs":2440,"empty_frames":0,"timing":{"full_serialization":{"mean_ms":0.160423,"p50_ms":0.131919,"p95_ms":0.275687,"sample_count":240},"differential_planning":{"mean_ms":0.039271,"p50_ms":0.032629,"p95_ms":0.082795,"sample_count":240},"differential_serialization":{"mean_ms":0.009960,"p50_ms":0.005959,"p95_ms":0.008573,"sample_count":240}}}]
+}

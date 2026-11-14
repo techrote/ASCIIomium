@@ -104,6 +104,39 @@ For deterministic CI/benchmark runs, `--no-terminal` executes the same CEF → p
 
 See [`docs/LIVE_PIPELINE.md`](docs/LIVE_PIPELINE.md) for scheduling, popup composition, diagnostics and shutdown contracts.
 
+### Differential output (opt-in)
+
+`--emitter differential` emits changed terminal-cell runs using cursor/SGR/glyph
+byte costs; `--emitter full` remains the default reference path. Use
+`--full-repaint-ms 10000` for periodic reconstruction after possible output
+corruption. Resize always reconstructs. `--vt-output` remains a standalone
+full-frame snapshot even when the live output is differential.
+
+For measured comparisons, add `--compare-emitter --duration-ms 4000 --report
+build/differential.json`; both serializers then consume the identical logical
+frames, with their additional comparison work reported separately. Headless
+differential sessions require a positive duration because unchanged frames
+produce no nonempty output to advance `--max-frames`.
+
+See [`docs/DIFFERENTIAL_OUTPUT.md`](docs/DIFFERENTIAL_OUTPUT.md) for the replay
+tests, 160x50 byte benchmarks, CEF qualification command, metric definitions and
+outstanding physical Windows Terminal gate.
+
+
+### Bounded runtime benchmarks
+
+`--benchmark 30s --report build/benchmark.json` runs for a bounded interval and
+adds versioned telemetry to the existing live report. Use `--no-terminal` for
+CEF/serialization benchmarks; real terminal-write measurements then remain
+null. `--telemetry off` disables stage timers and process probes while retaining
+normal frame scheduling and byte accounting.
+
+Reports include build/source/CEF/Chromium identity, reproducible render settings,
+whole-run means, explicitly bounded p50/p95 windows, source/render/output
+counters, differential bandwidth and Windows browser-process resource samples.
+See [`docs/RUNTIME_TELEMETRY.md`](docs/RUNTIME_TELEMETRY.md) for exact measurement
+scopes, the overhead benchmark and qualification commands.
+
 ## Earlier diagnostics
 
 Exercise the terminal layer from Windows Terminal:
