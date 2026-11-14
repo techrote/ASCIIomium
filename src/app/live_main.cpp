@@ -25,7 +25,6 @@
 
 #include "app/build_info.h"
 #include "browser/cef_key_translator.h"
-#include "app/build_info.h"
 #include "app/resource_paths.h"
 #include "browser/cef_pointer_translator.h"
 #include "browser/browser_commands.h"
@@ -703,12 +702,8 @@ void WriteReport(const std::filesystem::path& path,
   out << std::fixed << std::setprecision(6)
       << "{\n"
       << "  \"schema\":\"asciiomium-live-v1\",\n"
-<<<<<<< HEAD
       << "  \"fixture_resolution\":\"" << (options.url.empty() ? "executable-relative" : "explicit-url") << "\",\n"
-||||||| dbae542
-=======
       << "  \"telemetry\":" << asciiomium::runtime::SerializeTelemetry(MakeTelemetryReport(options, evidence)) << ",\n"
->>>>>>> refs/remotes/origin/issue-15-structured-telemetry
       << "  \"cef_compile\":\"" << JsonEscape(CEF_VERSION) << "\",\n"
       << "  \"cef_runtime\":\"" << CefRuntimeVersion() << "\",\n"
       << "  \"chromium_runtime\":\"" << ChromiumRuntimeVersion() << "\",\n"
@@ -1077,15 +1072,9 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args,
 
   int result = 0;
   LiveEvidence evidence;
-<<<<<<< HEAD
+  evidence.build_info = asciiomium::GetBuildInfo();
   evidence.url = initial_url;
   evidence.private_mode = profile.private_mode();
-||||||| dbae542
-  evidence.url = ResolveUrl(options);
-=======
-  evidence.build_info = asciiomium::GetBuildInfo();
-  evidence.url = ResolveUrl(options);
->>>>>>> refs/remotes/origin/issue-15-structured-telemetry
 
   auto frame_store = std::make_shared<asciiomium::browser::SourceFrameStore>();
   CefRefPtr<asciiomium::browser::OsrClient> client(
@@ -1255,8 +1244,9 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args,
       }
       ForwardInput(events, client,
                    terminal_geometry_usable ? viewport_snapshot
-                                            : asciiomium::geometry::ViewportSnapshot{},
-                   options, &evidence, &quit_requested);
+                                             : asciiomium::geometry::ViewportSnapshot{},
+                   options, &evidence, &commands, &command_changed,
+                   show_status, &quit_requested);
     };
 
     while (true) {
@@ -1282,36 +1272,12 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args,
           refresh_terminal_geometry();
           viewport_snapshot = viewport_state.Snapshot();
           last_input_byte_at = now;
-<<<<<<< HEAD
-          ForwardInput(input_parser.Feed(input_bytes), client,
-                       viewport_snapshot, options, &evidence,
-                       &commands, &command_changed,
-                       show_status,
-                       &quit_requested);
-||||||| dbae542
-          ForwardInput(input_parser.Feed(input_bytes), client,
-                       viewport_snapshot, options, &evidence,
-                       &quit_requested);
-=======
           dispatch_input(input_parser.Feed(input_bytes));
->>>>>>> refs/remotes/origin/issue-15-structured-telemetry
         } else if (input_parser.has_pending() &&
                    now - last_input_byte_at >=
                        std::chrono::milliseconds(35)) {
           viewport_snapshot = viewport_state.Snapshot();
-<<<<<<< HEAD
-          ForwardInput(input_parser.FlushPending(), client,
-                       viewport_snapshot, options, &evidence,
-                       &commands, &command_changed,
-                       show_status,
-                       &quit_requested);
-||||||| dbae542
-          ForwardInput(input_parser.FlushPending(), client,
-                       viewport_snapshot, options, &evidence,
-                       &quit_requested);
-=======
           dispatch_input(input_parser.FlushPending());
->>>>>>> refs/remotes/origin/issue-15-structured-telemetry
         }
       }
       if (quit_requested) {
@@ -1424,16 +1390,7 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args,
       if ((evidence.input_hex_sent || evidence.input_script_sent) &&
           next_synthetic_event < synthetic_event_queue.size() &&
           now >= next_synthetic_event_at) {
-<<<<<<< HEAD
-        ForwardInput({synthetic_event_queue[next_synthetic_event]}, client,
-                     viewport_snapshot, options, &evidence, &commands,
-                     &command_changed, show_status, &quit_requested);
-||||||| dbae542
-        ForwardInput({synthetic_event_queue[next_synthetic_event]}, client,
-                     viewport_snapshot, options, &evidence, &quit_requested);
-=======
         dispatch_input({synthetic_event_queue[next_synthetic_event]});
->>>>>>> refs/remotes/origin/issue-15-structured-telemetry
         ++next_synthetic_event;
         next_synthetic_event_at = now + std::chrono::milliseconds(60);
       }
@@ -1471,7 +1428,6 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args,
         break;
       }
 
-<<<<<<< HEAD
       const auto browser_status = client->Status();
       if (options.terminal_output &&
           (command_changed || browser_status.revision != status_revision)) {
@@ -1486,14 +1442,11 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args,
         scheduler.RequestRefresh();
       }
 
-||||||| dbae542
-=======
       if (options.full_repaint_ms > 0 && now >= next_full_repaint) {
         force_full_repaint = true;
         scheduler.RequestRefresh();
         next_full_repaint = now + std::chrono::milliseconds(options.full_repaint_ms);
       }
->>>>>>> refs/remotes/origin/issue-15-structured-telemetry
       scheduler.ObserveSource(state.presentation_generation);
       if (!terminal_geometry_usable || !scheduler.Ready(now)) {
         ++evidence.idle_iterations;
@@ -1533,7 +1486,6 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args,
           asciiomium::render::PixelFormat::BGRA8};
       auto terminal_frame = asciiomium::render::RenderHalfBlock(
           source_view, *viewport_snapshot.transform, render_config);
-<<<<<<< HEAD
       if (options.terminal_output && (show_status || commands.active())) {
         // Transient, one-row overlay: no viewport reservation or altered mouse
         // coordinate transform. Pointer events are consumed during command entry.
@@ -1555,12 +1507,7 @@ int BrowserProcessMain(const Options& options, const CefMainArgs& main_args,
         }
         terminal_frame = asciiomium::render::TerminalFrame(terminal_frame.columns(), terminal_frame.rows(), std::move(cells));
       }
-      const auto conversion_finished = Clock::now();
-||||||| dbae542
-      const auto conversion_finished = Clock::now();
-=======
       const auto conversion_finished = options.telemetry_enabled ? Clock::now() : Clock::time_point{};
->>>>>>> refs/remotes/origin/issue-15-structured-telemetry
 
       // Comparison is opt-in: both paths consume the same immutable logical
       // frame, so CSS animation scheduling cannot confound the byte comparison.

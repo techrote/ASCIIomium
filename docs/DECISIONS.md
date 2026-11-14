@@ -147,7 +147,6 @@ browser content are rejected rather than assigned synthetic sub-cell or
 letterbox coordinates. Mouse tracking is RAII-owned and must be disabled during
 terminal restoration.
 
-<<<<<<< HEAD
 ## D-018 — Explicit profile ownership and temporary browser commands
 
 **Status:** implemented; Windows CI and physical command-row qualification are
@@ -170,6 +169,49 @@ be removed and cleanup reported successful. The pipe/environment protocol carrie
 only a root created by that supervisor, never an arbitrary deletion target.
 Startup `--disable-logging` complements the severity setting because this CEF
 pin otherwise creates a fatal-level diagnostic file. See `BROWSER_RUNTIME.md`.
+
+## D-019 — Opt-in differential output with explicit invalidation
+
+**Status:** implemented; full-frame output remains the live default pending
+Windows Terminal physical qualification.
+
+Issue #14 plans changes from the last successfully written logical frame.
+Within-row gap decisions include cursor, colour and UTF-8 byte costs, including
+the next changed cell's SGR transition. The planner uses bounded frame-sized
+storage and preserves newest-frame scheduling. Serialization resets SGR and
+cursor state at each nonempty payload boundary. Initial/geometry/forced
+reconstruction resets, clears and writes the complete frame; empty trusted
+deltas write nothing. Write failure never advances the trusted reference.
+
+The full-frame serializer remains the correctness oracle and the output of
+`--vt-output`. Live mode selection is explicit; a diagnostic interval can force
+reconstruction even without source paints. Paired comparison on the same frames
+is opt-in because it adds work. One-cell printable glyph semantics are retained;
+no arbitrary Unicode-width or style engine is introduced. Details and evidence:
+`docs/DIFFERENTIAL_OUTPUT.md`.
+
+## D-020 — Bounded, explicit runtime telemetry and benchmark identity
+
+**Status:** implemented; Windows qualification evidence is recorded separately.
+
+Issue #15 adds an `asciiomium-runtime-telemetry-v1` section without replacing the
+existing live/offline report schemas. Timing means cover all accepted samples;
+p50/p95 cover the last 2,048, with counts, scopes and index formula included.
+Unavailable measurements/rates in the new section are null, including actual
+writes in headless runs; old numeric timing fields retain explicitly unavailable
+compatibility placeholders. Empty deltas remain rendered opportunities without nonempty emissions.
+
+Source counters and process endpoints are taken at the render-loop boundary,
+before shutdown. Windows process metrics cover the browser process only; CPU
+percentages use counter-sample clock intervals, and lifetime peak memory is
+identified as such. Per-frame telemetry uses bounded histories; an explicit
+switch disables stage timers and process probes while preserving scheduler
+clocks and functional counters. JSON/percentile work occurs after measurement.
+
+Build identity is refreshed through a generated header before each BuildInfo
+build. This prevents edit/rebuild or commit/rebuild from retaining stale clean
+provenance. The same CMake helper is exercised by an isolated incremental-build
+regression. Details, CLI and schema: `docs/RUNTIME_TELEMETRY.md`.
 
 ## D-021 — Source-bound portable package from a verified dependency archive
 
@@ -239,48 +281,3 @@ diagnostic does not claim a live worker. A cancellation request alone never
 counts as completion. Console setter
 ownership is recorded before an attempted change so failure after mutation
 still triggers rollback. See [the focused design and tests](TERMINAL_INPUT.md).
-||||||| dbae542
-=======
-## D-019 — Opt-in differential output with explicit invalidation
-
-**Status:** implemented; full-frame output remains the live default pending
-Windows Terminal physical qualification.
-
-Issue #14 plans changes from the last successfully written logical frame.
-Within-row gap decisions include cursor, colour and UTF-8 byte costs, including
-the next changed cell's SGR transition. The planner uses bounded frame-sized
-storage and preserves newest-frame scheduling. Serialization resets SGR and
-cursor state at each nonempty payload boundary. Initial/geometry/forced
-reconstruction resets, clears and writes the complete frame; empty trusted
-deltas write nothing. Write failure never advances the trusted reference.
-
-The full-frame serializer remains the correctness oracle and the output of
-`--vt-output`. Live mode selection is explicit; a diagnostic interval can force
-reconstruction even without source paints. Paired comparison on the same frames
-is opt-in because it adds work. One-cell printable glyph semantics are retained;
-no arbitrary Unicode-width or style engine is introduced. Details and evidence:
-`docs/DIFFERENTIAL_OUTPUT.md`.
-
-## D-020 — Bounded, explicit runtime telemetry and benchmark identity
-
-**Status:** implemented; Windows qualification evidence is recorded separately.
-
-Issue #15 adds an `asciiomium-runtime-telemetry-v1` section without replacing the
-existing live/offline report schemas. Timing means cover all accepted samples;
-p50/p95 cover the last 2,048, with counts, scopes and index formula included.
-Unavailable measurements/rates in the new section are null, including actual
-writes in headless runs; old numeric timing fields retain explicitly unavailable
-compatibility placeholders. Empty deltas remain rendered opportunities without nonempty emissions.
-
-Source counters and process endpoints are taken at the render-loop boundary,
-before shutdown. Windows process metrics cover the browser process only; CPU
-percentages use counter-sample clock intervals, and lifetime peak memory is
-identified as such. Per-frame telemetry uses bounded histories; an explicit
-switch disables stage timers and process probes while preserving scheduler
-clocks and functional counters. JSON/percentile work occurs after measurement.
-
-Build identity is refreshed through a generated header before each BuildInfo
-build. This prevents edit/rebuild or commit/rebuild from retaining stale clean
-provenance. The same CMake helper is exercised by an isolated incremental-build
-regression. Details, CLI and schema: `docs/RUNTIME_TELEMETRY.md`.
->>>>>>> refs/remotes/origin/issue-15-structured-telemetry

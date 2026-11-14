@@ -15,7 +15,7 @@ jobs:
     timeout-minutes: 45
 
     steps:
-      - name: Checkout
+      - name: Checkout exact source
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -40,7 +40,7 @@ jobs:
 
       - name: Build Debug
         shell: pwsh
-        run: cmake --build build --config Debug --target asciiomium asciiomium_live asciiomium_tests terminal_logic_tests terminal_console_smoke terminal_lifecycle_tests terminal_input_tests terminal_input_console full_frame_emitter_tests vt_console_smoke render_golden_tests color_quantizer_tests benchmark_result_tests input_parser_tests browser_commands_tests profile_session_tests private_process_tests asciiomium_runtime_probe cef_key_translator_tests cef_pointer_translator_tests fixture_observation_tests source_frame_tests callback_boundary_tests osr_callback_tests live_runtime_tests viewport_transform_tests asciiomium_frame_dump asciiomium_color_ramp asciiomium_vt_preview asciiomium_benchmark asciiomium_cef_capture --parallel
+        run: cmake --build build --config Debug --target asciiomium asciiomium_live asciiomium_tests terminal_logic_tests terminal_console_smoke terminal_lifecycle_tests terminal_input_tests terminal_input_console full_frame_emitter_tests vt_console_smoke render_golden_tests color_quantizer_tests benchmark_result_tests input_parser_tests browser_commands_tests profile_session_tests private_process_tests asciiomium_runtime_probe cef_key_translator_tests cef_pointer_translator_tests fixture_observation_tests source_frame_tests callback_boundary_tests osr_callback_tests live_runtime_tests viewport_transform_tests asciiomium_frame_dump asciiomium_color_ramp asciiomium_vt_preview asciiomium_benchmark asciiomium_cef_capture differential_frame_emitter_tests asciiomium_differential_benchmark runtime_telemetry_tests asciiomium_telemetry_overhead --parallel
 
       - name: Test Debug
         shell: pwsh
@@ -143,7 +143,7 @@ jobs:
 
       - name: Build Release
         shell: pwsh
-        run: cmake --build build --config Release --target asciiomium asciiomium_live asciiomium_tests terminal_logic_tests terminal_console_smoke terminal_lifecycle_tests terminal_input_tests terminal_input_console full_frame_emitter_tests vt_console_smoke render_golden_tests color_quantizer_tests benchmark_result_tests input_parser_tests browser_commands_tests profile_session_tests private_process_tests asciiomium_runtime_probe cef_key_translator_tests cef_pointer_translator_tests fixture_observation_tests source_frame_tests callback_boundary_tests osr_callback_tests live_runtime_tests viewport_transform_tests asciiomium_frame_dump asciiomium_color_ramp asciiomium_vt_preview asciiomium_benchmark asciiomium_cef_capture --parallel
+        run: cmake --build build --config Release --target asciiomium asciiomium_live asciiomium_tests terminal_logic_tests terminal_console_smoke terminal_lifecycle_tests terminal_input_tests terminal_input_console full_frame_emitter_tests vt_console_smoke render_golden_tests color_quantizer_tests benchmark_result_tests input_parser_tests browser_commands_tests profile_session_tests private_process_tests asciiomium_runtime_probe cef_key_translator_tests cef_pointer_translator_tests fixture_observation_tests source_frame_tests callback_boundary_tests osr_callback_tests live_runtime_tests viewport_transform_tests asciiomium_frame_dump asciiomium_color_ramp asciiomium_vt_preview asciiomium_benchmark asciiomium_cef_capture differential_frame_emitter_tests asciiomium_differential_benchmark runtime_telemetry_tests asciiomium_telemetry_overhead --parallel
 
       - name: Test Release
         shell: pwsh
@@ -353,6 +353,30 @@ jobs:
             build/browser-runtime-evidence.json
             build/runtime-probes/*
           if-no-files-found: warn
+
+      - name: Qualify differential output against paired CEF frames
+        shell: pwsh
+        run: .\tools\verify_differential_emission.ps1 -BinaryDirectory build/bin/RELEASE -OutputDirectory build/differential-evidence
+
+      - name: Qualify structured runtime telemetry and benchmarks
+        shell: pwsh
+        run: .\tools\verify_runtime_telemetry.ps1 -BinaryDirectory build/bin/RELEASE -OutputDirectory build/telemetry-evidence
+
+      - name: Upload runtime telemetry qualification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: asciiomium-runtime-telemetry-evidence
+          path: build/telemetry-evidence/
+          if-no-files-found: error
+
+      - name: Upload differential qualification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: asciiomium-differential-evidence
+          path: build/differential-evidence/
+          if-no-files-found: error
 
       - name: Upload colour-ramp evidence
         if: always()

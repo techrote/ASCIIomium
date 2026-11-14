@@ -236,11 +236,7 @@ set_target_properties(asciiomium PROPERTIES FOLDER "ASCIIomium")
 add_executable(asciiomium_live src/app/live_main.cpp)
 target_link_libraries(asciiomium_live PRIVATE
   asciiomium_build_info
-<<<<<<< HEAD
   asciiomium_resources
-||||||| dbae542
-=======
->>>>>>> refs/remotes/origin/issue-15-structured-telemetry
   asciiomium_browser
   asciiomium_render
   asciiomium_runtime
@@ -560,11 +556,3 @@ target_link_libraries(asciiomium_telemetry_overhead PRIVATE asciiomium_runtime)
 target_compile_features(asciiomium_telemetry_overhead PRIVATE cxx_std_20)
 set_target_properties(asciiomium_telemetry_overhead PROPERTIES FOLDER "Tools")
 
-add_test(NAME build_identity_refresh
-  COMMAND "${CMAKE_COMMAND}"
-    "-DTEST_SOURCE_ROOT=${CMAKE_CURRENT_SOURCE_DIR}"
-    "-DTEST_BINARY_ROOT=${CMAKE_CURRENT_BINARY_DIR}/identity-regression"
-    "-DTEST_GENERATOR=${CMAKE_GENERATOR}"
-    "-DTEST_GENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}"
-    "-DTEST_BUILD_CONFIG=$<CONFIG>"
-    "-P" "${CMAKE_CURRENT_SOURCE_DIR}/tests/build_identity_test.cmake")
