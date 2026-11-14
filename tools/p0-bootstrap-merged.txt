@@ -1,0 +1,487 @@
+name: bootstrap-windows
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: windows-2022
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Verify deterministic web fixtures in Chromium
+        shell: pwsh
+        run: .\tools\verify_web_fixtures.ps1 -OutputDir build/fixture-screenshots
+
+      - name: Cache pinned CEF distribution
+        uses: actions/cache@v4
+        with:
+          path: third_party/cef
+          key: cef-windows64-151.3.17-gf059e67-chromium-151.0.7922.138
+
+      - name: Show CMake version
+        shell: pwsh
+        run: cmake --version
+
+      - name: Configure
+        shell: pwsh
+        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+
+      - name: Build Debug
+        shell: pwsh
+        run: cmake --build build --config Debug --target asciiomium asciiomium_live asciiomium_tests terminal_logic_tests terminal_console_smoke terminal_lifecycle_tests terminal_input_tests terminal_input_console full_frame_emitter_tests vt_console_smoke render_golden_tests color_quantizer_tests benchmark_result_tests input_parser_tests browser_commands_tests profile_session_tests private_process_tests asciiomium_runtime_probe cef_key_translator_tests cef_pointer_translator_tests fixture_observation_tests source_frame_tests callback_boundary_tests osr_callback_tests live_runtime_tests viewport_transform_tests asciiomium_frame_dump asciiomium_color_ramp asciiomium_vt_preview asciiomium_benchmark asciiomium_cef_capture --parallel
+
+      - name: Test Debug
+        shell: pwsh
+        run: ctest --test-dir build -C Debug --output-on-failure --timeout 120 --output-log "$PWD/build/ctest-debug.log" --output-junit "$PWD/build/ctest-debug.xml"
+
+      - name: Verify Debug version output
+        shell: pwsh
+        run: .\build\bin\DEBUG\asciiomium.exe --version
+
+      - name: Verify Debug indexed frame dump
+        shell: pwsh
+        run: .\build\bin\DEBUG\asciiomium_frame_dump.exe --input .\fixtures\render\quad_2x4.ppm --columns 2 --rows 2 --filter nearest --colors 256
+
+      - name: Verify Debug annotated VT dump
+        shell: pwsh
+        run: .\build\bin\DEBUG\asciiomium_frame_dump.exe --input .\fixtures\render\quad_2x4.ppm --columns 2 --rows 2 --filter nearest --colors 256 --vt-annotated
+
+      - name: Generate Debug colour ramp
+        shell: pwsh
+        run: .\build\bin\DEBUG\asciiomium_color_ramp.exe --output .\build\color-modes-debug.svg
+
+      - name: Run Debug offline benchmark
+        shell: pwsh
+        run: .\build\bin\DEBUG\asciiomium_benchmark.exe --samples 12 --source-width 320 --source-height 180 --columns 80 --rows 24 --filter box --colors 1024 --json .\build\benchmark-debug.json
+
+      - name: Validate Debug benchmark JSON
+        shell: pwsh
+        run: |
+          $data = Get-Content -Raw .\build\benchmark-debug.json | ConvertFrom-Json
+          if ($data.schema -ne 'asciiomium-benchmark-v1') { throw 'wrong benchmark schema' }
+          if ($data.fixture_bundle.version -ne 'web-fixtures-v1') { throw 'wrong fixture version' }
+          if ($data.renderer.glyph_encoder -ne 'halfblock-u2580') { throw 'wrong glyph encoder' }
+          if ($data.renderer.color_mode -ne '1024') { throw 'wrong colour mode' }
+          if ($data.renderer.sampling_filter -ne 'box') { throw 'wrong filter' }
+          if ($data.terminal.columns -ne 80 -or $data.terminal.rows -ne 24) { throw 'wrong terminal geometry' }
+          if ($null -ne $data.timing.diff) { throw 'offline diff metric must be null' }
+          if ($data.bandwidth.bytes_per_frame -le 0) { throw 'benchmark emitted no bytes' }
+
+      - name: Capture Debug CEF OSR fixture with resize
+        shell: pwsh
+        run: |
+          .\build\bin\DEBUG\asciiomium_cef_capture.exe `
+            --fixture colour-ramps --freeze `
+            --width 640 --height 360 `
+            --resize-width 800 --resize-height 450 `
+            --min-paints 2 --min-rgb-span 64 --timeout-ms 20000 `
+            --output .\build\cef-colour-debug.bmp `
+            --report .\build\cef-colour-debug.json
+
+      - name: Validate Debug CEF OSR capture
+        shell: pwsh
+        run: |
+          $data = Get-Content -Raw .\build\cef-colour-debug.json | ConvertFrom-Json
+          if ($data.schema -ne 'asciiomium-cef-capture-v1') { throw 'wrong CEF capture schema' }
+          if (-not $data.load.complete) { throw 'CEF local fixture did not complete loading' }
+          if (-not $data.post_load_refresh.observed) { throw 'CEF capture is not fresh after load completion' }
+          if ($data.view.width -ne 800 -or $data.view.height -ne 450) { throw 'CEF resize dimensions not observed' }
+          if ($data.view.paint_count -lt 2 -or $data.view.generation -lt 2) { throw 'insufficient CEF paint generations' }
+          if ($data.view.rgb_byte_span -lt 64) { throw 'CEF colour fixture capture is suspiciously uniform' }
+          if (-not $data.resize.requested -or -not $data.resize.observed) { throw 'CEF resize contract failed' }
+          if ($data.view.alpha_min -ne 255 -or $data.view.alpha_max -ne 255) { throw 'baseline CEF view was not opaque as configured' }
+          if (-not $data.closed_cleanly) { throw 'CEF did not close cleanly' }
+          if ($data.pixel_contract -notmatch '^BGRA8') { throw 'CEF pixel contract missing' }
+
+      - name: Run Debug static live pipeline
+        shell: pwsh
+        run: |
+          .\build\bin\DEBUG\asciiomium_live.exe `
+            --fixture flat-ui --freeze `
+            --width 640 --height 360 `
+            --columns 100 --rows 30 `
+            --fps 20 --cef-fps 60 --duration-ms 1500 `
+            --no-terminal --private --quiet `
+            --report .\build\live-static-debug.json `
+            --evidence-svg .\build\live-static-debug.svg `
+            --vt-output .\build\live-static-debug.vt
+
+      - name: Validate Debug static live idling
+        shell: pwsh
+        run: |
+          $data = Get-Content -Raw .\build\live-static-debug.json | ConvertFrom-Json
+          if ($data.schema -ne 'asciiomium-live-v1') { throw 'wrong live schema' }
+          if (-not $data.load.complete) { throw 'static live fixture did not complete loading' }
+          if ($data.renderer.glyph_encoder -ne 'halfblock-u2580') { throw 'wrong live glyph encoder' }
+          if ($data.renderer.color_mode -ne '1024') { throw '1024 colour is not the live default' }
+          if ($data.renderer.sampling_filter -ne 'box') { throw 'box filter is not the live default' }
+          if ($data.renderer.fit_mode -ne 'contain') { throw 'contain fit is not the live default' }
+          if ([math]::Abs($data.renderer.cell_aspect - 0.5) -gt 0.000001) { throw 'wrong live cell aspect' }
+          if ($data.geometry.generation -lt 1) { throw 'viewport geometry was not published' }
+          if ($data.geometry.sample_columns -ne 100 -or $data.geometry.sample_rows -ne 60) { throw 'wrong static logical sample geometry' }
+          if ($data.geometry.cef_resize_requests -ne 0) { throw 'fixed viewport unexpectedly resized CEF' }
+          if ($data.scheduler.rendered_frames -ne $data.scheduler.emitted_frames) { throw 'render/emission accounting mismatch' }
+          if ($data.scheduler.emitted_frames -lt 1) { throw 'static live fixture emitted no terminal frames' }
+          if ($data.scheduler.emitted_frames -gt 8) { throw 'static page kept repainting instead of idling' }
+          if ($data.runtime.idle_iterations -le $data.scheduler.rendered_frames) { throw 'static loop did not spend time idle' }
+          if (-not $data.runtime.terminal_restored) { throw 'headless live teardown did not complete' }
+          if ($null -eq $data.runtime.terminal_restore -or $data.runtime.terminal_restore.acquisition_attempted -or $data.runtime.terminal_restore.acquired -or $data.runtime.terminal_restore.completed) { throw 'headless terminal restoration detail is missing or incorrectly claims observed restoration' }
+          if (-not $data.runtime.closed_cleanly) { throw 'CEF did not close cleanly after static live run' }
+          if ($data.runtime.last_vt_bytes -le 0) { throw 'live full-frame emitter produced no VT payload' }
+
+      - name: Build Release
+        shell: pwsh
+        run: cmake --build build --config Release --target asciiomium asciiomium_live asciiomium_tests terminal_logic_tests terminal_console_smoke terminal_lifecycle_tests terminal_input_tests terminal_input_console full_frame_emitter_tests vt_console_smoke render_golden_tests color_quantizer_tests benchmark_result_tests input_parser_tests browser_commands_tests profile_session_tests private_process_tests asciiomium_runtime_probe cef_key_translator_tests cef_pointer_translator_tests fixture_observation_tests source_frame_tests callback_boundary_tests osr_callback_tests live_runtime_tests viewport_transform_tests asciiomium_frame_dump asciiomium_color_ramp asciiomium_vt_preview asciiomium_benchmark asciiomium_cef_capture --parallel
+
+      - name: Test Release
+        shell: pwsh
+        run: ctest --test-dir build -C Release --output-on-failure --timeout 120 --output-log "$PWD/build/ctest-release.log" --output-junit "$PWD/build/ctest-release.xml"
+
+      - name: Verify Release version output
+        shell: pwsh
+        run: .\build\bin\RELEASE\asciiomium.exe --version
+
+      - name: Verify Release 1024-colour frame dump
+        shell: pwsh
+        run: .\build\bin\RELEASE\asciiomium_frame_dump.exe --input .\fixtures\render\quad_2x4.ppm --columns 2 --rows 2 --filter nearest --colors 1024
+
+      - name: Generate Release colour ramp
+        shell: pwsh
+        run: .\build\bin\RELEASE\asciiomium_color_ramp.exe --output .\build\color-modes-release.svg
+
+      - name: Run Release offline benchmark
+        shell: pwsh
+        run: .\build\bin\RELEASE\asciiomium_benchmark.exe --samples 24 --source-width 640 --source-height 360 --columns 160 --rows 50 --filter box --colors 1024 --json .\build\benchmark-release.json
+
+      - name: Validate Release benchmark JSON
+        shell: pwsh
+        run: |
+          $data = Get-Content -Raw .\build\benchmark-release.json | ConvertFrom-Json
+          if ($data.schema -ne 'asciiomium-benchmark-v1') { throw 'wrong benchmark schema' }
+          if ($data.source.viewport.width -ne 640 -or $data.source.viewport.height -ne 360) { throw 'wrong source geometry' }
+          if ($data.terminal.columns -ne 160 -or $data.terminal.rows -ne 50) { throw 'wrong terminal geometry' }
+          if ($data.renderer.color_mode -ne '1024') { throw 'wrong colour mode' }
+          if ($data.timing.render_conversion.p95_ms -le 0) { throw 'missing render timing' }
+          if ($data.timing.vt_serialization.p95_ms -le 0) { throw 'missing VT timing' }
+          if ($data.process.working_set_bytes -le 0) { throw 'missing working-set metric' }
+
+      - name: Capture Release animated CEF OSR fixture
+        shell: pwsh
+        run: |
+          .\build\bin\RELEASE\asciiomium_cef_capture.exe `
+            --fixture motion-scroll `
+            --width 640 --height 360 `
+            --frame-rate 30 --min-paints 6 --timeout-ms 20000 `
+            --output .\build\cef-motion-release.bmp `
+            --report .\build\cef-motion-release.json
+
+      - name: Validate Release animated CEF generations
+        shell: pwsh
+        run: |
+          $data = Get-Content -Raw .\build\cef-motion-release.json | ConvertFrom-Json
+          if ($data.schema -ne 'asciiomium-cef-capture-v1') { throw 'wrong CEF capture schema' }
+          if (-not $data.post_load_refresh.observed) { throw 'animated CEF capture is not fresh after load completion' }
+          if ($data.view.width -ne 640 -or $data.view.height -ne 360) { throw 'wrong animated CEF dimensions' }
+          if ($data.view.paint_count -lt 6 -or $data.view.generation -lt 6) { throw 'animated fixture did not generate repeated paints' }
+          if ($data.view.rgb_byte_span -lt 64) { throw 'animated CEF capture is suspiciously uniform' }
+          if ($data.view.storage_capacity_bytes -lt (640 * 360 * 4)) { throw 'view storage is unexpectedly small' }
+          if (-not $data.closed_cleanly) { throw 'CEF did not close cleanly after animated fixture' }
+
+      - name: Run Release animated live pipeline
+        shell: pwsh
+        run: |
+          .\build\bin\RELEASE\asciiomium_live.exe `
+            --fixture motion-scroll `
+            --width 640 --height 360 `
+            --columns 120 --rows 40 `
+            --fps 20 --cef-fps 60 --duration-ms 2000 `
+            --no-terminal --private --quiet `
+            --report .\build\live-motion-release.json `
+            --evidence-svg .\build\live-motion-release.svg `
+            --vt-output .\build\live-motion-release.vt
+
+      - name: Validate Release live frame pacing
+        shell: pwsh
+        run: |
+          $data = Get-Content -Raw .\build\live-motion-release.json | ConvertFrom-Json
+          if ($data.schema -ne 'asciiomium-live-v1') { throw 'wrong live schema' }
+          if (-not $data.load.complete) { throw 'animated live fixture did not complete loading' }
+          if ($data.renderer.max_fps -ne 20) { throw 'wrong live FPS cap' }
+          if ($data.renderer.fit_mode -ne 'contain') { throw 'contain fit is not the live default' }
+          if ([math]::Abs($data.renderer.cell_aspect - 0.5) -gt 0.000001) { throw 'wrong live cell aspect' }
+          if ($data.geometry.generation -lt 1) { throw 'viewport geometry was not published' }
+          if ($data.geometry.sample_columns -ne 120 -or $data.geometry.sample_rows -ne 80) { throw 'wrong animated logical sample geometry' }
+          if ($data.geometry.cef_resize_requests -ne 0) { throw 'fixed viewport unexpectedly resized CEF' }
+          if ($data.scheduler.emitted_frames -lt 10) { throw 'animated live fixture emitted too few frames' }
+          if ($data.scheduler.rendered_frames -ne $data.scheduler.emitted_frames) { throw 'render/emission accounting mismatch' }
+          if ($data.source.view_paint_count -le $data.scheduler.emitted_frames) { throw 'source did not outrun terminal output' }
+          if ($data.scheduler.coalesced_generations -le 0) { throw 'newest-frame coalescing was not observed' }
+          if ($data.scheduler.observed_emitted_fps -gt 22.0) { throw 'live output exceeded FPS cap tolerance' }
+          if ($data.timing_ms.conversion.average -le 0 -or $data.timing_ms.conversion.p95 -le 0) { throw 'missing live conversion timings' }
+          if (-not $data.runtime.terminal_restored) { throw 'live teardown did not complete' }
+          if (-not $data.runtime.closed_cleanly) { throw 'CEF did not close cleanly after live run' }
+          if ($data.runtime.last_vt_bytes -le 0) { throw 'animated live VT payload missing' }
+
+      - name: Run Release mouse-click-to-CEF acceptance
+        shell: pwsh
+        run: |
+          .\build\bin\RELEASE\asciiomium_live.exe `
+            --fixture input-focus --freeze `
+            --width 640 --height 360 `
+            --columns 100 --rows 30 `
+            --fps 20 --cef-fps 60 --duration-ms 2000 `
+            --input-hex 1b5b3c33353b35313b31364d1b5b3c303b35313b31364d1b5b3c303b35313b31366d `
+            --no-terminal --private --quiet `
+            --report .\build\live-mouse-click-release.json
+
+      - name: Validate Release mouse-click-to-CEF acceptance
+        shell: pwsh
+        run: |
+          $data = Get-Content -Raw .\build\live-mouse-click-release.json | ConvertFrom-Json
+          Write-Host ($data.input | ConvertTo-Json -Compress)
+          if ($data.schema -ne 'asciiomium-live-v1') { throw 'wrong mouse click live schema' }
+          if (-not $data.load.complete) { throw 'mouse click fixture did not complete loading' }
+          if (-not $data.input.hex_sent) { throw 'raw mouse click bytes were not dispatched' }
+          if ($data.input.pointer_decoded_events -lt 3) { throw 'mouse parser decoded too few click events' }
+          if ($data.input.pointer_cef_events -lt 3) { throw 'click events did not reach CEF' }
+          if ($data.input.pointer_rejected_events -ne 0) { throw 'valid click script was rejected by geometry' }
+          if ($data.input.unsupported_events -ne 0) { throw 'click script produced unsupported events' }
+          if (-not $data.input.pointer_dom_observed) { throw 'CEF click did not reach the centre fixture target' }
+          if (-not $data.input.paint_observed) { throw 'CEF click caused no observable paint generation' }
+          if ($data.geometry.generation -lt 1) { throw 'click path had no viewport transform' }
+          if (-not $data.runtime.terminal_restored) { throw 'mouse click live teardown did not complete' }
+          if (-not $data.runtime.closed_cleanly) { throw 'CEF did not close cleanly after click run' }
+
+      - name: Run Release mouse-wheel-to-CEF acceptance
+        shell: pwsh
+        run: |
+          .\build\bin\RELEASE\asciiomium_live.exe `
+            --fixture input-focus --freeze `
+            --width 640 --height 360 `
+            --columns 100 --rows 30 `
+            --fps 20 --cef-fps 60 --duration-ms 2000 `
+            --input-hex 1b5b3c33353b35313b31364d1b5b3c36353b35313b31364d `
+            --no-terminal --private --quiet `
+            --report .\build\live-mouse-wheel-release.json
+
+      - name: Validate Release mouse-wheel-to-CEF acceptance
+        shell: pwsh
+        run: |
+          $data = Get-Content -Raw .\build\live-mouse-wheel-release.json | ConvertFrom-Json
+          Write-Host ($data.input | ConvertTo-Json -Compress)
+          if ($data.schema -ne 'asciiomium-live-v1') { throw 'wrong mouse wheel live schema' }
+          if (-not $data.load.complete) { throw 'mouse wheel fixture did not complete loading' }
+          if (-not $data.input.hex_sent) { throw 'raw mouse wheel bytes were not dispatched' }
+          if ($data.input.pointer_decoded_events -lt 2) { throw 'mouse parser missed move or wheel events' }
+          if ($data.input.pointer_cef_events -lt 2) { throw 'move and wheel did not reach CEF' }
+          if ($data.input.pointer_rejected_events -ne 0) { throw 'valid wheel event was rejected by geometry' }
+          if ($data.input.unsupported_events -ne 0) { throw 'wheel script produced unsupported events' }
+          if (-not $data.input.pointer_scroll_observed) { throw 'CEF wheel did not produce observable scrolling' }
+          if ($data.input.fixture_events -notmatch '(^|,)\d+:wheel:center(,|$)') { throw 'CEF wheel was not observed at the centre fixture target' }
+          if (-not $data.input.paint_observed) { throw 'CEF wheel caused no observable paint generation' }
+          if ($data.input.wheel_delta_per_notch -ne 120) { throw 'wrong wheel scale in live evidence' }
+          if ($data.geometry.generation -lt 1) { throw 'wheel path had no viewport transform' }
+          if (-not $data.runtime.terminal_restored) { throw 'mouse wheel live teardown did not complete' }
+          if (-not $data.runtime.closed_cleanly) { throw 'CEF did not close cleanly after wheel run' }
+
+      - name: Run Release keyboard-to-CEF acceptance
+        shell: pwsh
+        run: |
+          .\build\bin\RELEASE\asciiomium_live.exe `
+            --fixture input-focus --freeze `
+            --width 640 --height 360 `
+            --columns 100 --rows 30 `
+            --fps 20 --cef-fps 60 --duration-ms 1500 `
+            --input-script asciiomium `
+            --no-terminal --private --quiet `
+            --report .\build\live-input-release.json
+
+      - name: Validate Release keyboard-to-CEF acceptance
+        shell: pwsh
+        run: |
+          $data = Get-Content -Raw .\build\live-input-release.json | ConvertFrom-Json
+          Write-Host ($data.input | ConvertTo-Json -Compress)
+          if ($data.schema -ne 'asciiomium-live-v1') { throw 'wrong input live schema' }
+          if (-not $data.load.complete) { throw 'input fixture did not complete loading' }
+          if (-not $data.input.fixture_ready_observed) { throw 'durable input fixture readiness was not observed' }
+          if (-not $data.input.focus_observed) { throw 'input fixture focus handshake was not observed' }
+          if (-not $data.input.script_sent) { throw 'input script was not dispatched' }
+          if ($data.input.decoded_events -lt 9) { throw 'input parser decoded too few events' }
+          if ($data.input.unsupported_events -ne 0) { throw 'input script produced unsupported events' }
+          if ($data.input.cef_events -lt 9) { throw 'input events did not reach CEF' }
+          if (-not $data.input.event_observed) { throw 'fixture did not acknowledge a DOM input event' }
+          if (-not $data.input.value_observed) { throw 'fixture input value did not match the injected UTF-8 bytes' }
+          if (-not $data.input.dom_observed) { throw 'CEF input did not reach the intended DOM target state' }
+          if (-not $data.input.fixture_complete_observed) { throw 'durable input fixture completion was not acknowledged' }
+          if (-not $data.input.paint_observed) { throw 'CEF input caused no observable paint generation' }
+          if (-not $data.runtime.terminal_restored) { throw 'input live teardown did not complete' }
+          if (-not $data.runtime.closed_cleanly) { throw 'CEF did not close cleanly after input run' }
+
+      - name: Qualify real CEF browser runtime
+        shell: pwsh
+        run: python tests/verify_browser_runtime.py --exe build/bin/RELEASE/asciiomium_runtime_probe.exe --output build/browser-runtime-evidence.json --lifecycle-cycles 10
+
+      - name: Upload CTest evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: asciiomium-ctest-evidence
+          path: |
+            build/ctest-*.log
+            build/ctest-*.xml
+            build/Testing/Temporary/*
+          if-no-files-found: warn
+
+      - name: Upload browser runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: asciiomium-browser-runtime-evidence
+          path: |
+            build/browser-runtime-evidence.json
+            build/runtime-probes/*
+          if-no-files-found: warn
+
+      - name: Upload colour-ramp evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: asciiomium-colour-mode-ramp
+          path: |
+            build/color-modes-debug.svg
+            build/color-modes-release.svg
+          if-no-files-found: error
+
+      - name: Record private cleanup residue on failure
+        if: failure()
+        shell: pwsh
+        run: |
+          # Only names/metadata from our disposable fixture roots, never file
+          # contents or the runner's persistent browser/user profiles.
+          $base = Join-Path $env:TEMP 'ASCIIomium'
+          $entries = @()
+          if (Test-Path $base) {
+            $entries = @(Get-ChildItem $base -Directory -Filter 'private-*' | ForEach-Object {
+              Get-ChildItem $_.FullName -Recurse -Force | Select-Object FullName, Length, Attributes
+            } | Select-Object -First 100)
+          }
+          $entries | ConvertTo-Json -Depth 4 | Set-Content build/private-cleanup-residue.json
+          $entries | Format-Table -AutoSize
+
+      - name: Build source-bound portable qualification package
+        shell: pwsh
+        env:
+          EXPECTED_SOURCE_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          python tools/package_windows.py `
+            --binaries build/bin/RELEASE `
+            --cef-archive 'third_party/cef/cef_binary_151.3.17+gf059e67+chromium-151.0.7922.138_windows64.tar.bz2' `
+            --output build/package --expected-revision $env:EXPECTED_SOURCE_REVISION
+          if ($LASTEXITCODE -ne 0) { throw 'portable package build failed' }
+
+      - name: Upload portable qualification package and custody
+        uses: actions/upload-artifact@v4
+        with:
+          name: asciiomium-portable-windows
+          path: build/package/*
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload fixture and benchmark evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: asciiomium-fixture-benchmark-evidence
+          path: |
+            build/fixture-screenshots/*.png
+            build/benchmark-debug.json
+            build/benchmark-release.json
+          if-no-files-found: error
+
+      - name: Upload CEF OSR evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: asciiomium-cef-osr-evidence
+          path: |
+            build/cef-colour-debug.bmp
+            build/cef-colour-debug.json
+            build/cef-motion-release.bmp
+            build/cef-motion-release.json
+            build/fixture-screenshots/colour-ramps.png
+            build/fixture-screenshots/motion-scroll.png
+          if-no-files-found: error
+
+      - name: Upload live terminal pipeline evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: asciiomium-live-pipeline-evidence
+          path: |
+            build/live-static-debug.json
+            build/live-static-debug.svg
+            build/live-static-debug.vt
+            build/live-motion-release.json
+            build/live-motion-release.svg
+            build/live-motion-release.vt
+            build/live-mouse-click-release.json
+            build/live-mouse-wheel-release.json
+            build/live-input-release.json
+            build/private-cleanup-residue.json
+          if-no-files-found: error
+
+  package-clean-extraction:
+    needs: build-and-test
+    runs-on: windows-2022
+    timeout-minutes: 10
+    steps:
+      # Deliberately no source checkout or dependency cache. Only the produced
+      # artifact is available in this job; subprocess CWD is unrelated as well.
+      - name: Download portable package
+        uses: actions/download-artifact@v4
+        with:
+          name: asciiomium-portable-windows
+          path: candidate
+
+      - name: Verify custody and run extracted package
+        shell: pwsh
+        env:
+          EXPECTED_SOURCE_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          $custody = Get-Content -Raw candidate/CUSTODY.json | ConvertFrom-Json
+          if ($custody.schema -ne 'asciiomium-package-custody-v1') { throw 'unsupported custody schema' }
+          if ($custody.source_revision -ne $env:EXPECTED_SOURCE_REVISION) { throw 'package source is not this exact workflow head' }
+          if ($custody.zip_file -notmatch '^[A-Za-z0-9.+-]+\.zip$') { throw 'unsafe package archive filename' }
+          foreach ($pair in @(@('verify_package.py', $custody.verifier_sha256), @('PROVENANCE.json', $custody.provenance_sha256), @('SHA256SUMS.json', $custody.payload_manifest_sha256))) {
+            $actual = (Get-FileHash -Algorithm SHA256 (Join-Path candidate $pair[0])).Hash.ToLowerInvariant()
+            if ($actual -ne $pair[1]) { throw "custody mismatch for $($pair[0])" }
+          }
+          New-Item -ItemType Directory -Force evidence | Out-Null
+          Copy-Item candidate/CUSTODY.json evidence/CUSTODY.json
+          Copy-Item candidate/PROVENANCE.json evidence/PROVENANCE.json
+          Copy-Item candidate/SHA256SUMS.json evidence/SHA256SUMS.json
+          python candidate/verify_package.py --zip (Join-Path candidate $custody.zip_file) `
+            --expected-sha256 $custody.zip_sha256 --expected-revision $env:EXPECTED_SOURCE_REVISION `
+            --smoke --report evidence/package-smoke.json
+          if ($LASTEXITCODE -ne 0) { throw 'clean extraction package qualification failed' }
+
+      - name: Upload extraction qualification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: asciiomium-package-extraction-evidence
+          path: evidence/*
+          if-no-files-found: error

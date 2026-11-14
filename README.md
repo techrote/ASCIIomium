@@ -258,6 +258,7 @@ Start here before implementation:
 - [`docs/DECISIONS.md`](docs/DECISIONS.md) — architectural decisions and rationale.
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — staged implementation order and issue map.
 - [`docs/BUILDING.md`](docs/BUILDING.md) — pinned toolchain and build/test instructions.
+- [`docs/WINDOWS_PACKAGE.md`](docs/WINDOWS_PACKAGE.md) — portable development ZIP, exact inventory, source/dependency custody and clean extraction qualification.
 - [`docs/TERMINAL_RUNTIME.md`](docs/TERMINAL_RUNTIME.md) — console ownership, resize detection, diagnostics, and teardown.
 
 ## Engineering posture
