@@ -1,0 +1,43 @@
+name: TempToPC Windows project acceptance
+# Install this workflow in the actual PROJECT BEING TESTED, on its default branch.
+# Generated from TempToPC via scripts/generate-caller.sh to pin its implementation.
+on:
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "Human acceptance window (manual launch)"
+        type: choice
+        required: true
+        default: "30"
+        options: ["30", "60", "120", "240", "300"]
+      candidate_run_id:
+        description: "Optional successful build Actions run ID in this same repository"
+        type: string
+        required: false
+        default: "45124800724"
+      candidate_artifact:
+        description: "Optional exact artifact name from that run"
+        type: string
+        required: false
+        default: "asciiomium-portable-windows"
+      candidate_sha:
+        description: "Optional matching full 40-hex source commit SHA from that run"
+        type: string
+        required: false
+        default: "54ae4c52c3d9055c73e20621a265d71c79e8327b"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  interactive-acceptance:
+    uses: techrote/temptopc/.github/workflows/windows-desktop.yml@9715e40344156c99a9c0152c860ee175eddca889
+    with:
+      minutes: ${{ fromJSON(inputs.minutes) }}
+      candidate_run_id: ${{ inputs.candidate_run_id }}
+      candidate_artifact: ${{ inputs.candidate_artifact }}
+      candidate_sha: ${{ inputs.candidate_sha }}
+    secrets:
+      TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
+      TEMPTOPC_RDP_PASSWORD: ${{ secrets.TEMPTOPC_RDP_PASSWORD }}
