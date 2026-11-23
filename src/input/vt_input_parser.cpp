@@ -1,5 +1,6 @@
 #include "input/vt_input_parser.h"
 
+#include <algorithm>
 #include <array>
 #include <iomanip>
 #include <optional>
@@ -112,16 +113,18 @@ Utf8Decode DecodeUtf8(std::string_view bytes) {
     return {Utf8Decode::Status::Invalid, 0, 1};
   }
 
-  if (bytes.size() < length) {
-    return {Utf8Decode::Status::Incomplete, 0, 0};
-  }
-
-  for (std::size_t i = 1; i < length; ++i) {
+  // Validate bytes already present before deciding to wait. Otherwise a short
+  // malformed prefix (for example E2 + 'x') absorbs the following valid key
+  // when pending input is flushed.
+  for (std::size_t i = 1; i < std::min(bytes.size(), length); ++i) {
     const auto byte = static_cast<unsigned char>(bytes[i]);
     if (!IsContinuation(byte)) {
       return {Utf8Decode::Status::Invalid, 0, 1};
     }
     value = (value << 6) | (byte & 0x3Fu);
+  }
+  if (bytes.size() < length) {
+    return {Utf8Decode::Status::Incomplete, 0, 0};
   }
 
   const bool overlong =

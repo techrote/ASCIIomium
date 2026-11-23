@@ -165,6 +165,15 @@ teardown, and normal mouse/selection behaviour after exit. Verify Windows
 Terminal's Shift selection bypass in the actual GUI rather than claiming it
 from CI.
 
+## V4b — Browser runtime gate (#13)
+
+`python tests/verify_browser_runtime.py --exe build/bin/RELEASE/asciiomium_runtime_probe.exe --output build/browser-runtime-evidence.json`
+tests actual CEF over loopback HTTP/HTTPS, including storage across processes,
+isolation, private reset, profile ownership, navigation, popup/permission denial,
+download bytes and invalid-certificate rejection. `docs/BROWSER_RUNTIME.md`
+lists the separate physical command-row/input/restoration gate. Do not infer
+that physical result from the probe or from historical #11/#12 acceptance.
+
 ## V5 — Differential emitter
 
 Compare logical output to full-repaint mode.
@@ -175,6 +184,23 @@ Acceptance:
 - unchanged static frame emits approximately zero cell payload after stabilisation;
 - small animated regions emit substantially fewer bytes than full repaint;
 - no stale characters remain after content shrinks or colours/styles change.
+
+Implementation and commands: [`DIFFERENTIAL_OUTPUT.md`](DIFFERENTIAL_OUTPUT.md).
+Run `differential_frame_emitter_tests` in Debug and Release, then
+`tools/verify_differential_emission.ps1` for paired 160x50 CEF fixture byte
+comparisons and forced reconstruction. The script records headless automation,
+not physical Windows Terminal acceptance. Verify the opt-in mode physically
+before promoting it to the default. `--vt-output` is a standalone full snapshot;
+a zero last live delta is legitimate and is not an empty snapshot failure.
+
+### Structured benchmark reports (#15)
+
+Run `runtime_telemetry_tests` and `build_identity_refresh` in Debug and Release.
+Then run `tools/verify_runtime_telemetry.ps1` for bounded static/motion,
+full/differential, timing-on/off CEF reports. The script checks exact build
+identity, JSON validity, availability semantics, Windows CPU/memory samples and
+explicit timing/counter windows. See `RUNTIME_TELEMETRY.md`. Headless runs retain
+null actual-write metrics and do not replace physical terminal qualification.
 
 ## V6 — Real websites
 
@@ -191,6 +217,11 @@ Record limitations rather than adding site-specific hacks.
 
 ## V7 — Soak and teardown
 
+The [bounded issue #16 lifecycle tests](LIFECYCLE_HARDENING.md) cover terminal
+faults/interleavings, frame publication under allocation failure, bounded CEF
+diagnostics, callback failure reporting, and small parser/popup boundaries. They do not satisfy the
+physical-session, repeated browser launch, or integrated telemetry gates below.
+
 At least one 30-minute session with periodic scrolling/navigation.
 
 Acceptance:
@@ -200,6 +231,16 @@ Acceptance:
 - no terminal mode corruption;
 - normal quit restores prompt/cursor/input;
 - repeated 10x launch/quit cycle leaves terminal usable.
+
+## V8 — Portable Windows package
+
+Build only from clean exact source and matching Release/x64 binaries. Verify
+the locked CEF archive, complete runtime/locales/notices, executable-relative
+fixtures, payload manifest and external ZIP custody. A separate Windows job with
+no checkout/cache must pass extracted version, static/motion private browser,
+unchanged-inventory and missing-runtime negative controls. Preserve failure
+reports as well as success. See `WINDOWS_PACKAGE.md` for commands and boundaries;
+package CI does not satisfy V6/V7 or physical terminal acceptance.
 
 ## Visual regression evidence
 

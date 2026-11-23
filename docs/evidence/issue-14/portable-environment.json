@@ -1,0 +1,35 @@
+{
+  "schema": "asciiomium-portable-emitter-evidence-v1",
+  "scope": "Portable C++ serializer tests and synthetic measurements; Windows CEF and physical terminal qualification outstanding",
+  "source_base_commit": "dbae54279129cbe0486cb8be2f7b0c101607301c",
+  "measured_at_utc": "2026-11-02T23:53:11.310638+00:00",
+  "os": "Linux-6.18.57-x86_64-with-glibc2.39",
+  "compiler": "g++ (Ubuntu 13.3.0-6ubuntu2~24.04) 13.3.0",
+  "flags": [
+    "-std=c++20",
+    "-O2",
+    "-Wall",
+    "-Wextra",
+    "-Wpedantic",
+    "-Werror"
+  ],
+  "source_file_sha256": {
+    "src/terminal/differential_frame_emitter.cpp": "656d46953a70dce68e51b76c5545bb85b71d83765dfccbdf79124479bcc7d8cd",
+    "src/terminal/differential_frame_emitter.h": "1432f84f076bf816739e5ae1160e30bd769876357e0919d194b2e92ce2bbb155",
+    "src/terminal/full_frame_emitter.cpp": "b98fb1b0510eb11fa0c7c95f78ee4057c1a5c1cbc3d317ef78ef65171a73cbde",
+    "src/terminal/terminal_sequences.cpp": "602167d53a2d24f9ed095756ee9097e32b02aa23548a2a4c7c1d6cdc9549988e",
+    "src/render/color_quantizer.cpp": "82e7dca032e043267b56959f650c55d9d255777fc4836e9c6cdcce472b46b080",
+    "src/runtime/timing_series.cpp": "be613aeeca76cb0906893774ee6249cc2001cc7476e7ec7a10699203e822d951",
+    "tools/differential_benchmark.cpp": "aa3eb573e8da80b4fb94a0007d7a9f95e890f4db6c9ed2c5a0d82f14e66df34a",
+    "tests/differential_frame_emitter_test.cpp": "c10f8472e5751cb21d0a2d200030e381290c86c6297615b52075823081deddf5",
+    "tests/terminal_replay.h": "62678fd58f8b7fb1208bc6c657dff3669cbeaa3c8c8195776c5fe8aa7e9d484c"
+  },
+  "benchmark_report_sha256": "18152bf79c58052bc1da3882f83b973202279afb9d75824adbc3953c964fb0a5",
+  "verification": [
+    "Independent terminal replay test: pass; 400 seeded transitions plus explicit static/glyph/fg/bg/full-row/cost/geometry/invalidation tests",
+    "Updated live runtime scheduler tests: pass",
+    "Debug -O0 -g replay tests: pass (prior to extra explicit whole-row assertion; final -O2 covers it)",
+    "Independent reviewer UBSan replay run: pass; latest runtime review found no remaining blockers",
+    "Workflow YAML parses; explicit Debug/Release target lists include new tests and benchmark"
+  ]
+}

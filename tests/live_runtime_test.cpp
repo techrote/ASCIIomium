@@ -2,6 +2,7 @@
 #include <cmath>
 #include <cstdint>
 #include <iostream>
+#include <limits>
 #include <vector>
 
 #include "browser/popup_compositor.h"
@@ -68,6 +69,26 @@ void TestStaticAndForcedRefresh() {
           "forced refresh does not invent dropped source generations");
 }
 
+void TestRenderedWithoutPayload() {
+  using namespace std::chrono_literals;
+  asciiomium::runtime::FrameScheduler scheduler(20);
+  auto now = asciiomium::runtime::FrameScheduler::TimePoint{};
+  scheduler.ObserveSource(1);
+  scheduler.MarkRendered(now, 1);
+  scheduler.MarkEmitted();
+  now += 50ms;
+  scheduler.ObserveSource(2);  // A new CEF paint quantizes to the same cells.
+  Require(scheduler.Ready(now), "new source still gets converted");
+  scheduler.MarkRendered(now, 2);
+  Require(scheduler.stats().rendered_frames == 2 &&
+              scheduler.stats().emitted_frames == 1,
+          "empty differential payload need not count as an emitted frame");
+  now += 50ms;
+  Require(!scheduler.Ready(now), "empty payload does not leave a render backlog");
+  scheduler.RequestRefresh();
+  Require(scheduler.Ready(now), "forced repaint is eligible without a new paint");
+}
+
 void TestGenerationCoalescing() {
   using namespace std::chrono_literals;
   asciiomium::runtime::FrameScheduler scheduler(10);
@@ -121,6 +142,22 @@ void TestPopupComposition() {
   Require(fitted == DirtyRect{2, 0, 2, 1},
           "popup is repositioned to remain inside the view");
 
+  const int maximum = std::numeric_limits<int>::max();
+  const int minimum = std::numeric_limits<int>::min();
+  Require(FitPopupBoundsToView({maximum, maximum, 1, 1}, 1, 1, 2, 2) ==
+              DirtyRect{1, 1, 1, 1},
+          "INT_MAX popup coordinates fit without signed overflow");
+  Require(FitPopupBoundsToView({minimum, minimum, 1, 1}, 1, 1, 1, 1) ==
+              DirtyRect{0, 0, 1, 1},
+          "INT_MIN popup coordinates clamp to one-pixel view");
+  Require(FitPopupBoundsToView({maximum, maximum, 1, 1}, maximum, maximum,
+                               1, 1) == DirtyRect{0, 0, maximum, maximum},
+          "oversized popup dimensions remain safe for clipping");
+  Require(FitPopupBoundsToView({maximum, maximum, 1, 1}, 1, 1,
+                               maximum, maximum) ==
+              DirtyRect{maximum - 1, maximum - 1, 1, 1},
+          "maximum view dimensions preserve fitting semantics");
+
   const auto composed = ComposeViewAndPopup(view, popup);
   Require(composed.valid() && composed.popup_composited,
           "visible popup produces a valid composited frame");
@@ -173,6 +210,7 @@ int main() {
   TestPacing(30);
   TestStaticAndForcedRefresh();
   TestGenerationCoalescing();
+  TestRenderedWithoutPayload();
   TestPopupComposition();
   TestTimingSeries();
 

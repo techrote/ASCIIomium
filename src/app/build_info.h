@@ -12,6 +12,12 @@ struct BuildInfo {
   std::string build_type;
   std::string architecture;
   bool cef_runtime_matches_headers = false;
+  std::string source_revision;
+  std::string source_tree;
+  bool source_identity_available = false;
+  bool source_dirty = false;
+  std::string compiler;
+  std::string fixture_manifest_sha256;
 };
 
 BuildInfo GetBuildInfo();

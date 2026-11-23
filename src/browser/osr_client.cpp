@@ -1,6 +1,8 @@
 #include "browser/osr_client.h"
 
 #include "browser/cef_pointer_translator.h"
+#include "browser/profile_session.h"
+#include "browser/bounded_text.h"
 
 #include <algorithm>
 #include <utility>
@@ -10,13 +12,24 @@
 #include "include/cef_frame.h"
 
 namespace asciiomium::browser {
+namespace {
+
+std::u16string_view Utf16View(const CefString& text) noexcept {
+  return text.empty() ? std::u16string_view{} :
+                       std::u16string_view(text.c_str(), text.length());
+}
+
+}  // namespace
 
 OsrClient::OsrClient(std::shared_ptr<SourceFrameStore> frame_store,
                      int initial_width,
-                     int initial_height)
+                     int initial_height,
+                     BrowserRuntimeOptions runtime)
     : frame_store_(std::move(frame_store)),
       width_(std::max(1, initial_width)),
-      height_(std::max(1, initial_height)) {}
+      height_(std::max(1, initial_height)),
+      runtime_(std::move(runtime)),
+      callback_state_(std::make_shared<CallbackState>()) {}
 
 void OsrClient::GetViewRect(CefRefPtr<CefBrowser>, CefRect& rect) {
   rect = CefRect(0, 0, width_.load(std::memory_order_relaxed),
@@ -65,26 +78,55 @@ void OsrClient::OnPaint(CefRefPtr<CefBrowser>,
                         const void* buffer,
                         int width,
                         int height) {
-  const auto converted = ConvertDirtyRects(dirty_rects);
-  if (type == PET_VIEW) {
-    // CEF documents CPU OnPaint as width*height*4 bytes, BGRA channel order,
-    // tightly packed rows and an upper-left origin. Keep that representation
-    // unchanged here; conversion belongs to the renderer boundary.
-    frame_store_->UpdateView(buffer, width, height, converted);
-  } else if (type == PET_POPUP) {
-    frame_store_->UpdatePopup(buffer, width, height, converted);
-  }
+  callback_state_->Paint([&] {
+    if (type != PET_VIEW && type != PET_POPUP)
+      throw std::invalid_argument("unsupported CEF paint element");
+    const auto converted = ConvertDirtyRects(dirty_rects, width, height);
+    if (type == PET_VIEW) {
+      // CEF documents CPU OnPaint as width*height*4 bytes, BGRA channel order,
+      // tightly packed rows and an upper-left origin. Keep that representation
+      // unchanged here; conversion belongs to the renderer boundary.
+      frame_store_->UpdateView(buffer, width, height, converted);
+    } else {
+      frame_store_->UpdatePopup(buffer, width, height, converted);
+    }
+  });
 }
 
 void OsrClient::OnAfterCreated(CefRefPtr<CefBrowser> browser) {
   browser_ = browser;
-  browser_->GetHost()->SetFocus(true);
   browser_created_.store(true, std::memory_order_release);
+  // Alloy creation continues using its platform delegate after this callback.
+  // CloseBrowser(true) may destroy that delegate synchronously. Preserve an
+  // early close request for the owner's next call after the CEF pump returns.
+  if (!closing_) browser_->GetHost()->SetFocus(true);
 }
 
 void OsrClient::OnBeforeClose(CefRefPtr<CefBrowser>) {
   browser_ = nullptr;
   closed_.store(true, std::memory_order_release);
+}
+
+void OsrClient::ResetMainNavigationState() {
+  load_complete_.store(false, std::memory_order_release);
+  load_error_code_.store(0, std::memory_order_release);
+  http_status_code_.store(0, std::memory_order_release);
+  {
+    std::lock_guard lock(load_error_mutex_);
+    load_error_text_.clear();
+    failed_url_.clear();
+  }
+  std::lock_guard lock(display_mutex_);
+  status_.notice.clear();
+  ++status_.revision;
+}
+
+void OsrClient::OnLoadStart(CefRefPtr<CefBrowser>,
+                            CefRefPtr<CefFrame> frame,
+                            cef_transition_type_t) {
+  callback_state_->Diagnostic([&] {
+    if (frame->IsMain()) ResetMainNavigationState();
+  });
 }
 
 void OsrClient::OnLoadEnd(CefRefPtr<CefBrowser>,
@@ -102,28 +144,41 @@ void OsrClient::OnLoadError(CefRefPtr<CefBrowser>,
                             ErrorCode error_code,
                             const CefString& error_text,
                             const CefString& failed_url) {
-  if (!frame->IsMain()) {
+  if (!frame->IsMain() || error_code == ERR_ABORTED) {
     return;
   }
-
   load_error_code_.store(static_cast<int>(error_code),
                          std::memory_order_release);
-  {
+  callback_state_->Diagnostic([&] {
+    auto bounded_error = BoundedUtf16Text(Utf16View(error_text), 2048);
+    auto bounded_url = BoundedUtf16Text(Utf16View(failed_url), 8192);
+    // A clipped authority could conceal a later credential delimiter. Never
+    // feed that partial URL to origin extraction or a diagnostic report.
+    if (bounded_url.truncated) bounded_url.text.clear();
     std::lock_guard lock(load_error_mutex_);
-    load_error_text_ = error_text.ToString();
-    failed_url_ = failed_url.ToString();
-  }
+    load_error_text_.swap(bounded_error.text);
+    failed_url_.swap(bounded_url.text);
+  });
+  callback_state_->Diagnostic([&] {
+    Notice("Navigation failed (network/TLS error " +
+           std::to_string(static_cast<int>(error_code)) + "). Use Ctrl+Alt+O to open another URL.");
+  });
 }
 
 void OsrClient::OnTitleChange(CefRefPtr<CefBrowser>,
                               const CefString& title) {
-  std::lock_guard lock(display_mutex_);
-  main_title_ = title.ToString();
-  // Titles may subsequently change (focus/scroll), so retain both signals.
-  pointer_click_center_observed_ |=
-      main_title_.find("pointer-click-center") != std::string::npos;
-  pointer_scroll_observed_ |=
-      main_title_.find("pointer-scroll") != std::string::npos;
+  callback_state_->Diagnostic([&] {
+    auto bounded = BoundedUtf16Text(Utf16View(title), 4096);
+    std::lock_guard lock(display_mutex_);
+    status_.title.swap(bounded.text);
+    status_.title_truncated = bounded.truncated;
+    ++status_.revision;
+    // Titles may subsequently change (focus/scroll), so retain both signals.
+    pointer_click_center_observed_ |=
+        status_.title.find("pointer-click-center") != std::string::npos;
+    pointer_scroll_observed_ |=
+        status_.title.find("pointer-scroll") != std::string::npos;
+  });
 }
 
 bool OsrClient::OnConsoleMessage(CefRefPtr<CefBrowser>,
@@ -131,12 +186,17 @@ bool OsrClient::OnConsoleMessage(CefRefPtr<CefBrowser>,
                                  const CefString& message,
                                  const CefString&,
                                  int) {
-  const std::string text = message.ToString();
-  if (!text.starts_with(kFixtureObservationPrefix)) {
-    return false;
-  }
-  std::lock_guard lock(display_mutex_);
-  latest_fixture_observation_ = text;
+  // Discard normal page output before allocation or conversion. Both the native
+  // input and encoded output must fit, and only the exact complete fixture URL
+  // can supply observations. A clipped address cannot acquire that trust.
+  if (!runtime_.fixture_observations || message.length() > 16384) return true;
+  callback_state_->Diagnostic([&] {
+    std::lock_guard lock(display_mutex_);
+    if (status_.url_truncated || status_.url != runtime_.fixture_url) return;
+    auto bounded = BoundedUtf16Text(Utf16View(message), 16384);
+    if (!bounded.truncated && bounded.text.starts_with(kFixtureObservationPrefix))
+      latest_fixture_observation_.swap(bounded.text);
+  });
   return true;
 }
 
@@ -220,7 +280,7 @@ bool OsrClient::SendPointerEvent(const CefPointerDispatch& dispatch) {
 
 std::string OsrClient::MainTitle() const {
   std::lock_guard lock(display_mutex_);
-  return main_title_;
+  return status_.title;
 }
 
 bool OsrClient::PointerClickCenterObserved() const {
@@ -251,9 +311,260 @@ bool OsrClient::ExecuteMainFrameJavaScript(std::string_view code) {
 }
 
 void OsrClient::CloseBrowser() {
+  closing_ = true;
+  // Cancel using a detached bounded list: CEF may deliver callbacks reentrantly.
+  const auto downloads = std::move(downloads_);
+  downloads_.clear();
+  for (const auto& [id, download] : downloads) {
+    if (download.callback) download.callback->Cancel();
+  }
   if (browser_) {
     browser_->GetHost()->CloseBrowser(true);
   }
+}
+
+BrowserStatus OsrClient::Status() const {
+  std::lock_guard lock(display_mutex_);
+  return status_;
+}
+
+void OsrClient::Notice(std::string_view message) noexcept {
+  callback_state_->Diagnostic([&] {
+    auto bounded = TerminalSafeText(message, 2048);
+    std::lock_guard lock(display_mutex_);
+    status_.notice.swap(bounded);
+    ++status_.revision;
+  });
+}
+
+bool OsrClient::Navigate(const BrowserCommand& command) {
+  if (!browser_ || closing_) return false;
+  switch (command.action) {
+    case BrowserAction::Open:
+      if (!IsAllowedNavigation(command.argument)) return false;
+      if (const auto frame = browser_->GetMainFrame()) frame->LoadURL(command.argument);
+      else return false;
+      break;
+    case BrowserAction::Back: browser_->GoBack(); break;
+    case BrowserAction::Forward: browser_->GoForward(); break;
+    case BrowserAction::Reload: browser_->Reload(); break;
+    case BrowserAction::HardReload: browser_->ReloadIgnoreCache(); break;
+    case BrowserAction::Stop: browser_->StopLoad(); break;
+    default: return false;
+  }
+  return true;
+}
+
+void OsrClient::OnLoadingStateChange(CefRefPtr<CefBrowser>, bool loading,
+                                    bool back, bool forward) {
+  {
+    std::lock_guard lock(display_mutex_);
+    status_.loading = loading;
+    status_.can_go_back = back;
+    status_.can_go_forward = forward;
+    ++status_.revision;
+  }
+}
+
+void OsrClient::OnAddressChange(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame> frame,
+                                 const CefString& url) {
+  if (!frame->IsMain()) return;
+  callback_state_->Diagnostic([&] {
+    auto bounded = BoundedUtf16Text(Utf16View(url), 8192);
+    std::lock_guard lock(display_mutex_);
+    status_.url.swap(bounded.text);
+    status_.url_truncated = bounded.truncated;
+    ++status_.revision;
+  });
+}
+
+bool OsrClient::OnBeforeBrowse(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame> frame,
+    CefRefPtr<CefRequest> request, bool, bool) {
+  if (closing_) return true;
+  bool deny = true;
+  callback_state_->Diagnostic([&] {
+    if (frame->IsMain() && !IsAllowedNavigationUtf16(Utf16View(request->GetURL()))) {
+      {
+        std::lock_guard lock(display_mutex_);
+        ++status_.denied_protocols;
+      }
+      Notice("Unsupported navigation/protocol blocked; external applications are never launched.");
+    } else {
+      // Aggregate loading may stay true across overlapping main navigations.
+      // Reset only an accepted main request (and its subsequent commit), never
+      // a subframe, denied request, or OnLoadEnd following a real load error.
+      if (frame->IsMain()) ResetMainNavigationState();
+      deny = false;
+    }
+  });
+  return deny;
+}
+
+bool OsrClient::OnOpenURLFromTab(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>,
+    const CefString&, cef_window_open_disposition_t disposition, bool) {
+  if (disposition == CEF_WOD_CURRENT_TAB) return false;
+  {
+    std::lock_guard lock(display_mutex_);
+    ++status_.denied_popups;
+  }
+  Notice("New window blocked. Use open URL in the current browser.");
+  return true;
+}
+
+bool OsrClient::OnBeforePopup(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>, int,
+    const CefString&, const CefString&, cef_window_open_disposition_t, bool,
+    const CefPopupFeatures&, CefWindowInfo&, CefRefPtr<CefClient>&,
+    CefBrowserSettings&, CefRefPtr<CefDictionaryValue>&, bool*) {
+  {
+    std::lock_guard lock(display_mutex_);
+    ++status_.denied_popups;
+  }
+  Notice("Popup blocked. This version has one browser; open its URL explicitly.");
+  return true;
+}
+
+CefRefPtr<CefResourceRequestHandler> OsrClient::GetResourceRequestHandler(
+    CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>, CefRefPtr<CefRequest>,
+    bool, bool, const CefString&, bool&) { return this; }
+
+void OsrClient::OnProtocolExecution(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>,
+    CefRefPtr<CefRequest>, bool& allow_os_execution) {
+  allow_os_execution = false;
+  {
+    std::lock_guard lock(display_mutex_);
+    ++status_.denied_protocols;
+  }
+  Notice("External protocol blocked; no operating-system application was launched.");
+}
+
+bool OsrClient::OnCertificateError(CefRefPtr<CefBrowser>, cef_errorcode_t,
+    const CefString&, CefRefPtr<CefSSLInfo>, CefRefPtr<CefCallback>) {
+  {
+    std::lock_guard lock(display_mutex_);
+    ++status_.denied_certificates;
+  }
+  Notice("TLS certificate rejected. Certificate verification cannot be bypassed.");
+  return false;
+}
+
+bool OsrClient::GetAuthCredentials(CefRefPtr<CefBrowser>, const CefString&, bool,
+    const CefString&, int, const CefString&, const CefString&,
+    CefRefPtr<CefAuthCallback>) {
+  Notice("HTTP/proxy authentication dialog unsupported; request cancelled.");
+  return false;
+}
+
+bool OsrClient::OnSelectClientCertificate(CefRefPtr<CefBrowser>, bool,
+    const CefString&, int, const X509CertificateList&,
+    CefRefPtr<CefSelectClientCertificateCallback> callback) {
+  callback->Select(nullptr);
+  Notice("Client certificate selection unsupported; no certificate supplied.");
+  return true;
+}
+
+bool OsrClient::OnRequestMediaAccessPermission(CefRefPtr<CefBrowser>,
+    CefRefPtr<CefFrame>, const CefString&, uint32_t,
+    CefRefPtr<CefMediaAccessCallback> callback) {
+  callback->Cancel();
+  {
+    std::lock_guard lock(display_mutex_);
+    ++status_.denied_permissions;
+    ++status_.denied_media;
+  }
+  Notice("Camera/microphone/screen capture permission denied.");
+  return true;
+}
+
+bool OsrClient::OnShowPermissionPrompt(CefRefPtr<CefBrowser>, uint64_t,
+    const CefString&, uint32_t, CefRefPtr<CefPermissionPromptCallback> callback) {
+  callback->Continue(CEF_PERMISSION_RESULT_DENY);
+  {
+    std::lock_guard lock(display_mutex_);
+    ++status_.denied_permissions;
+  }
+  Notice("Browser permission denied (including location, notifications and clipboard prompts).");
+  return true;
+}
+
+bool OsrClient::CanDownload(CefRefPtr<CefBrowser>, const CefString&, const CefString&) {
+  if (!closing_ && !callback_failed() && !runtime_.downloads.empty() &&
+      downloads_.size() < 4) return true;
+  {
+    std::lock_guard lock(display_mutex_);
+    ++status_.denied_downloads;
+  }
+  Notice("Download blocked. Opt in at launch with --downloads DIR (maximum four active downloads).");
+  return false;
+}
+
+bool OsrClient::OnBeforeDownload(CefRefPtr<CefBrowser>,
+    CefRefPtr<CefDownloadItem> item, const CefString&,
+    CefRefPtr<CefBeforeDownloadCallback> callback) {
+  if (!CanDownload(nullptr, {}, {})) return true;
+  try {
+    const auto path = AllocateDownload(runtime_.downloads);
+    downloads_.emplace(item->GetId(), Download{path, nullptr});
+    callback->Continue(path.wstring(), false);
+    Notice("Download started in the configured destination (unique directory, download.bin).");
+  } catch (const std::exception&) {
+    Notice("Download cancelled: destination unavailable.");
+  }
+  return true;
+}
+
+void OsrClient::OnDownloadUpdated(CefRefPtr<CefBrowser>,
+    CefRefPtr<CefDownloadItem> item, CefRefPtr<CefDownloadItemCallback> callback) {
+  if (closing_ || callback_failed()) { callback->Cancel(); return; }
+  callback_state_->Diagnostic([&] {
+    const auto found = downloads_.find(item->GetId());
+    if (found == downloads_.end()) return;
+    found->second.callback = callback;
+    if (item->IsComplete()) {
+      auto path = CefString(found->second.path.wstring()).ToString();
+      const auto notice = "Download complete: " + path;
+      {
+        std::lock_guard lock(display_mutex_);
+        ++status_.completed_downloads;
+        status_.last_download.swap(path);
+      }
+      Notice(notice);
+      downloads_.erase(found);
+    } else if (item->IsCanceled() || item->IsInterrupted()) {
+      Notice("Download cancelled/interrupted; an incomplete file may remain in the configured destination.");
+      downloads_.erase(found);
+    }
+  });
+}
+
+bool OsrClient::OnJSDialog(CefRefPtr<CefBrowser>, const CefString&, JSDialogType,
+    const CefString&, const CefString&, CefRefPtr<CefJSDialogCallback>, bool& suppress) {
+  suppress = true;
+  {
+    std::lock_guard lock(display_mutex_);
+    ++status_.denied_dialogs;
+  }
+  Notice("JavaScript dialog suppressed; modal prompts are unsupported.");
+  return false;
+}
+
+bool OsrClient::OnBeforeUnloadDialog(CefRefPtr<CefBrowser>, const CefString&,
+    bool, CefRefPtr<CefJSDialogCallback> callback) {
+  callback->Continue(true, {});
+  Notice("Leaving page; before-unload confirmation is unavailable.");
+  return true;
+}
+
+bool OsrClient::OnFileDialog(CefRefPtr<CefBrowser>, FileDialogMode,
+    const CefString&, const CefString&, const std::vector<CefString>&,
+    const std::vector<CefString>&, const std::vector<CefString>&,
+    CefRefPtr<CefFileDialogCallback> callback) {
+  callback->Cancel();
+  {
+    std::lock_guard lock(display_mutex_);
+    ++status_.denied_dialogs;
+  }
+  Notice("File picker unsupported; no local file was selected.");
+  return true;
 }
 
 std::string OsrClient::load_error_text() const {
@@ -267,7 +578,8 @@ std::string OsrClient::failed_url() const {
 }
 
 std::vector<DirtyRect> OsrClient::ConvertDirtyRects(
-    const RectList& rects) const {
+    const RectList& rects, int width, int height) const {
+  if (rects.size() > kMaxSourceDirtyRects) return {{0, 0, width, height}};
   std::vector<DirtyRect> converted;
   converted.reserve(rects.size());
   for (const auto& rect : rects) {

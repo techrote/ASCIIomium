@@ -68,6 +68,16 @@ The default target is the bundled animated `motion-scroll` fixture. An explicit 
 
 Press **Ctrl+Alt+Q** to exit interactive browser mode. Ctrl+C is forwarded to Chromium. The terminal session restores SGR state, mouse-tracking modes, cursor visibility, alternate-screen state, console modes and code pages during normal teardown.
 
+**Ctrl+Alt+O** opens the temporary command row. Commands include `open URL`,
+`back`, `forward`, `reload`, `hard-reload`, `stop`, `status`, `repaint`, and
+`quit`. Enter submits; Escape cancels. Persistent profiles default to
+`%LOCALAPPDATA%\ASCIIomium\Profiles\Default`; choose `--profile DIR` for an
+isolated profile or `--private` for disposable browsing state. Downloads are
+disabled unless you explicitly select `--downloads DIR`.
+
+See [Browser runtime](docs/BROWSER_RUNTIME.md) for the exact navigation,
+profile, popup, download, permission and TLS policies and qualification gates.
+
 A real URL can be rendered through the same path:
 
 ```powershell
@@ -93,6 +103,39 @@ For deterministic CI/benchmark runs, `--no-terminal` executes the same CEF → p
 ```
 
 See [`docs/LIVE_PIPELINE.md`](docs/LIVE_PIPELINE.md) for scheduling, popup composition, diagnostics and shutdown contracts.
+
+### Differential output (opt-in)
+
+`--emitter differential` emits changed terminal-cell runs using cursor/SGR/glyph
+byte costs; `--emitter full` remains the default reference path. Use
+`--full-repaint-ms 10000` for periodic reconstruction after possible output
+corruption. Resize always reconstructs. `--vt-output` remains a standalone
+full-frame snapshot even when the live output is differential.
+
+For measured comparisons, add `--compare-emitter --duration-ms 4000 --report
+build/differential.json`; both serializers then consume the identical logical
+frames, with their additional comparison work reported separately. Headless
+differential sessions require a positive duration because unchanged frames
+produce no nonempty output to advance `--max-frames`.
+
+See [`docs/DIFFERENTIAL_OUTPUT.md`](docs/DIFFERENTIAL_OUTPUT.md) for the replay
+tests, 160x50 byte benchmarks, CEF qualification command, metric definitions and
+outstanding physical Windows Terminal gate.
+
+
+### Bounded runtime benchmarks
+
+`--benchmark 30s --report build/benchmark.json` runs for a bounded interval and
+adds versioned telemetry to the existing live report. Use `--no-terminal` for
+CEF/serialization benchmarks; real terminal-write measurements then remain
+null. `--telemetry off` disables stage timers and process probes while retaining
+normal frame scheduling and byte accounting.
+
+Reports include build/source/CEF/Chromium identity, reproducible render settings,
+whole-run means, explicitly bounded p50/p95 windows, source/render/output
+counters, differential bandwidth and Windows browser-process resource samples.
+See [`docs/RUNTIME_TELEMETRY.md`](docs/RUNTIME_TELEMETRY.md) for exact measurement
+scopes, the overhead benchmark and qualification commands.
 
 ## Earlier diagnostics
 
@@ -248,6 +291,7 @@ Start here before implementation:
 - [`docs/DECISIONS.md`](docs/DECISIONS.md) — architectural decisions and rationale.
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — staged implementation order and issue map.
 - [`docs/BUILDING.md`](docs/BUILDING.md) — pinned toolchain and build/test instructions.
+- [`docs/WINDOWS_PACKAGE.md`](docs/WINDOWS_PACKAGE.md) — portable development ZIP, exact inventory, source/dependency custody and clean extraction qualification.
 - [`docs/TERMINAL_RUNTIME.md`](docs/TERMINAL_RUNTIME.md) — console ownership, resize detection, diagnostics, and teardown.
 
 ## Engineering posture

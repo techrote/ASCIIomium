@@ -258,6 +258,46 @@ int main() {
             "malformed UTF-8 diagnostic");
   }
 
+  // A short invalid UTF-8 prefix must not absorb a following text/control/ESC
+  // key on idle flush. Exercise every feed split, including a prefix buffered
+  // by the previous read and multiple malformed continuation bytes.
+  for (const std::string& prefix : {
+           std::string("\xE2", 1), std::string("\xF0", 1),
+           std::string("\xF0\x9F", 2)}) {
+    for (const std::string& suffix : {
+             std::string("x"), std::string("\x03", 1),
+             std::string("\x1b[A", 3)}) {
+      const std::string input = prefix + suffix;
+      for (std::size_t split = 0; split <= input.size(); ++split) {
+        VtInputParser parser;
+        auto events = parser.Feed(std::string_view(input).substr(0, split));
+        const auto tail = parser.Feed(std::string_view(input).substr(split));
+        events.insert(events.end(), tail.begin(), tail.end());
+        const auto flushed = parser.FlushPending();
+        events.insert(events.end(), flushed.begin(), flushed.end());
+        Require(events.size() == prefix.size() + 1,
+                "short malformed UTF-8 preserves following key at every split");
+        if (events.size() != prefix.size() + 1) continue;
+        for (std::size_t i = 0; i < prefix.size(); ++i) {
+          Require(events[i].diagnostic == "malformed-utf8" &&
+                      events[i].raw_bytes.size() == 1,
+                  "malformed UTF-8 consumes only the offending byte");
+        }
+        if (suffix == "x") {
+          RequireEvent(events.back(), KeyboardEventKind::Text, KeyCode::None,
+                       U'x', 0, "text after malformed UTF-8");
+        } else if (suffix == std::string("\x03", 1)) {
+          RequireEvent(events.back(), KeyboardEventKind::Key, KeyCode::Character,
+                       U'C', kModifierControl, "Ctrl+C after malformed UTF-8");
+        } else {
+          RequireEvent(events.back(), KeyboardEventKind::Key, KeyCode::ArrowUp,
+                       0, 0, "escape sequence after malformed UTF-8");
+        }
+        Require(!parser.has_pending(), "malformed-prefix recovery drains input");
+      }
+    }
+  }
+
   {
     VtInputParser parser;
     std::string long_prefix = "\x1b[";

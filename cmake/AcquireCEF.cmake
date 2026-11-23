@@ -46,6 +46,15 @@ function(asciiomium_acquire_cef out_var)
       "Issue #2 pins the Windows x64 CEF distribution; this bootstrap currently supports Windows only.")
   endif()
 
+  file(READ "${CMAKE_SOURCE_DIR}/cmake/cef-lock.json" cef_lock)
+  string(JSON locked_version GET "${cef_lock}" version)
+  string(JSON locked_platform GET "${cef_lock}" platform)
+  string(JSON locked_sha1 GET "${cef_lock}" archive_sha1)
+  if(NOT ASCIIOMIUM_CEF_VERSION STREQUAL locked_version OR
+     NOT ASCIIOMIUM_CEF_PLATFORM STREQUAL locked_platform)
+    message(FATAL_ERROR "CEF version/platform override requires an explicit reviewed lock update")
+  endif()
+
   if(ASCIIOMIUM_CEF_ROOT)
     get_filename_component(cef_root "${ASCIIOMIUM_CEF_ROOT}" ABSOLUTE)
   else()
@@ -79,13 +88,17 @@ function(asciiomium_acquire_cef out_var)
          NOT expected_sha1 MATCHES "^[0-9A-Fa-f]+$")
         message(FATAL_ERROR "CEF checksum sidecar did not contain a valid SHA-1: '${expected_sha1}'")
       endif()
+      string(TOLOWER "${expected_sha1}" expected_sha1)
+      if(NOT expected_sha1 STREQUAL locked_sha1)
+        message(FATAL_ERROR "Official CEF checksum sidecar differs from the reviewed repository lock")
+      endif()
 
       message(STATUS "Fetching CEF archive: ${archive_name}")
       file(DOWNLOAD
         "${download_url_escaped}"
         "${archive_path}"
         TLS_VERIFY ON
-        EXPECTED_HASH "SHA1=${expected_sha1}"
+        EXPECTED_HASH "SHA1=${locked_sha1}"
         SHOW_PROGRESS
         STATUS archive_status
         LOG archive_log)
@@ -108,6 +121,25 @@ function(asciiomium_acquire_cef out_var)
         "CEF root '${cef_root}' is incomplete or does not match the expected Windows x64 standard distribution; missing ${required_path}")
     endif()
   endforeach()
+
+  # A restored cache must still identify the exact configured headers. The
+  # package builder additionally extracts payload files from the verified
+  # archive, so an unvalidated extracted directory is never its authority.
+  file(READ "${cef_root}/include/cef_version.h" cef_version_header)
+  string(REGEX MATCH "#define CEF_VERSION \"([^\"]+)\"" cef_version_match "${cef_version_header}")
+  if(NOT CMAKE_MATCH_1 STREQUAL ASCIIOMIUM_CEF_VERSION)
+    message(FATAL_ERROR "Cached CEF headers do not match the configured exact version")
+  endif()
+  if(NOT ASCIIOMIUM_CEF_ROOT)
+    set(cached_archive "${CMAKE_SOURCE_DIR}/third_party/cef/cef_binary_${ASCIIOMIUM_CEF_VERSION}_${ASCIIOMIUM_CEF_PLATFORM}.tar.bz2")
+    if(NOT EXISTS "${cached_archive}")
+      message(FATAL_ERROR "CEF cache has no retained archive for integrity verification; restore or reacquire the complete cache")
+    endif()
+    file(SHA1 "${cached_archive}" cached_archive_sha1)
+    if(NOT cached_archive_sha1 STREQUAL locked_sha1)
+      message(FATAL_ERROR "Retained CEF archive checksum does not match the repository lock")
+    endif()
+  endif()
 
   foreach(configuration Debug Release)
     foreach(runtime_dll IN LISTS ASCIIOMIUM_CEF_RUNTIME_DLLS)

@@ -36,7 +36,7 @@ void PrintHelp() {
       << "  asciiomium --help\n"
       << "      Show this help.\n"
       << "\n"
-      << "CEF browser initialisation remains deferred to issue #8.\n";
+      << "Run asciiomium_live (or browse.cmd in a portable package) for the browser.\n";
 }
 
 bool ParsePositiveInt(std::string_view text, int* value) {
@@ -153,8 +153,7 @@ int main(int argc, char** argv) {
   }
 
   std::cout
-      << "ASCIIomium terminal bootstrap is installed. Browser initialisation "
-         "is deferred to issue #8.\n"
+      << "ASCIIomium diagnostics are installed. Run asciiomium_live or browse.cmd for the browser.\n"
       << "Run 'asciiomium --terminal-diagnostics' inside Windows Terminal to "
          "exercise terminal ownership.\n";
   return 0;

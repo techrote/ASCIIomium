@@ -1,6 +1,6 @@
 # Building ASCIIomium
 
-ASCIIomium currently has two verified bootstrap layers: the pinned CEF/C++20 foundation from issue #2 and the Windows terminal ownership/diagnostics runtime from issue #3. CEF is linked and version-checked, but no browser is initialised yet.
+The Windows build includes the pinned CEF runtime, live off-screen browser, CPU renderer, terminal/input layers and qualification tools. Browser profile/navigation policies are documented in `BROWSER_RUNTIME.md`.
 
 ## Pinned dependency
 
@@ -53,7 +53,7 @@ The supplied directory is validated for the required headers plus Debug and Rele
 ## Build and test Debug
 
 ```powershell
-cmake --build build --config Debug --target asciiomium asciiomium_tests terminal_logic_tests terminal_console_smoke --parallel
+cmake --build build --config Debug --parallel
 ctest --test-dir build -C Debug --output-on-failure
 .\build\bin\DEBUG\asciiomium.exe --version
 ```
@@ -61,12 +61,12 @@ ctest --test-dir build -C Debug --output-on-failure
 ## Build and test Release
 
 ```powershell
-cmake --build build --config Release --target asciiomium asciiomium_tests terminal_logic_tests terminal_console_smoke --parallel
+cmake --build build --config Release --parallel
 ctest --test-dir build -C Release --output-on-failure
 .\build\bin\RELEASE\asciiomium.exe --version
 ```
 
-`ctest` now covers the CEF build-info smoke test, pure terminal logic, and a real Win32 console acquire/restore smoke test with ten lifecycle cycles.
+`ctest` covers build identity, rendering/colour/VT logic, input and viewport mapping, profile ownership and browser commands, plus real Win32 console acquire/restore smoke tests. The separate real-CEF runtime harness is documented in `BROWSER_RUNTIME.md`.
 
 `--version` loads the staged CEF runtime and queries CEF's exported runtime version API. A successful build therefore checks more than header availability: it verifies that the executable links to and can load the pinned CEF runtime.
 
